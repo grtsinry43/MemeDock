@@ -160,6 +160,13 @@ impl WriteTransaction {
             .map(|r| r.domain())
             .transpose()
     }
+    pub async fn local_usage(&self, id: StickerId) -> Result<Option<LocalUsage>> {
+        entities::local_usage::Entity::find_by_id(id.to_string())
+            .one(&self.inner)
+            .await?
+            .map(|row| row.domain())
+            .transpose()
+    }
     pub async fn collection(&self, id: CollectionId) -> Result<Option<Collection>> {
         entities::collection::Entity::find_by_id(id.to_string())
             .one(&self.inner)

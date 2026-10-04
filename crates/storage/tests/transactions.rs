@@ -10,6 +10,47 @@ use memedock_storage::{LibraryDatabase, StorageError, files::FsBlobStore};
 use std::collections::HashSet;
 
 #[tokio::test]
+async fn transactional_usage_reads_prevent_lost_concurrent_increments() -> TestResult {
+    use memedock_domain::local::UsageAction;
+    let dir = tempfile::tempdir()?;
+    let db = std::sync::Arc::new(LibraryDatabase::open(dir.path().join("library.sqlite")).await?);
+    let (asset, sticker) = fixture(b"usage transaction", "使用", 100)?;
+    insert(&db, &asset, &sticker).await?;
+    let mut jobs = tokio::task::JoinSet::new();
+    for index in 0..20 {
+        let db = db.clone();
+        let id = sticker.id();
+        jobs.spawn(async move {
+            let mut tx = db.begin_write().await?;
+            let at = TimestampMs::new(200 + index);
+            let usage = match tx.local_usage(id).await? {
+                Some(mut usage) => {
+                    usage.record(at, UsageAction::CopyImage)?;
+                    usage
+                }
+                None => LocalUsage::first_use(id, at),
+            };
+            tx.save_local_usage(&usage).await?;
+            tx.commit().await
+        });
+    }
+    while let Some(result) = jobs.join_next().await {
+        result??;
+    }
+    assert_eq!(
+        db.local_usage(sticker.id())
+            .await?
+            .ok_or("usage")?
+            .use_count(),
+        20
+    );
+    assert_eq!(db.changes_after(None, 100).await?.len(), 1);
+    let db = std::sync::Arc::try_unwrap(db).map_err(|_| "database still shared")?;
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn dropped_and_explicitly_rolled_back_transactions_leave_no_rows() -> TestResult {
     let dir = tempfile::tempdir()?;
     let db = LibraryDatabase::open(dir.path().join("library.sqlite")).await?;
