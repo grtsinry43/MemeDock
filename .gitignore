@@ -17,6 +17,7 @@ local.properties
 /target/
 **/target/
 **/.gradle/
+**/.kotlin/
 **/build/
 **/.cxx/
 **/.externalNativeBuild/

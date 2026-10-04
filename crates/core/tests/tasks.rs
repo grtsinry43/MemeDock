@@ -7,6 +7,33 @@ use memedock_core::{
 use memedock_domain::identity::ContentHash;
 
 #[tokio::test]
+async fn controller_can_observe_a_consumed_task_without_retaining_library_ownership() -> TestResult
+{
+    let dir = tempfile::tempdir()?;
+    let settings = config(dir.path());
+    seed(&settings, b"controller").await?;
+    let library = Library::open(settings.clone()).await?;
+    let task = library.space_statistics()?;
+    let controller = task.controller();
+    let clone = controller.clone();
+    let id = task.id();
+    task.wait().await?;
+    assert_eq!(clone.id(), id);
+    assert_eq!(clone.snapshot().status, TaskStatus::Succeeded);
+    assert_eq!(clone.cancel(), CancelResult::Finished);
+    let mut progress = clone.progress();
+    assert_eq!(
+        progress.next().await.ok_or("terminal progress")?.status,
+        TaskStatus::Succeeded
+    );
+    library.close().await?;
+    drop(library);
+    let reopened = Library::open(settings).await?;
+    reopened.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn original_integrity_failures_preserve_diagnostic_sources() -> TestResult {
     use memedock_storage::files::FsBlobStore;
     use std::error::Error;

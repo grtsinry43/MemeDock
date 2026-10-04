@@ -1,0 +1,2 @@
+-keep class com.grtsinry43.memedock.bridge.generated.** { *; }
+-keep class com.sun.jna.** { *; }

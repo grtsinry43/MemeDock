@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/domain", "crates/storage", "crates/core"]
+members = ["crates/domain", "crates/storage", "crates/core", "crates/ffi", "tools/uniffi-bindgen", "tools/ffi-fixtures"]
 resolver = "3"
 
 [workspace.package]
@@ -19,6 +19,7 @@ sea-orm-migration = { version = "=2.0.4", default-features = false, features = [
 tokio = { version = "=1.53.2", features = ["rt-multi-thread", "sync", "time"] }
 sha2 = { version = "=0.11.0", default-features = false }
 tempfile = "=3.27.0"
+uniffi = "=0.32.2"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

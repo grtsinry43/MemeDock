@@ -1,0 +1,113 @@
+use crate::{
+    BridgeError, CancelResult, ErrorCode, Result, TaskSnapshot, streams::TaskProgressHandle,
+};
+use memedock_core::tasks::{Task, TaskController};
+use std::sync::{Arc, Mutex};
+
+struct TaskSlot<T> {
+    task: Mutex<Option<Task<T>>>,
+    controller: TaskController,
+}
+impl<T> TaskSlot<T> {
+    fn new(task: Task<T>) -> Self {
+        let controller = task.controller();
+        Self {
+            task: Mutex::new(Some(task)),
+            controller,
+        }
+    }
+    async fn wait(&self) -> Result<T> {
+        let task = self
+            .task
+            .lock()
+            .map_err(|_| BridgeError::new(ErrorCode::Internal, "task slot poisoned"))?
+            .take()
+            .ok_or_else(|| BridgeError::new(ErrorCode::Conflict, "task result already consumed"))?;
+        Ok(task.wait().await?)
+    }
+}
+macro_rules! task_handle {
+    ($name:ident, $core:ty, $output:ty, $convert:expr) => {
+        #[derive(uniffi::Object)]
+        pub struct $name {
+            inner: TaskSlot<$core>,
+        }
+        impl $name {
+            pub(crate) fn new(task: Task<$core>) -> Arc<Self> {
+                Arc::new(Self {
+                    inner: TaskSlot::new(task),
+                })
+            }
+        }
+        #[uniffi::export]
+        impl $name {
+            pub fn id(&self) -> String {
+                self.inner.controller.id().to_string()
+            }
+            pub fn snapshot(&self) -> TaskSnapshot {
+                self.inner.controller.snapshot().into()
+            }
+            pub fn cancel(&self) -> CancelResult {
+                self.inner.controller.cancel().into()
+            }
+            pub fn progress(&self) -> Arc<TaskProgressHandle> {
+                TaskProgressHandle::new(self.inner.controller.progress())
+            }
+            pub async fn await_result(&self) -> Result<$output> {
+                let convert: fn($core) -> Result<$output> = $convert;
+                convert(self.inner.wait().await?)
+            }
+        }
+    };
+}
+task_handle!(
+    StickerPageTask,
+    memedock_core::QueryResponse,
+    crate::StickerPage,
+    |v| Ok(v.into())
+);
+task_handle!(
+    StickerDetailTask,
+    memedock_core::StickerDetail,
+    crate::StickerDetail,
+    |v| Ok(v.into())
+);
+task_handle!(
+    CollectionsTask,
+    Vec<memedock_domain::collection::Collection>,
+    Vec<crate::CollectionMetadata>,
+    |v: Vec<memedock_domain::collection::Collection>| Ok(v.into_iter().map(Into::into).collect())
+);
+task_handle!(
+    TagsTask,
+    Vec<memedock_domain::tag::Tag>,
+    Vec<crate::TagMetadata>,
+    |v: Vec<memedock_domain::tag::Tag>| Ok(v.into_iter().map(Into::into).collect())
+);
+task_handle!(
+    StatisticsTask,
+    memedock_core::SpaceStatistics,
+    crate::SpaceStatistics,
+    |v| Ok(v.into())
+);
+task_handle!(
+    UsageTask,
+    memedock_domain::local::LocalUsage,
+    crate::UsageMetadata,
+    |v| Ok(v.into())
+);
+task_handle!(
+    VerificationTask,
+    memedock_core::VerifiedOriginal,
+    crate::VerifiedOriginal,
+    |v| Ok(v.into())
+);
+task_handle!(
+    CheckpointTask,
+    std::path::PathBuf,
+    String,
+    |v: std::path::PathBuf| v
+        .into_os_string()
+        .into_string()
+        .map_err(|_| BridgeError::new(ErrorCode::InvalidInput, "checkpoint path is not UTF-8"))
+);

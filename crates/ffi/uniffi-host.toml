@@ -1,0 +1,6 @@
+[crates.memedock_ffi.bindings.kotlin]
+package_name = "com.grtsinry43.memedock.bridge.generated"
+cdylib_name = "memedock_ffi"
+android = false
+generate_immutable_records = true
+kotlin_target_version = "2.2.10"

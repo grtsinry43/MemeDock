@@ -2,7 +2,7 @@
 
 ## Project
 
-MemeDock is a local-first sticker library with shared Rust business logic and native platform UIs. Develop Rust + Android first; Linux follows. Domain, storage, and core runtime/task infrastructure are implemented; image/import use cases, FFI integration, and product UI are pending. Android currently contains a starter project.
+MemeDock is a local-first sticker library with shared Rust business logic and native platform UIs. Develop Rust + Android first; Linux follows. Domain, storage, core runtime/tasks, and UniFFI integration are implemented; image/import use cases and product UI are pending. Android contains a starter UI and a native Rust bridge.
 
 Read relevant local designs in `docs/design.md`, `docs/domain-model.md`, and `docs/infrastructure.md`. If absent, use code as evidence and ask about missing requirements; do not invent them.
 
@@ -17,7 +17,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
-From `apps/android/`: `./gradlew :app:testDebugUnitTest :app:assembleDebug`. Device tests require a device/emulator; generated starter tests do not verify product behavior.
+From `apps/android/`: `./gradlew :app:testDebugUnitTest :app:verifyDebugBridge` builds the APK and verifies Kotlin/native contracts and 16 KB alignment. `:rustBridge:connectedDebugAndroidTest` requires a device/emulator. Gradle orchestrates pinned Cargo/UniFFI tools; generated bindings and libraries stay in build directories. Debug builds arm64/x86_64; release builds arm64; override with `-Pmemedock.abis=arm64-v8a,x86_64`. Generated starter tests do not verify product behavior.
 
 ## Boundaries
 

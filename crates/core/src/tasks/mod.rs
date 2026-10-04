@@ -14,6 +14,12 @@ pub struct Task<T> {
     pub(crate) result: Option<oneshot::Receiver<Result<T>>>,
 }
 impl<T> Task<T> {
+    /// Shares task control without retaining its result or the library instance.
+    pub fn controller(&self) -> TaskController {
+        TaskController {
+            control: self.control.clone(),
+        }
+    }
     pub fn id(&self) -> TaskId {
         self.control.id
     }
@@ -37,6 +43,27 @@ impl<T> Task<T> {
         receiver.await.map_err(|e| {
             CoreError::caused(crate::ErrorCode::Internal, "task worker disconnected", e)
         })?
+    }
+}
+#[derive(Clone)]
+pub struct TaskController {
+    control: Arc<TaskControl>,
+}
+impl TaskController {
+    pub fn id(&self) -> TaskId {
+        self.control.id
+    }
+    pub fn snapshot(&self) -> TaskSnapshot {
+        self.control.progress.borrow().clone()
+    }
+    pub fn cancel(&self) -> CancelResult {
+        self.control.cancel()
+    }
+    pub fn progress(&self) -> TaskProgress {
+        TaskProgress {
+            receiver: self.control.progress.subscribe(),
+            finished: false,
+        }
     }
 }
 impl<T> Drop for Task<T> {
