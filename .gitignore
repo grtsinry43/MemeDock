@@ -1,0 +1,41 @@
+# Local design documents and milestone details must never be committed.
+/docs/
+/sticker-manager-design-android-linux.md
+
+# Local agent configuration and credentials.
+/.agents/
+/.codex/
+/.aws/
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+local.properties
+
+# Rust and Android build outputs; keep Cargo.lock for application builds.
+/target/
+**/target/
+**/.gradle/
+**/build/
+**/.cxx/
+**/.externalNativeBuild/
+*.apk
+*.aab
+
+# IDE and operating-system files.
+.idea/
+.vscode/
+.DS_Store
+*~
+
+# Local runtime data must not enter the source repository.
+/data/
+/cache/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# AGENTS.md is a tracked project instruction file, not a design document.
+!AGENTS.md
