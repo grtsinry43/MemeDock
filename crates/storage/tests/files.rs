@@ -1,0 +1,165 @@
+use memedock_domain::identity::ContentHash;
+use memedock_storage::{
+    StorageError,
+    files::{FsBlobStore, PublishDisposition},
+};
+use std::{
+    collections::HashSet,
+    error::Error,
+    fs,
+    io::{self, Read},
+    sync::Barrier,
+};
+type TestResult = Result<(), Box<dyn Error>>;
+
+#[test]
+fn bounded_staging_and_cancellation_clean_up_partial_input() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let store = FsBlobStore::open(dir.path())?;
+    assert!(matches!(
+        store.stage_from(&mut b"too long".as_slice(), 3, || false),
+        Err(StorageError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        store.stage_from(&mut b"input".as_slice(), 100, || true),
+        Err(StorageError::Cancelled)
+    ));
+    assert!(store.scan_recovery(&HashSet::new())?.staging.is_empty());
+    let staged = store.stage_from(&mut b"abc".as_slice(), 3, || false)?;
+    assert_eq!(
+        staged.hash().to_string(),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+    staged.discard()?;
+    Ok(())
+}
+#[test]
+fn partial_failed_input_is_cleaned_up() -> TestResult {
+    struct Broken(bool);
+    impl Read for Broken {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if self.0 {
+                Err(io::Error::other("source failure"))
+            } else {
+                self.0 = true;
+                buffer[0] = 1;
+                Ok(1)
+            }
+        }
+    }
+    let dir = tempfile::tempdir()?;
+    let store = FsBlobStore::open(dir.path())?;
+    assert!(matches!(
+        store.stage_from(&mut Broken(false), 100, || false),
+        Err(StorageError::Io(_))
+    ));
+    assert!(store.scan_recovery(&HashSet::new())?.staging.is_empty());
+    Ok(())
+}
+#[test]
+fn concurrent_identical_publications_are_atomic_and_reuse_bytes() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let store = FsBlobStore::open(dir.path())?;
+    let a = store.stage_from(&mut b"same bytes".as_slice(), 100, || false)?;
+    let b = store.stage_from(&mut b"same bytes".as_slice(), 100, || false)?;
+    let hash = a.hash();
+    let barrier = Barrier::new(2);
+    let (a, b) = std::thread::scope(|scope| {
+        let a = scope.spawn(|| {
+            barrier.wait();
+            store.publish(a, || false)
+        });
+        let b = scope.spawn(|| {
+            barrier.wait();
+            store.publish(b, || false)
+        });
+        (a.join(), b.join())
+    });
+    let a = a.map_err(|_| "publisher panicked")??;
+    let b = b.map_err(|_| "publisher panicked")??;
+    assert_ne!(a.disposition, b.disposition);
+    assert!([a.disposition, b.disposition].contains(&PublishDisposition::Created));
+    store.verify(hash, 10, || false)?;
+    assert!(
+        store
+            .scan_recovery(&HashSet::from([hash]))?
+            .staging
+            .is_empty()
+    );
+    Ok(())
+}
+#[test]
+fn existing_corrupt_original_is_never_overwritten() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let store = FsBlobStore::open(dir.path())?;
+    let staged = store.stage_from(&mut b"good".as_slice(), 100, || false)?;
+    let published = store.publish(staged, || false)?;
+    fs::write(&published.path, b"evil")?;
+    let staged = store.stage_from(&mut b"good".as_slice(), 100, || false)?;
+    assert!(matches!(
+        store.publish(staged, || false),
+        Err(StorageError::Integrity(_))
+    ));
+    assert_eq!(fs::read(published.path)?, b"evil");
+    assert_eq!(store.scan_recovery(&HashSet::new())?.staging.len(), 1);
+    Ok(())
+}
+#[test]
+fn recovery_reports_orphans_missing_files_and_abandoned_staging() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let store = FsBlobStore::open(dir.path())?;
+    let staged = store.stage_from(&mut b"original".as_slice(), 100, || false)?;
+    let hash = staged.hash();
+    store.publish(staged, || false)?;
+    let staged = store.stage_from(&mut b"abandoned".as_slice(), 100, || false)?;
+    drop(staged);
+    let missing = ContentHash::from_bytes([1; 32]);
+    let scan = store.scan_recovery(&HashSet::from([missing]))?;
+    assert_eq!(scan.orphan_originals, vec![hash]);
+    assert_eq!(scan.missing_originals, vec![missing]);
+    assert_eq!(scan.staging.len(), 1);
+    assert!(store.original_path(hash).exists());
+    Ok(())
+}
+#[test]
+fn publication_rejects_cross_library_ownership_and_unsafe_shards() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let a = FsBlobStore::open(dir.path().join("a"))?;
+    let b = FsBlobStore::open(dir.path().join("b"))?;
+    let staged = a.stage_from(&mut b"owned".as_slice(), 100, || false)?;
+    assert!(matches!(
+        b.publish(staged, || false),
+        Err(StorageError::InvalidInput(_))
+    ));
+    assert_eq!(a.scan_recovery(&HashSet::new())?.staging.len(), 1);
+    #[cfg(unix)]
+    {
+        let staged = a.stage_from(&mut b"unsafe".as_slice(), 100, || false)?;
+        let hash = staged.hash();
+        let shard = a.root().join("blobs").join(&hash.to_string()[..2]);
+        std::os::unix::fs::symlink(b.root(), &shard)?;
+        assert!(a.publish(staged, || false).is_err());
+        assert!(
+            a.scan_recovery(&HashSet::new())?
+                .unexpected_paths
+                .contains(&shard)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn failed_publication_retains_staging_for_recovery() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let store = FsBlobStore::open(dir.path())?;
+    let staged = store.stage_from(&mut b"publish failure".as_slice(), 100, || false)?;
+    let hash = staged.hash();
+    let shard = store.root().join("blobs").join(&hash.to_string()[..2]);
+    fs::write(&shard, b"a file blocks the shard")?;
+    assert!(store.publish(staged, || false).is_err());
+    let scan = store.scan_recovery(&HashSet::new())?;
+    assert_eq!(scan.staging.len(), 1);
+    assert!(scan.unexpected_paths.contains(&shard));
+    assert!(!store.original_path(hash).exists());
+    Ok(())
+}

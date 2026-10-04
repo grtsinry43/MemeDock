@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/domain"]
+members = ["crates/domain", "crates/storage"]
 resolver = "3"
 
 [workspace.package]
@@ -14,6 +14,11 @@ uuid = { version = "=1.27.0", features = ["v7"] }
 unicode-normalization = "=0.1.25"
 fractional_index = { version = "=2.0.2", default-features = false }
 serde_json = "=1.0.151"
+sea-orm = { version = "=2.0.4", default-features = false, features = ["macros", "sqlx-sqlite", "runtime-tokio"] }
+sea-orm-migration = { version = "=2.0.4", default-features = false, features = ["sqlx-sqlite", "runtime-tokio"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "sync", "time"] }
+sha2 = { version = "=0.11.0", default-features = false }
+tempfile = "=3.27.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

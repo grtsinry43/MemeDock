@@ -2,7 +2,7 @@
 
 ## Project
 
-MemeDock is a local-first sticker library with shared Rust business logic and native platform UIs. Develop Rust + Android first; Linux follows. Currently only the domain crate and Android starter project are implemented.
+MemeDock is a local-first sticker library with shared Rust business logic and native platform UIs. Develop Rust + Android first; Linux follows. Domain and storage are implemented; core/FFI integration and product UI are still pending. Android currently contains a starter project.
 
 Read relevant local designs in `docs/design.md`, `docs/domain-model.md`, and `docs/infrastructure.md`. If absent, use code as evidence and ask about missing requirements; do not invent them.
 
