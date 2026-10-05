@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">MemeDock</string>
+    <string name="app_description">本地优先的贴纸库</string>
+    <string name="message_success">成功</string>
+    <string name="message_warning">警告</string>
+    <string name="message_error">错误</string>
+    <string name="message_dismiss">关闭提示</string>
 </resources>

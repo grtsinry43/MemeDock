@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.MemeDock" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/memedock_window_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>
