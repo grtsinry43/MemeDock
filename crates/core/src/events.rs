@@ -12,6 +12,8 @@ use tokio::sync::watch;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChangeKind {
     UsageChanged(StickerId),
+    StickerChanged(StickerId),
+    ThumbnailChanged(StickerId),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChangeEvent {

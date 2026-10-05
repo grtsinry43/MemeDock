@@ -5,7 +5,10 @@ use crate::{
     registry::Reservation,
     tasks::scheduler,
 };
-use memedock_storage::{LibraryDatabase, files::FsBlobStore};
+use memedock_storage::{
+    LibraryDatabase,
+    files::{DerivedStore, FsBlobStore},
+};
 use std::sync::Arc;
 use tokio::sync::{oneshot, watch};
 
@@ -14,6 +17,15 @@ pub(crate) struct Services {
     pub(crate) blobs: FsBlobStore,
     pub(crate) config: LibraryConfig,
     pub(crate) events: Arc<EventHub>,
+    pub(crate) derived: DerivedStore,
+    pub(crate) image_budget: crate::images::budget::ImageBudget,
+    pub(crate) write_permit: tokio::sync::Semaphore,
+    pub(crate) thumbnail_locks: std::sync::Mutex<
+        std::collections::HashMap<
+            memedock_domain::identity::StickerId,
+            std::sync::Weak<tokio::sync::Semaphore>,
+        >,
+    >,
 }
 pub(crate) async fn open(config: LibraryConfig) -> Result<Library> {
     config.validate()?;
@@ -78,11 +90,16 @@ fn owner(config: LibraryConfig, ready: oneshot::Sender<Result<Library>>) {
         };
         let library = Library::from_shared(shared.clone(), db.identity(), config.data_dir.clone());
         let services = Arc::new(Services {
+            derived: DerivedStore::open(&config.cache_dir)?,
+            image_budget: crate::images::budget::ImageBudget::new(&config.limits)?,
+            write_permit: tokio::sync::Semaphore::new(1),
+            thumbnail_locks: std::sync::Mutex::new(Default::default()),
             db,
             blobs,
             config,
             events: shared.events.clone(),
         });
+        crate::use_cases::recovery::recover(&services).await?;
         // If open's future was abandoned, dropping the unsent handle requests
         // shutdown. Initialization still releases the reservation and DB safely.
         if let Some(ready) = ready.take() {

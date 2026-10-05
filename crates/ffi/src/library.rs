@@ -17,6 +17,43 @@ pub fn new_request_id() -> String {
 }
 #[uniffi::export]
 impl LibraryHandle {
+    pub fn sticker_resources(&self, ids: Vec<String>) -> Result<Arc<ResourcesTask>> {
+        let ids = ids
+            .into_iter()
+            .map(|id| id.parse())
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(ResourcesTask::new(self.inner.sticker_resources(ids)?))
+    }
+    pub fn create_import_input(&self) -> Result<Arc<ImportInputTask>> {
+        Ok(ImportInputTask::new(self.inner.create_import_input()?))
+    }
+    pub fn discard_import_input(
+        &self,
+        input: Arc<ImportInputHandle>,
+    ) -> Result<Arc<DiscardInputTask>> {
+        Ok(DiscardInputTask::new(
+            self.inner.discard_import_input(input.take()?)?,
+        ))
+    }
+    pub fn import_staged(
+        &self,
+        input: Arc<ImportInputHandle>,
+        options: ImportOptions,
+    ) -> Result<Arc<ImportTask>> {
+        let options = memedock_core::ImportOptions {
+            original_name: options.original_name,
+            title: options.title,
+            collection: options.collection_id.map(|id| id.parse()).transpose()?,
+        };
+        Ok(ImportTask::new(
+            self.inner.import_staged(input.take()?, options)?,
+        ))
+    }
+    pub fn request_thumbnail(&self, id: String, priority: Priority) -> Result<Arc<ThumbnailTask>> {
+        Ok(ThumbnailTask::new(
+            self.inner.request_thumbnail(id.parse()?, priority.into())?,
+        ))
+    }
     pub fn identity(&self) -> LibraryIdentity {
         let v = self.inner.identity();
         LibraryIdentity {

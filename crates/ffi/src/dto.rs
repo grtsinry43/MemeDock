@@ -140,6 +140,79 @@ pub struct StickerPage {
     pub request_id: String,
     pub stickers: Vec<StickerMetadata>,
     pub next: Option<Arc<QueryCursorHandle>>,
+    pub resources: Vec<StickerResource>,
+}
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum ThumbnailStatus {
+    Missing,
+    Generating,
+    Ready,
+    Failed,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct StickerResource {
+    pub asset: AssetMetadata,
+    pub thumbnail_status: ThumbnailStatus,
+    pub thumbnail_path: Option<String>,
+    pub last_error: Option<String>,
+}
+impl From<memedock_core::StickerResource> for StickerResource {
+    fn from(value: memedock_core::StickerResource) -> Self {
+        use memedock_domain::local::ThumbnailStatus as C;
+        let status = value
+            .local
+            .as_ref()
+            .map_or(C::Missing, |local| local.thumb_status());
+        Self {
+            asset: value.asset.into(),
+            thumbnail_status: match status {
+                C::Missing => ThumbnailStatus::Missing,
+                C::Generating => ThumbnailStatus::Generating,
+                C::Ready => ThumbnailStatus::Ready,
+                C::Failed => ThumbnailStatus::Failed,
+            },
+            thumbnail_path: value
+                .thumbnail_path
+                .and_then(|path| path.into_os_string().into_string().ok()),
+            last_error: value
+                .local
+                .and_then(|local| local.last_error().map(ToOwned::to_owned)),
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ImportOptions {
+    pub original_name: String,
+    pub title: Option<String>,
+    pub collection_id: Option<String>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum ImportStatus {
+    Created,
+    Reused,
+    RestoreRequired,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ImportOutcome {
+    pub sticker: StickerMetadata,
+    pub status: ImportStatus,
+}
+impl From<memedock_core::ImportOutcome> for ImportOutcome {
+    fn from(value: memedock_core::ImportOutcome) -> Self {
+        use memedock_core::ImportStatus as C;
+        Self {
+            sticker: value.sticker.into(),
+            status: match value.status {
+                C::Created => ImportStatus::Created,
+                C::Reused => ImportStatus::Reused,
+                C::RestoreRequired => ImportStatus::RestoreRequired,
+            },
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct Thumbnail {
+    pub path: String,
 }
 impl From<memedock_core::QueryResponse> for StickerPage {
     fn from(v: memedock_core::QueryResponse) -> Self {
@@ -147,6 +220,7 @@ impl From<memedock_core::QueryResponse> for StickerPage {
             request_id: v.request_id.to_string(),
             stickers: v.stickers.into_iter().map(Into::into).collect(),
             next: v.next.map(|inner| Arc::new(QueryCursorHandle { inner })),
+            resources: v.resources.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -291,6 +365,8 @@ impl From<memedock_core::tasks::TaskSnapshot> for TaskSnapshot {
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum Notification {
     UsageChanged { sequence: u64, sticker_id: String },
+    StickerChanged { sequence: u64, sticker_id: String },
+    ThumbnailChanged { sequence: u64, sticker_id: String },
     ReloadRequired { through_sequence: u64 },
     Closed,
 }
@@ -300,6 +376,14 @@ impl From<memedock_core::events::Notification> for Notification {
         match v {
             C::Changed(e) => match e.kind {
                 ChangeKind::UsageChanged(id) => Self::UsageChanged {
+                    sequence: e.sequence,
+                    sticker_id: id.to_string(),
+                },
+                ChangeKind::StickerChanged(id) => Self::StickerChanged {
+                    sequence: e.sequence,
+                    sticker_id: id.to_string(),
+                },
+                ChangeKind::ThumbnailChanged(id) => Self::ThumbnailChanged {
                     sequence: e.sequence,
                     sticker_id: id.to_string(),
                 },

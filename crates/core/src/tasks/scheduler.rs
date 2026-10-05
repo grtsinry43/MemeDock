@@ -21,6 +21,8 @@ pub(crate) enum Lane {
     Read,
     Blocking,
     Write,
+    Import,
+    Thumbnail,
 }
 impl Lane {
     fn index(self) -> usize {
@@ -28,6 +30,8 @@ impl Lane {
             Self::Read => 0,
             Self::Blocking => 1,
             Self::Write => 2,
+            Self::Import => 3,
+            Self::Thumbnail => 4,
         }
     }
 }
@@ -82,8 +86,14 @@ pub(crate) async fn run(
     limits: &ResourceLimits,
 ) -> Result<()> {
     let mut pending: [VecDeque<Job>; 3] = std::array::from_fn(|_| VecDeque::new());
-    let max = [limits.async_jobs, limits.file_jobs, 1];
-    let mut active = [0_usize; 3];
+    let max = [
+        limits.async_jobs,
+        limits.file_jobs,
+        1,
+        limits.large_decode_jobs,
+        limits.thumbnail_jobs,
+    ];
+    let mut active = [0_usize; 5];
     let mut jobs = JoinSet::new();
     let mut running: HashMap<Id, (TaskId, Lane, Arc<TaskControl>)> = HashMap::new();
     loop {

@@ -77,7 +77,7 @@ impl FsBlobStore {
         Ok(File::open(path)?)
     }
     /// Core must validate actual image format/dimensions before calling this.
-    /// Hard links atomically publish without overwrite on Android/Linux, and
+    /// NOREPLACE rename atomically publishes without overwrite on Android/Linux,
     /// require staging and originals to be on the same filesystem.
     pub fn publish(
         &self,
@@ -105,7 +105,15 @@ impl FsBlobStore {
         if cancelled() {
             return Err(StorageError::Cancelled);
         }
-        let disposition = match fs::hard_link(&staged.path, &path) {
+        let disposition = match rustix::fs::renameat_with(
+            rustix::fs::CWD,
+            &staged.path,
+            rustix::fs::CWD,
+            &path,
+            rustix::fs::RenameFlags::NOREPLACE,
+        )
+        .map_err(std::io::Error::from)
+        {
             Ok(()) => PublishDisposition::Created,
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 self.verify(staged.hash, staged.byte_size, &mut cancelled)?;
@@ -117,7 +125,9 @@ impl FsBlobStore {
         // even if cancellation arrives now. An orphan is safer than a dangling DB ref.
         File::open(&path)?.sync_all()?;
         sync_directory(parent)?;
-        fs::remove_file(&staged.path)?;
+        if disposition == PublishDisposition::Reused {
+            fs::remove_file(&staged.path)?;
+        }
         sync_directory(&self.root.join("staging"))?;
         Ok(PublishedBlob {
             hash: staged.hash,

@@ -15,7 +15,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-fn now() -> Result<TimestampMs> {
+pub(crate) fn now() -> Result<TimestampMs> {
     let millis = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => i64::try_from(duration.as_millis())
             .map_err(|_| CoreError::internal("timestamp overflow"))?,
@@ -31,6 +31,11 @@ pub(crate) async fn record_use(
     action: UsageAction,
 ) -> Result<LocalUsage> {
     control.check()?;
+    let _permit = services
+        .write_permit
+        .acquire()
+        .await
+        .map_err(|_| CoreError::internal("write service closed"))?;
     let mut tx = services.db.begin_write().await?;
     let sticker = tx
         .sticker(id)
@@ -65,10 +70,16 @@ pub(crate) async fn checkpoint(
     control: Arc<TaskControl>,
 ) -> Result<PathBuf> {
     control.check()?;
+    let _permit = services
+        .write_permit
+        .acquire()
+        .await
+        .map_err(|_| CoreError::internal("write service closed"))?;
     let directory = services.config.data_dir.join("checkpoints");
     let path = directory.join(format!("{}.sqlite", uuid::Uuid::now_v7()));
     control.begin_commit()?;
     let output = path.clone();
+    let services = services.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
         match std::fs::symlink_metadata(&directory) {
             Ok(m) if !m.is_dir() || m.file_type().is_symlink() => {

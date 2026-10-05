@@ -91,6 +91,17 @@ async fn directories_and_resource_limits_are_validated() -> TestResult {
             .code(),
         ErrorCode::InvalidInput
     );
+    let mut settings = config(dir.path());
+    settings.limits.max_decode_bytes = 1;
+    settings.limits.image_budget_bytes = 1;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), Library::open(settings))
+            .await?
+            .err()
+            .ok_or("sub-unit image budget")?
+            .code(),
+        ErrorCode::InvalidInput
+    );
     #[cfg(unix)]
     {
         let other = tempfile::tempdir()?;

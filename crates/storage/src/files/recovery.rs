@@ -11,6 +11,28 @@ pub struct RecoveryScan {
     pub unexpected_paths: Vec<PathBuf>,
 }
 impl FsBlobStore {
+    /// Call only while opening a library, before any staging owner exists.
+    /// This walks staging alone; originals are neither read nor enumerated.
+    pub fn discard_abandoned_staging(&self) -> Result<()> {
+        let root = self.root.join("staging");
+        super::directory(&root)?;
+        for entry in fs::read_dir(&root)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file()
+                && entry
+                    .file_name()
+                    .to_str()
+                    .and_then(|name| name.strip_suffix(".part"))
+                    .is_some_and(|name| {
+                        name.parse::<memedock_domain::identity::OperationId>()
+                            .is_ok()
+                    })
+            {
+                fs::remove_file(entry.path())?;
+            }
+        }
+        super::sync_directory(&root)
+    }
     /// Explicit maintenance scan, not a startup full-library rehash. Never
     /// follows symlinks, deletes originals, or assumes staging age implies idle.
     pub fn scan_recovery(&self, referenced: &HashSet<ContentHash>) -> Result<RecoveryScan> {

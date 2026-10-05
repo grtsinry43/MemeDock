@@ -15,6 +15,8 @@ pub struct ResourceLimits {
     pub max_frame_pixels: u64,
     pub large_decode_jobs: usize,
     pub thumbnail_jobs: usize,
+    pub max_decode_bytes: u64,
+    pub image_budget_bytes: u64,
 }
 impl Default for ResourceLimits {
     fn default() -> Self {
@@ -29,6 +31,8 @@ impl Default for ResourceLimits {
             max_frame_pixels: 16_000_000,
             large_decode_jobs: 1,
             thumbnail_jobs: 2,
+            max_decode_bytes: 128 * 1024 * 1024,
+            image_budget_bytes: 192 * 1024 * 1024,
         }
     }
 }
@@ -71,6 +75,10 @@ impl LibraryConfig {
             || l.max_file_bytes == 0
             || l.max_file_bytes > i64::MAX as u64
             || l.max_frame_pixels == 0
+            || l.max_decode_bytes == 0
+            || l.max_decode_bytes > l.image_budget_bytes
+            || l.max_decode_bytes.div_ceil(1024) > l.image_budget_bytes / 1024
+            || l.image_budget_bytes > u32::MAX as u64 * 1024
         {
             return Err(CoreError::new(
                 ErrorCode::InvalidInput,

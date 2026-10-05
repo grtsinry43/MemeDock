@@ -10,6 +10,7 @@ memedock-domain = { path = "../domain" }
 memedock-storage = { path = "../storage" }
 tokio = { workspace = true, features = ["macros"] }
 uuid.workspace = true
+image.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

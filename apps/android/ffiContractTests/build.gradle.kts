@@ -17,6 +17,11 @@ dependencies {
 tasks.named("compileKotlin") { dependsOn(":rustBridge:generateHostBindings") }
 tasks.test {
     dependsOn(":rustBridge:buildRustHost")
+    // The Kotlin ABI can stay unchanged while native behavior changes.
+    inputs.files(repository.file("target/debug/libmemedock_ffi.so"),
+        repository.file("target/debug/memedock-ffi-fixtures"))
+        .withPropertyName("nativeContractArtifacts")
+        .withPathSensitivity(PathSensitivity.NONE)
     systemProperty("jna.library.path", repository.dir("target/debug").asFile.absolutePath)
     systemProperty("memedock.fixtureBinary", repository.file("target/debug/memedock-ffi-fixtures").asFile.absolutePath)
     jvmArgs("--enable-native-access=ALL-UNNAMED")

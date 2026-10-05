@@ -5,6 +5,9 @@ pub type Result<T> = std::result::Result<T, BridgeError>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum ErrorCode {
     InvalidInput,
+    UnsupportedFormat,
+    InvalidImage,
+    ResourceLimit,
     AlreadyOpen,
     Closed,
     Busy,
@@ -25,6 +28,9 @@ impl From<memedock_core::ErrorCode> for ErrorCode {
         use memedock_core::ErrorCode as C;
         match code {
             C::InvalidInput => Self::InvalidInput,
+            C::UnsupportedFormat => Self::UnsupportedFormat,
+            C::InvalidImage => Self::InvalidImage,
+            C::ResourceLimit => Self::ResourceLimit,
             C::AlreadyOpen => Self::AlreadyOpen,
             C::Closed => Self::Closed,
             C::Busy => Self::Busy,

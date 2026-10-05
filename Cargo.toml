@@ -20,6 +20,8 @@ tokio = { version = "=1.53.2", features = ["rt-multi-thread", "sync", "time"] }
 sha2 = { version = "=0.11.0", default-features = false }
 tempfile = "=3.27.0"
 uniffi = "=0.32.2"
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+rustix = { version = "=1.1.5", features = ["fs"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

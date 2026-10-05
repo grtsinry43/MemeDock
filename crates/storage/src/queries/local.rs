@@ -17,6 +17,59 @@ pub struct SpaceStatistics {
     pub ready_original_bytes: i64,
 }
 impl LibraryDatabase {
+    pub async fn interrupted_thumbnails(
+        &self,
+        after: Option<ContentHash>,
+    ) -> Result<Vec<LocalAsset>> {
+        let mut query = entities::local_asset::Entity::find()
+            .filter(entities::local_asset::Column::ThumbStatus.eq("generating"));
+        if let Some(after) = after {
+            query = query.filter(entities::local_asset::Column::Hash.gt(after.to_string()));
+        }
+        query
+            .order_by_asc(entities::local_asset::Column::Hash)
+            .limit(200)
+            .all(&self.connection)
+            .await?
+            .into_iter()
+            .map(|row| row.domain())
+            .collect()
+    }
+    pub async fn resource_rows(
+        &self,
+        hashes: &[ContentHash],
+    ) -> Result<Vec<(memedock_domain::asset::Asset, Option<LocalAsset>)>> {
+        if hashes.len() > 200 {
+            return Err(StorageError::InvalidInput(
+                "resource batch exceeds page limit",
+            ));
+        }
+        if hashes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let keys: Vec<_> = hashes.iter().map(ToString::to_string).collect();
+        let assets = entities::asset::Entity::find()
+            .filter(entities::asset::Column::Hash.is_in(keys.clone()))
+            .all(&self.connection)
+            .await?;
+        let locals = entities::local_asset::Entity::find()
+            .filter(entities::local_asset::Column::Hash.is_in(keys))
+            .all(&self.connection)
+            .await?;
+        let mut states = std::collections::HashMap::new();
+        for row in locals {
+            let local = row.domain()?;
+            states.insert(local.hash(), local);
+        }
+        assets
+            .into_iter()
+            .map(|row| {
+                let asset = row.domain()?;
+                let local = states.remove(&asset.hash());
+                Ok((asset, local))
+            })
+            .collect()
+    }
     /// Enumerate all known originals, including soft-deleted entities, for an
     /// explicit recovery scan. No physical garbage collection is implied.
     pub async fn asset_hashes_after(

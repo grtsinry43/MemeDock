@@ -66,6 +66,30 @@ macro_rules! save {
     };
 }
 impl WriteTransaction {
+    pub async fn local_asset(
+        &self,
+        hash: memedock_domain::identity::ContentHash,
+    ) -> Result<Option<LocalAsset>> {
+        entities::local_asset::Entity::find_by_id(hash.to_string())
+            .one(&self.inner)
+            .await?
+            .map(|r| r.domain())
+            .transpose()
+    }
+    pub async fn last_collection_key(
+        &self,
+        id: CollectionId,
+    ) -> Result<Option<memedock_domain::ordering::SortKey>> {
+        use sea_orm::{ColumnTrait, QueryFilter, QueryOrder, QuerySelect};
+        entities::collection_item::Entity::find()
+            .filter(entities::collection_item::Column::CollectionId.eq(id.to_string()))
+            .order_by_desc(entities::collection_item::Column::SortKey)
+            .limit(1)
+            .one(&self.inner)
+            .await?
+            .map(|row| row.sort_key.parse().map_err(StorageError::from))
+            .transpose()
+    }
     /// Identical bytes reuse their original metadata. A conflicting description
     /// of the same immutable asset is rejected; created_at is first-writer owned.
     pub async fn insert_asset(&mut self, asset: &Asset) -> Result<bool> {

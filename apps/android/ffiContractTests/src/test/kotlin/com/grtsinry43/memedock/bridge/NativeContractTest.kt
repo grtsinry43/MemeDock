@@ -9,6 +9,44 @@ import java.nio.file.Files
 import java.io.File
 
 class NativeContractTest {
+    @Test fun realImagesImportDeduplicateAndSurviveReopenAcrossGeneratedBindings() = runBlocking {
+        withTimeout(30_000) {
+            val directory = Files.createTempDirectory("memedock-import-").toFile()
+            val config = LibraryConfiguration(File(directory, "data").path, File(directory, "cache").path,
+                File(directory, "share").path, defaultResourceConfiguration())
+            val pixels = java.awt.image.BufferedImage(40, 20, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+            for (y in 0 until 20) for (x in 0 until 40) pixels.setRGB(x, y, 0x804080C0.toInt())
+            try {
+                var id = ""
+                openLibrary(config).use { library ->
+                    try {
+                        repeat(2) { index ->
+                            library.createImportInput().use { it.awaitResult() }.use { input ->
+                                assertTrue(javax.imageio.ImageIO.write(pixels, "png", File(input.path())))
+                                val result = library.importStaged(input, ImportOptions("真实猫猫.png", null, null)).use { it.awaitResult() }
+                                assertEquals(if (index == 0) ImportStatus.CREATED else ImportStatus.REUSED, result.status)
+                                id = result.sticker.id
+                                expectCode(ErrorCode.CONFLICT) { library.importStaged(input, ImportOptions("again", null, null)).close() }
+                            }
+                        }
+                        val thumbnail = library.requestThumbnail(id, Priority.VISIBLE).use { it.awaitResult() }
+                        assertEquals(40, javax.imageio.ImageIO.read(File(thumbnail.path)).width)
+                        val resources = library.stickerResources(listOf(id)).use { it.awaitResult() }
+                        assertEquals(ThumbnailStatus.READY, resources.single().thumbnailStatus)
+                        assertEquals(1L, library.spaceStatistics().use { it.awaitResult() }.knownAssets)
+                    } finally { library.shutdown() }
+                }
+                openLibrary(config).use { library ->
+                    try {
+                        val page = library.listStickers(query().copy(text = "真实猫猫")).use { it.awaitResult() }
+                        assertEquals(id, page.stickers.single().id)
+                        assertNotNull(page.resources.single().thumbnailPath)
+                    } finally { library.shutdown() }
+                }
+            } finally { assertTrue(directory.deleteRecursively()) }
+        }
+    }
+
     private fun query(cursor: QueryCursorHandle? = null) = StickerQuery(
         newRequestId(), "", null, emptyList(), null, false, StickerSort.RECENT, 1u, cursor,
     )

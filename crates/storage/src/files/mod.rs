@@ -1,11 +1,13 @@
 //! Synchronous file primitives. Core must call these on a bounded blocking
 //! executor. All paths live in app-private directories, never public storage.
 mod blobs;
+mod derived;
 mod recovery;
 mod staging;
 pub use blobs::{FsBlobStore, PublishDisposition, PublishedBlob};
+pub use derived::DerivedStore;
 pub use recovery::RecoveryScan;
-pub use staging::StagedFile;
+pub use staging::{PendingStaging, StagedFile};
 
 use crate::{Result, StorageError};
 use std::{

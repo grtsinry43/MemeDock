@@ -4,6 +4,7 @@
 pub mod config;
 pub mod error;
 pub mod events;
+mod images;
 mod library;
 mod registry;
 mod runtime;
@@ -16,5 +17,8 @@ pub use error::{CoreError, ErrorCode, Result};
 pub use library::{Library, LibraryState};
 pub use memedock_storage::db::LibraryIdentity;
 pub use memedock_storage::queries::{SpaceStatistics, StickerQuery, StickerSort};
+pub use use_cases::import::{ImportInput, ImportOptions, ImportOutcome, ImportStatus};
 pub use use_cases::maintenance::VerifiedOriginal;
+pub use use_cases::query::StickerResource;
 pub use use_cases::query::{QueryCursor, QueryRequest, QueryResponse, RequestId, StickerDetail};
+pub use use_cases::thumbnail::Thumbnail;

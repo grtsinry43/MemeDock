@@ -20,6 +20,8 @@ pub struct ResourceConfiguration {
     pub max_frame_pixels: u64,
     pub large_decode_jobs: u32,
     pub thumbnail_jobs: u32,
+    pub max_decode_bytes: u64,
+    pub image_budget_bytes: u64,
 }
 fn size(value: u32) -> Result<usize> {
     usize::try_from(value)
@@ -53,6 +55,8 @@ impl TryFrom<LibraryConfiguration> for LibraryConfig {
                 max_frame_pixels: l.max_frame_pixels,
                 large_decode_jobs: size(l.large_decode_jobs)?,
                 thumbnail_jobs: size(l.thumbnail_jobs)?,
+                max_decode_bytes: l.max_decode_bytes,
+                image_budget_bytes: l.image_budget_bytes,
             },
         })
     }
@@ -75,5 +79,7 @@ pub fn default_resource_configuration() -> Result<ResourceConfiguration> {
         max_frame_pixels: l.max_frame_pixels,
         large_decode_jobs: small(l.large_decode_jobs)?,
         thumbnail_jobs: small(l.thumbnail_jobs)?,
+        max_decode_bytes: l.max_decode_bytes,
+        image_budget_bytes: l.image_budget_bytes,
     })
 }

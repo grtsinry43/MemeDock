@@ -67,6 +67,40 @@ task_handle!(
     |v| Ok(v.into())
 );
 task_handle!(
+    ResourcesTask,
+    Vec<memedock_core::StickerResource>,
+    Vec<crate::StickerResource>,
+    |values: Vec<memedock_core::StickerResource>| Ok(values.into_iter().map(Into::into).collect())
+);
+task_handle!(
+    ImportInputTask,
+    memedock_core::ImportInput,
+    Arc<crate::ImportInputHandle>,
+    crate::ImportInputHandle::new
+);
+task_handle!(
+    ImportTask,
+    memedock_core::ImportOutcome,
+    crate::ImportOutcome,
+    |value| Ok(value.into())
+);
+task_handle!(
+    ThumbnailTask,
+    memedock_core::Thumbnail,
+    crate::Thumbnail,
+    |value: memedock_core::Thumbnail| Ok(crate::Thumbnail {
+        path: value
+            .path
+            .into_os_string()
+            .into_string()
+            .map_err(|_| BridgeError::new(
+                ErrorCode::InvalidInput,
+                "thumbnail path is not UTF-8"
+            ))?,
+    })
+);
+task_handle!(DiscardInputTask, (), (), |value| Ok(value));
+task_handle!(
     StickerDetailTask,
     memedock_core::StickerDetail,
     crate::StickerDetail,

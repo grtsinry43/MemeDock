@@ -6,6 +6,9 @@ pub type Result<T> = std::result::Result<T, CoreError>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ErrorCode {
     InvalidInput,
+    UnsupportedFormat,
+    InvalidImage,
+    ResourceLimit,
     AlreadyOpen,
     Closed,
     Busy,
@@ -25,6 +28,9 @@ impl ErrorCode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidInput => "invalid_input",
+            Self::UnsupportedFormat => "unsupported_format",
+            Self::InvalidImage => "invalid_image",
+            Self::ResourceLimit => "resource_limit",
             Self::AlreadyOpen => "already_open",
             Self::Closed => "closed",
             Self::Busy => "busy",

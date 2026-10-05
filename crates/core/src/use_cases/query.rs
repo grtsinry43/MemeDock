@@ -61,6 +61,13 @@ pub struct QueryResponse {
     pub request_id: RequestId,
     pub stickers: Vec<Sticker>,
     pub next: Option<QueryCursor>,
+    pub resources: Vec<StickerResource>,
+}
+#[derive(Debug)]
+pub struct StickerResource {
+    pub asset: Asset,
+    pub local: Option<memedock_domain::local::LocalAsset>,
+    pub thumbnail_path: Option<std::path::PathBuf>,
 }
 #[derive(Debug)]
 pub struct StickerDetail {
@@ -68,7 +75,59 @@ pub struct StickerDetail {
     pub asset: Asset,
     pub tags: Vec<Tag>,
 }
+fn resource_status(
+    rows: Vec<(Asset, Option<memedock_domain::local::LocalAsset>)>,
+    cache: memedock_storage::files::DerivedStore,
+) -> Result<Vec<StickerResource>> {
+    rows.into_iter()
+        .map(|(asset, mut local)| {
+            let ready = match cache.ready(asset.hash()) {
+                Ok(ready) => ready,
+                Err(error) => {
+                    // A broken derived file must not hide the business library.
+                    local
+                        .get_or_insert_with(|| {
+                            memedock_domain::local::LocalAsset::new(asset.hash())
+                        })
+                        .thumbnail_failed(CoreError::from(error).code().as_str().into());
+                    false
+                }
+            };
+            if !ready
+                && let Some(state) = &mut local
+                && state.thumb_status() == memedock_domain::local::ThumbnailStatus::Ready
+            {
+                state.evict_thumbnail();
+            }
+            let thumbnail_path = ready.then(|| cache.thumbnail_path(asset.hash()));
+            Ok(StickerResource {
+                asset,
+                local,
+                thumbnail_path,
+            })
+        })
+        .collect()
+}
 impl Library {
+    pub fn sticker_resources(&self, ids: Vec<StickerId>) -> Result<Task<Vec<StickerResource>>> {
+        if ids.len() > 200 {
+            return Err(CoreError::new(
+                ErrorCode::InvalidInput,
+                "resource batch exceeds page limit",
+            ));
+        }
+        self.submit(
+            Lane::Read,
+            Priority::Visible,
+            move |services, control| async move {
+                control.check()?;
+                let hashes: Vec<_> = ids.iter().map(|id| id.content_hash()).collect();
+                let rows = services.db.resource_rows(&hashes).await?;
+                let cache = services.derived.clone();
+                tokio::task::spawn_blocking(move || resource_status(rows, cache)).await?
+            },
+        )
+    }
     pub fn list_stickers(&self, request: QueryRequest) -> Result<Task<QueryResponse>> {
         if request
             .cursor
@@ -93,6 +152,15 @@ impl Library {
                         request.cursor.as_ref().map(|c| &c.inner),
                     )
                     .await?;
+                let hashes: Vec<_> = page
+                    .stickers
+                    .iter()
+                    .map(|sticker| sticker.id().content_hash())
+                    .collect();
+                let rows = services.db.resource_rows(&hashes).await?;
+                let cache = services.derived.clone();
+                let resources =
+                    tokio::task::spawn_blocking(move || resource_status(rows, cache)).await??;
                 Ok(QueryResponse {
                     request_id: request.request_id,
                     stickers: page.stickers,
@@ -100,6 +168,7 @@ impl Library {
                         library_id: services.db.identity().library_id,
                         inner,
                     }),
+                    resources,
                 })
             },
         )

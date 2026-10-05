@@ -13,6 +13,56 @@ use std::{
 type TestResult = Result<(), Box<dyn Error>>;
 
 #[test]
+fn platform_staging_is_rehashed_and_modified_candidates_cannot_publish() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let store = FsBlobStore::open(directory.path())?;
+    let pending = store.create_staging()?;
+    fs::write(pending.path(), b"validated bytes")?;
+    let staged = pending.finish(100, || false)?;
+    fs::write(pending.path(), b"different bytes")?;
+    assert!(matches!(
+        store.publish(staged, || false),
+        Err(StorageError::Integrity(_))
+    ));
+    pending.discard()?;
+    assert!(store.scan_recovery(&HashSet::new())?.staging.is_empty());
+    Ok(())
+}
+
+#[test]
+fn failed_derived_encoding_preserves_ready_file_and_recovery_keeps_unknowns() -> TestResult {
+    use memedock_storage::files::DerivedStore;
+    use std::io::Write;
+    let directory = tempfile::tempdir()?;
+    let store = DerivedStore::open(directory.path())?;
+    let hash = ContentHash::from_bytes([7; 32]);
+    let output = store.publish(hash, |file| {
+        file.write_all(b"verified cache")?;
+        Ok(())
+    })?;
+    assert!(
+        store
+            .publish(hash, |file| {
+                file.write_all(b"partial")?;
+                Err(StorageError::Integrity("encoder failed"))
+            })
+            .is_err()
+    );
+    assert_eq!(fs::read(output)?, b"verified cache");
+    let abandoned = directory.path().join("thumbnails").join(format!(
+        "{}.part",
+        memedock_domain::identity::OperationId::new()
+    ));
+    fs::write(&abandoned, b"abandoned")?;
+    let unknown = directory.path().join("thumbnails/keep.txt");
+    fs::write(&unknown, b"unknown")?;
+    store.discard_abandoned_publications()?;
+    assert!(!abandoned.exists());
+    assert!(unknown.exists());
+    Ok(())
+}
+
+#[test]
 fn bounded_staging_and_cancellation_clean_up_partial_input() -> TestResult {
     let dir = tempfile::tempdir()?;
     let store = FsBlobStore::open(dir.path())?;

@@ -16,6 +16,34 @@ pub struct StagedFile {
     pub(super) hash: ContentHash,
     pub(super) byte_size: u64,
 }
+
+/// Exclusive ownership of an app-private input slot. Foreign callers may write
+/// only while they own this token, and must close their writer before finishing.
+/// Abandoned tokens leave a recoverable file; dropping never blocks a UI thread.
+pub struct PendingStaging {
+    path: PathBuf,
+    root: PathBuf,
+}
+impl PendingStaging {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+    pub fn finish(&self, max_bytes: u64, cancelled: impl FnMut() -> bool) -> Result<StagedFile> {
+        let (hash, byte_size) = hash_file(&self.path, max_bytes, cancelled)?;
+        File::open(&self.path)?.sync_all()?;
+        sync_directory(&self.root.join("staging"))?;
+        Ok(StagedFile {
+            path: self.path.clone(),
+            root: self.root.clone(),
+            hash,
+            byte_size,
+        })
+    }
+    pub fn discard(self) -> Result<()> {
+        fs::remove_file(&self.path)?;
+        sync_directory(&self.root.join("staging"))
+    }
+}
 impl StagedFile {
     pub fn hash(&self) -> ContentHash {
         self.hash
@@ -37,6 +65,21 @@ impl StagedFile {
     }
 }
 impl FsBlobStore {
+    pub fn create_staging(&self) -> Result<PendingStaging> {
+        let directory = self.root.join("staging");
+        super::directory(&directory)?;
+        let path = directory.join(format!("{}.part", uuid::Uuid::now_v7()));
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?
+            .sync_all()?;
+        sync_directory(&directory)?;
+        Ok(PendingStaging {
+            path,
+            root: self.root.clone(),
+        })
+    }
     /// Copy untrusted input into controlled staging, checking actual bytes and
     /// cooperative cancellation between bounded reads. No entire-file buffer.
     pub fn stage_from(
