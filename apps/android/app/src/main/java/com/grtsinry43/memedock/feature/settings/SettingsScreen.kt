@@ -18,10 +18,13 @@ import com.grtsinry43.memedock.ui.components.formatFileSize
 import com.grtsinry43.memedock.ui.failureText
 
 @Composable
-fun SettingsScreen(state: SettingsState, select: (ThemeMode) -> Unit, retry: () -> Unit) {
+fun SettingsScreen(state: SettingsState, select: (ThemeMode) -> Unit, retry: () -> Unit,
+    tags: (() -> Unit)? = null, trash: (() -> Unit)? = null) {
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(stringResource(R.string.tab_settings), style = MaterialTheme.typography.headlineLarge)
+        tags?.let { action -> OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.manage_tags)) } }
+        trash?.let { action -> OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.trash)) } }
         Text(stringResource(R.string.settings_appearance), style = MaterialTheme.typography.titleMedium)
         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
             Column(Modifier.fillMaxWidth().selectableGroup()) {

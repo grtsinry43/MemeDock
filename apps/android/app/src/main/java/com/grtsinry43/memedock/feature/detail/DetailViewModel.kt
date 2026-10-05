@@ -7,17 +7,32 @@ import com.grtsinry43.memedock.data.library.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-class DetailViewModel(private val id: String, private val repository: DetailRepository) : ViewModel() {
+class DetailViewModel(private val id: String, private val repository: DetailRepository,
+    changes: Flow<LibraryChange> = emptyFlow()) : ViewModel() {
     private val mutable = MutableStateFlow(DetailUiState())
     val state = mutable.asStateFlow()
     private var load: Job? = null
     private var sharing: Job? = null
-    init { retry() }
+    init {
+        retry()
+        viewModelScope.launch { changes.filter { it !is LibraryChange.Thumbnail }.collect { retry() } }
+    }
+    fun manage(action: suspend (StickerDetails) -> Unit, success: () -> Unit) {
+        val detail = mutable.value.detail ?: return
+        if (mutable.value.managing || mutable.value.sharing) return
+        mutable.update { it.copy(managing = true, managementError = null) }
+        viewModelScope.launch {
+            try { action(detail); success() }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) { mutable.update { it.copy(managementError = reason(error)) } }
+            finally { mutable.update { it.copy(managing = false) } }
+        }
+    }
     fun retry() {
         load?.cancel()
         mutable.update { it.copy(loading = true, error = null) }
         load = viewModelScope.launch {
-            try { mutable.update { it.copy(loading = false, detail = repository.detail(id)) } }
+            try { val detail = repository.detail(id); mutable.update { it.copy(loading = false, detail = detail) } }
             catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) { mutable.update { it.copy(loading = false, error = reason(error)) } }
         }
@@ -25,7 +40,7 @@ class DetailViewModel(private val id: String, private val repository: DetailRepo
     fun togglePlayback() { mutable.update { it.copy(playing = !it.playing) } }
     fun cancelShare() { sharing?.cancel() }
     fun share(launch: (ShareArtifact) -> Unit) {
-        if (mutable.value.sharing || mutable.value.detail?.deleted != false) return
+        if (mutable.value.sharing || mutable.value.managing || mutable.value.detail?.deleted != false) return
         mutable.update { it.copy(sharing = true, shareError = null, shareLaunched = false) }
         sharing = viewModelScope.launch {
             try {

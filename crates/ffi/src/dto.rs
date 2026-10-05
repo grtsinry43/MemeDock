@@ -381,6 +381,8 @@ impl From<memedock_core::tasks::TaskSnapshot> for TaskSnapshot {
 }
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum Notification {
+    CollectionsChanged { sequence: u64 },
+    TagsChanged { sequence: u64 },
     UsageChanged { sequence: u64, sticker_id: String },
     StickerChanged { sequence: u64, sticker_id: String },
     ThumbnailChanged { sequence: u64, sticker_id: String },
@@ -392,6 +394,12 @@ impl From<memedock_core::events::Notification> for Notification {
         use memedock_core::events::{ChangeKind, Notification as C};
         match v {
             C::Changed(e) => match e.kind {
+                ChangeKind::CollectionsChanged => Self::CollectionsChanged {
+                    sequence: e.sequence,
+                },
+                ChangeKind::TagsChanged => Self::TagsChanged {
+                    sequence: e.sequence,
+                },
                 ChangeKind::UsageChanged(id) => Self::UsageChanged {
                     sequence: e.sequence,
                     sticker_id: id.to_string(),

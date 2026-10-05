@@ -70,7 +70,7 @@ class DetailScreenTest {
             compose.setContent {
                 MemeDockTheme {
                     DetailScreen(DetailUiState(loading = false, detail = StickerDetails("id", "猫猫", "备注", "cat.gif", "image/gif", 40, 20,
-                        100, true, false, listOf("猫"), listOf("常用"), null, "NOT_FOUND")), loader,
+                        100, true, false, listOf(com.grtsinry43.memedock.data.library.LibraryTag("tag", "猫")), listOf(com.grtsinry43.memedock.data.library.LibraryCollection("collection", "常用")), null, "NOT_FOUND")), loader,
                         { back = true }, {}, {}, {}, {})
                 }
             }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 #[derive(uniffi::Object)]
 pub struct LibraryHandle {
-    inner: memedock_core::Library,
+    pub(crate) inner: memedock_core::Library,
 }
 #[uniffi::export]
 pub async fn open_library(configuration: LibraryConfiguration) -> Result<Arc<LibraryHandle>> {

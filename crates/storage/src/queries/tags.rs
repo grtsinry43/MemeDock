@@ -6,6 +6,20 @@ use memedock_domain::{
 };
 use sea_orm::{ColumnTrait, DbBackend, EntityTrait, QueryFilter, QueryOrder, Statement};
 impl LibraryDatabase {
+    pub async fn previous_sticker_tags(&self, id: StickerId) -> Result<Vec<Tag>> {
+        let sql = "SELECT t.* FROM tags t JOIN sticker_tags st ON st.tag_id=t.id WHERE st.sticker_id=? AND st.present=1 AND t.deleted_at IS NULL ORDER BY t.normalized_name,t.id";
+        entities::tag::Entity::find()
+            .from_raw_sql(Statement::from_sql_and_values(
+                DbBackend::Sqlite,
+                sql,
+                [id.to_string().into()],
+            ))
+            .all(&self.connection)
+            .await?
+            .into_iter()
+            .map(|row| row.domain())
+            .collect()
+    }
     pub async fn tag(&self, id: TagId) -> Result<Option<Tag>> {
         entities::tag::Entity::find_by_id(id.to_string())
             .one(&self.connection)

@@ -1,8 +1,12 @@
 pub(crate) mod artifact_maintenance;
+mod collection_management;
 mod export;
 pub(crate) mod import;
 pub(crate) mod maintenance;
 pub(crate) mod query;
 pub(crate) mod recovery;
+pub(crate) mod restore;
+pub(crate) mod sticker_management;
+mod tag_management;
 pub(crate) mod thumbnail;
 pub(crate) mod usage;

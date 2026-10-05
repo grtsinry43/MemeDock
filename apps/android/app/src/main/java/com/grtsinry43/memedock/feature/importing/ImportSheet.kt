@@ -6,6 +6,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import com.grtsinry43.memedock.data.library.*
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -17,14 +20,44 @@ import com.grtsinry43.memedock.ui.failureText
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImportSheet(state: ImportState, coordinator: ImportCoordinator) {
-    ModalBottomSheet(onDismissRequest = coordinator::hide, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        ImportSheetContent(state, coordinator::start, coordinator::retryFailed, coordinator::cancel, coordinator::hide, coordinator::discard)
+fun ImportSheet(state: ImportState, coordinator: ImportCoordinator, repository: ManagementRepository) {
+    var collections by remember { mutableStateOf<List<LibraryCollection>>(emptyList()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var selecting by remember { mutableStateOf(false) }
+    LaunchedEffect(repository, refresh) {
+        try { collections = repository.collections(false); error = null }
+        catch (cancel: CancellationException) { throw cancel }
+        catch (failure: Exception) { error = (failure as? LibraryFailure)?.reason ?: "INTERNAL" }
     }
+    ModalBottomSheet(onDismissRequest = coordinator::hide, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        ImportSheetContent(state, coordinator::start, coordinator::retryFailed, coordinator::cancel, coordinator::hide, coordinator::discard,
+            target = {
+                if (state.phase == ImportPhase.Review) {
+                    OutlinedButton(onClick = { selecting = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.import_collection) + " · " + (state.collection?.name ?: stringResource(R.string.no_collection)))
+                    }
+                    error?.let {
+                        Text(failureText(it), color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { refresh++ }) { Text(stringResource(R.string.retry)) }
+                    }
+                }
+            })
+    }
+    if (selecting) AlertDialog(onDismissRequest = { selecting = false }, title = { Text(stringResource(R.string.import_collection)) },
+        text = {
+            LazyColumn {
+                item { TextButton(onClick = { coordinator.selectCollection(null); selecting = false }) { Text(stringResource(R.string.no_collection)) } }
+                items(collections, key = LibraryCollection::id) { value ->
+                    TextButton(onClick = { coordinator.selectCollection(value); selecting = false }) { Text(value.name) }
+                }
+            }
+        }, confirmButton = { TextButton(onClick = { selecting = false }) { Text(stringResource(R.string.cancel)) } })
 }
 
 @Composable
-fun ImportSheetContent(state: ImportState, start: () -> Unit, retry: () -> Unit, cancel: () -> Unit, hide: () -> Unit, discard: () -> Unit) {
+fun ImportSheetContent(state: ImportState, start: () -> Unit, retry: () -> Unit, cancel: () -> Unit, hide: () -> Unit, discard: () -> Unit,
+    target: (@Composable () -> Unit)? = null) {
     val unresolved = state.items.count { it.status in listOf(ImportItemStatus.Failed, ImportItemStatus.Cancelled, ImportItemStatus.RestoreRequired) }
     val completed = state.items.count { it.status in listOf(ImportItemStatus.Created, ImportItemStatus.Reused, ImportItemStatus.RestoreRequired, ImportItemStatus.Failed, ImportItemStatus.Cancelled) }
     val canRetry = state.items.any { it.status == ImportItemStatus.Failed || it.status == ImportItemStatus.Cancelled }
@@ -46,6 +79,7 @@ fun ImportSheetContent(state: ImportState, start: () -> Unit, retry: () -> Unit,
             }
         }
         state.selectionError?.let { Text(failureText(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+        target?.invoke()
         if (state.phase == ImportPhase.Finished) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ImportCount(state.count(ImportItemStatus.Created), stringResource(R.string.import_summary_created), Modifier.weight(1f))

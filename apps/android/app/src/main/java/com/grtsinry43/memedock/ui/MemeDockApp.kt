@@ -28,6 +28,8 @@ import com.grtsinry43.memedock.feature.importing.ImportSheet
 import com.grtsinry43.memedock.feature.library.LibraryRoute
 import com.grtsinry43.memedock.feature.search.SearchRoute
 import com.grtsinry43.memedock.feature.settings.SettingsRoute
+import com.grtsinry43.memedock.feature.tags.TagsRoute
+import com.grtsinry43.memedock.feature.trash.TrashRoute
 import com.grtsinry43.memedock.ui.components.*
 import com.grtsinry43.memedock.ui.theme.*
 import kotlinx.coroutines.flow.catch
@@ -35,8 +37,8 @@ import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.delay
 import java.io.IOException
 
-private data class AppPage(val tab: HomeTab, val sticker: String?, val collection: String?, val collectionName: String?) {
-    val stateKey get() = "${tab.name}:${collection.orEmpty()}"
+private data class AppPage(val tab: HomeTab, val sticker: String?, val collection: String?, val collectionName: String?, val settingsPage: String?) {
+    val stateKey get() = "${tab.name}:${collection.orEmpty()}:${settingsPage.orEmpty()}"
 }
 
 @Composable
@@ -45,11 +47,12 @@ fun MemeDockApp(container: AppContainer) {
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var collection by rememberSaveable { mutableStateOf<String?>(null) }
     var collectionName by rememberSaveable { mutableStateOf<String?>(null) }
+    var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
     var initialItem by remember { mutableStateOf<LibraryItem?>(null) }
     val holder = rememberSaveableStateHolder()
     var previousCollection by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(collection) {
-        previousCollection?.takeIf { it != collection }?.let { holder.removeState("Collections:$it") }
+        previousCollection?.takeIf { it != collection }?.let { holder.removeState("Collections:$it:") }
         previousCollection = collection
     }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -74,15 +77,16 @@ fun MemeDockApp(container: AppContainer) {
             }
         }
     }
-    val page = AppPage(tab, selected, collection, collectionName)
+    val page = AppPage(tab, selected, collection, collectionName, settingsPage)
     val back = {
         when {
             selected != null -> selected = null
+            settingsPage != null -> settingsPage = null
             collection != null -> { collection = null; collectionName = null }
             else -> tab = HomeTab.Stickers
         }
     }
-    BackHandler(enabled = selected != null || collection != null || tab != HomeTab.Stickers, onBack = back)
+    BackHandler(enabled = selected != null || collection != null || settingsPage != null || tab != HomeTab.Stickers, onBack = back)
     val open: (LibraryItem) -> Unit = { item ->
         focus.clearFocus(); keyboard?.hide(); initialItem = item; selected = item.id
     }
@@ -100,7 +104,7 @@ fun MemeDockApp(container: AppContainer) {
                         Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0),
                             bottomBar = { MemeDockBottomBar(destination.tab) { next ->
                                 focus.clearFocus(); keyboard?.hide()
-                                tab = next; collection = null; collectionName = null
+                                tab = next; collection = null; collectionName = null; settingsPage = null
                             } }) { padding ->
                             Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                                 when (destination.tab) {
@@ -110,7 +114,11 @@ fun MemeDockApp(container: AppContainer) {
                                         collection = it.id; collectionName = it.name
                                     } else LibraryRoute(container, collectionId = destination.collection,
                                         title = destination.collectionName.orEmpty(), back = { collection = null; collectionName = null }, open = open)
-                                    HomeTab.Settings -> SettingsRoute(container)
+                                    HomeTab.Settings -> when (destination.settingsPage) {
+                                        "tags" -> TagsRoute(container) { settingsPage = null }
+                                        "trash" -> TrashRoute(container, { settingsPage = null }, open)
+                                        else -> SettingsRoute(container, { settingsPage = "tags" }, { settingsPage = "trash" })
+                                    }
                                 }
                             }
                         }
@@ -118,7 +126,7 @@ fun MemeDockApp(container: AppContainer) {
                 }
             }
         }
-        if (imports.visible) ImportSheet(imports, container.imports)
+        if (imports.visible) ImportSheet(imports, container.imports, container.library)
     }
 }
 

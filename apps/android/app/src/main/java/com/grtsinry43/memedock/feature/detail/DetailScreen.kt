@@ -23,7 +23,9 @@ import com.grtsinry43.memedock.ui.theme.MemeDockLayout
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DetailScreen(state: DetailUiState, loader: ImageLoader, back: () -> Unit, retry: () -> Unit,
-    togglePlayback: () -> Unit, cancelShare: () -> Unit, share: () -> Unit, initialItem: LibraryItem? = null) {
+    togglePlayback: () -> Unit, cancelShare: () -> Unit, share: () -> Unit, initialItem: LibraryItem? = null,
+    edit: (() -> Unit)? = null, organize: (() -> Unit)? = null, favorite: (() -> Unit)? = null,
+    delete: (() -> Unit)? = null, restore: (() -> Unit)? = null) {
     val detail = state.detail
     val placeholder = remember(initialItem) { initialItem?.let {
         StickerDetails(it.id, it.title, "", it.originalName, it.mime, it.width, it.height, 0, it.animated,
@@ -37,7 +39,7 @@ fun DetailScreen(state: DetailUiState, loader: ImageLoader, back: () -> Unit, re
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
         },
         bottomBar = {
-            if (detail != null && state.error == null) Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+            if (detail != null && !detail.deleted && state.error == null) Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
                 Column(Modifier.navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     if (state.sharing) {
                         LinearProgressIndicator(Modifier.widthIn(max = MemeDockLayout.ContentWidth).fillMaxWidth())
@@ -73,6 +75,14 @@ fun DetailScreen(state: DetailUiState, loader: ImageLoader, back: () -> Unit, re
                         CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
                     }
                     detail != null -> {
+                        state.managementError?.let { Text(failureText(it), color = MaterialTheme.colorScheme.error) }
+                        if (state.managing) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        if (!detail.deleted) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            edit?.let { OutlinedButton(onClick = it, enabled = !state.managing && !state.sharing) { Text(stringResource(R.string.edit_sticker)) } }
+                            organize?.let { OutlinedButton(onClick = it, enabled = !state.managing && !state.sharing) { Text(stringResource(R.string.organize)) } }
+                            favorite?.let { FilterChip(selected = detail.starred, onClick = it, enabled = !state.managing && !state.sharing,
+                                label = { Text(stringResource(if (detail.starred) R.string.unfavorite else R.string.favorite)) }) }
+                        }
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(detail.title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag("detail-name"))
                             if (detail.originalError != null && initialItem?.thumbnailPath != null) {
@@ -88,8 +98,8 @@ fun DetailScreen(state: DetailUiState, loader: ImageLoader, back: () -> Unit, re
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                             if (detail.note.isNotBlank()) Text(detail.note, style = MaterialTheme.typography.bodyLarge)
                         }
-                        if (detail.tags.isNotEmpty()) DetailLabels(stringResource(R.string.detail_tags_title), detail.tags)
-                        if (detail.collections.isNotEmpty()) DetailLabels(stringResource(R.string.detail_collections_title), detail.collections)
+                        if (detail.tags.isNotEmpty()) DetailLabels(stringResource(R.string.detail_tags_title), detail.tags.map { it.name })
+                        if (detail.collections.isNotEmpty()) DetailLabels(stringResource(R.string.detail_collections_title), detail.collections.map { it.name })
                         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -108,6 +118,14 @@ fun DetailScreen(state: DetailUiState, loader: ImageLoader, back: () -> Unit, re
                                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
+                            }
+                        }
+                        if (detail.deleted) {
+                            Text(stringResource(R.string.restore_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            restore?.let { Button(onClick = it, enabled = !state.managing, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.restore)) } }
+                        } else delete?.let {
+                            TextButton(onClick = it, enabled = !state.managing && !state.sharing) {
+                                Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
                             }
                         }
                     }

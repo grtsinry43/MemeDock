@@ -7,6 +7,7 @@ mod dto;
 mod error;
 mod import;
 mod library;
+mod management;
 mod streams;
 mod tasks;
 
@@ -17,6 +18,7 @@ pub use dto::*;
 pub use error::*;
 pub use import::*;
 pub use library::*;
+pub use management::*;
 pub use streams::*;
 pub use tasks::*;
 

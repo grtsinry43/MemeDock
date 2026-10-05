@@ -27,7 +27,7 @@ fun LibraryScreen(state: LibraryUiState, imageLoader: ImageLoader, search: (Stri
     retry: () -> Unit, more: () -> Unit, thumbnail: (LibraryItem, Boolean) -> Unit,
     pickPhotos: () -> Unit, pickFiles: () -> Unit, importing: Boolean, showImports: () -> Unit, open: (LibraryItem) -> Unit,
     waitingForImport: Boolean = false, showSearch: Boolean = false, title: String = stringResource(R.string.tab_stickers),
-    back: (() -> Unit)? = null) {
+    back: (() -> Unit)? = null, toggleStarred: (() -> Unit)? = null, order: (() -> Unit)? = null) {
     val grid = rememberLazyGridState()
     val emptyScroll = rememberScrollState()
     var chooseSource by rememberSaveable { mutableStateOf(false) }
@@ -53,6 +53,11 @@ fun LibraryScreen(state: LibraryUiState, imageLoader: ImageLoader, search: (Stri
                         Text(stringResource(R.string.library_add))
                     }
                 }
+                toggleStarred?.let { action ->
+                    FilterChip(selected = state.starredOnly, onClick = action, label = { Text(stringResource(R.string.favorites_only)) },
+                        modifier = Modifier.padding(horizontal = MemeDockLayout.PagePadding))
+                }
+                order?.let { TextButton(onClick = it, modifier = Modifier.padding(horizontal = MemeDockLayout.PagePadding)) { Text(stringResource(R.string.order)) } }
                 if (showSearch) OutlinedTextField(value = state.search, onValueChange = search, singleLine = true,
                     placeholder = { Text(stringResource(R.string.library_search)) },
                     leadingIcon = { Icon(MemeDockIcons.Search, null) },
@@ -76,7 +81,8 @@ fun LibraryScreen(state: LibraryUiState, imageLoader: ImageLoader, search: (Stri
                         state.loading -> CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 3.dp)
                         state.error != null -> MemeDockEmptyState(stringResource(R.string.library_load_title), failureText(state.error),
                             stringResource(R.string.retry), retry, Modifier.verticalScroll(emptyScroll), icon = MemeDockIcons.Alert)
-                        state.items.isEmpty() -> if (back != null) Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        state.items.isEmpty() -> if (state.starredOnly) Text(stringResource(R.string.starred_empty))
+                        else if (back != null) Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(MemeDockIcons.Folder, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.height(16.dp))
                             Text(stringResource(R.string.collection_empty), style = MaterialTheme.typography.titleLarge)

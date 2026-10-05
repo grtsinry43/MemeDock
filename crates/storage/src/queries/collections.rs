@@ -4,8 +4,23 @@ use memedock_domain::{
     identity::{CollectionId, StickerId},
     relation::CollectionItem,
 };
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, DbBackend, EntityTrait, QueryFilter, QueryOrder, Statement};
 impl LibraryDatabase {
+    /// Historical memberships are suggestions, never effective associations.
+    pub async fn previous_sticker_collections(&self, id: StickerId) -> Result<Vec<Collection>> {
+        let sql = "SELECT c.* FROM collections c JOIN collection_items ci ON ci.collection_id=c.id WHERE ci.sticker_id=? AND ci.present=1 AND c.deleted_at IS NULL ORDER BY c.sort_key COLLATE BINARY,c.id";
+        entities::collection::Entity::find()
+            .from_raw_sql(Statement::from_sql_and_values(
+                DbBackend::Sqlite,
+                sql,
+                [id.to_string().into()],
+            ))
+            .all(&self.connection)
+            .await?
+            .into_iter()
+            .map(|row| row.domain())
+            .collect()
+    }
     pub async fn sticker_collections(&self, id: StickerId) -> Result<Vec<Collection>> {
         use sea_orm::{ConnectionTrait, DbBackend, FromQueryResult, Statement};
         let rows = self

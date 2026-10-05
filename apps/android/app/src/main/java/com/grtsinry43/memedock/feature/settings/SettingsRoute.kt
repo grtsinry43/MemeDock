@@ -7,7 +7,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.grtsinry43.memedock.app.AppContainer
 
 @Composable
-fun SettingsRoute(container: AppContainer) {
+fun SettingsRoute(container: AppContainer, tags: () -> Unit, trash: () -> Unit) {
     val factory = remember(container) { object : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             modelClass.cast(SettingsViewModel(container.appearance, container.library))!!
@@ -15,5 +15,5 @@ fun SettingsRoute(container: AppContainer) {
     val model: SettingsViewModel = viewModel(factory = factory)
     val state by model.state.collectAsStateWithLifecycle()
     LaunchedEffect(model) { model.refresh() }
-    SettingsScreen(state, model::select, model::retry)
+    SettingsScreen(state, model::select, model::retry, tags, trash)
 }

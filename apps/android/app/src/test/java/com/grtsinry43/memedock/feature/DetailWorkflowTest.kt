@@ -36,4 +36,26 @@ class DetailWorkflowTest {
             assertFalse(model.state.value.sharing)
         } finally { store.clear(); Dispatchers.resetMain() }
     }
+    @Test fun editsRejectDoubleSubmissionAndSurfaceFailureBeforeRetry() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val model = DetailViewModel("id", Repository()); store.put("detail", model); runCurrent()
+            val gate = CompletableDeferred<Unit>()
+            var calls = 0
+            var successes = 0
+            model.manage({ calls++; gate.await(); throw LibraryFailure("CONFLICT") }, { successes++ })
+            model.manage({ calls++ }, { successes++ })
+            runCurrent()
+            assertTrue(model.state.value.managing)
+            assertEquals(1, calls)
+            gate.complete(Unit); runCurrent()
+            assertFalse(model.state.value.managing)
+            assertEquals("CONFLICT", model.state.value.managementError)
+            assertEquals(0, successes)
+            model.manage({}, { successes++ }); runCurrent()
+            assertEquals(1, successes)
+            assertNull(model.state.value.managementError)
+        } finally { store.clear(); Dispatchers.resetMain() }
+    }
 }

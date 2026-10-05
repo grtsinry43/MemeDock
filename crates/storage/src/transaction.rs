@@ -66,6 +66,56 @@ macro_rules! save {
     };
 }
 impl WriteTransaction {
+    pub async fn sticker_collections(&self, id: StickerId) -> Result<Vec<Collection>> {
+        use sea_orm::{DbBackend, Statement};
+        entities::collection::Entity::find().from_raw_sql(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT c.* FROM collections c JOIN collection_items ci ON ci.collection_id=c.id JOIN stickers s ON s.id=ci.sticker_id WHERE s.id=? AND ci.present=1 AND c.deleted_at IS NULL AND s.deleted_at IS NULL AND ci.collection_generation=c.generation AND ci.sticker_generation=s.generation ORDER BY c.sort_key,c.id",
+            [id.to_string().into()]
+        )).all(&self.inner).await?.into_iter().map(|row| row.domain()).collect()
+    }
+    pub async fn sticker_tags(&self, id: StickerId) -> Result<Vec<Tag>> {
+        use sea_orm::{DbBackend, Statement};
+        entities::tag::Entity::find().from_raw_sql(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT t.* FROM tags t JOIN sticker_tags st ON st.tag_id=t.id JOIN stickers s ON s.id=st.sticker_id WHERE s.id=? AND st.present=1 AND t.deleted_at IS NULL AND s.deleted_at IS NULL AND st.tag_generation=t.generation AND st.sticker_generation=s.generation ORDER BY t.normalized_name,t.id",
+            [id.to_string().into()]
+        )).all(&self.inner).await?.into_iter().map(|row| row.domain()).collect()
+    }
+    pub async fn active_collections(&self) -> Result<Vec<Collection>> {
+        use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
+        entities::collection::Entity::find()
+            .filter(entities::collection::Column::DeletedAt.is_null())
+            .order_by_asc(entities::collection::Column::SortKey)
+            .order_by_asc(entities::collection::Column::Id)
+            .all(&self.inner)
+            .await?
+            .into_iter()
+            .map(|row| row.domain())
+            .collect()
+    }
+    pub async fn active_tag_named(&self, normalized: &str) -> Result<Option<Tag>> {
+        use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
+        entities::tag::Entity::find()
+            .filter(entities::tag::Column::DeletedAt.is_null())
+            .filter(entities::tag::Column::NormalizedName.eq(normalized))
+            .order_by_asc(entities::tag::Column::Id)
+            .one(&self.inner)
+            .await?
+            .map(|row| row.domain())
+            .transpose()
+    }
+    pub async fn effective_collection_items(
+        &self,
+        id: CollectionId,
+    ) -> Result<Vec<CollectionItem>> {
+        use sea_orm::{DbBackend, Statement};
+        entities::collection_item::Entity::find().from_raw_sql(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT ci.* FROM collection_items ci JOIN collections c ON c.id=ci.collection_id JOIN stickers s ON s.id=ci.sticker_id WHERE ci.collection_id=? AND ci.present=1 AND c.deleted_at IS NULL AND s.deleted_at IS NULL AND ci.collection_generation=c.generation AND ci.sticker_generation=s.generation ORDER BY ci.sort_key COLLATE BINARY,ci.sticker_id",
+            [id.to_string().into()],
+        )).all(&self.inner).await?.into_iter().map(|row| row.domain()).collect()
+    }
     pub async fn local_asset(
         &self,
         hash: memedock_domain::identity::ContentHash,

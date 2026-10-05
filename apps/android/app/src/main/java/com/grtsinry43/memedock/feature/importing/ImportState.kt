@@ -1,6 +1,7 @@
 package com.grtsinry43.memedock.feature.importing
 
 import com.grtsinry43.memedock.platform.importing.ImportCandidate
+import com.grtsinry43.memedock.data.library.LibraryCollection
 
 enum class ImportPhase { Preparing, Review, Running, Finished }
 enum class ImportItemStatus { Queued, Staged, Reading, Validating, Created, Reused, RestoreRequired, Failed, Cancelled }
@@ -11,6 +12,7 @@ data class ImportItemState(
     val error: String? = null,
 )
 data class ImportState(
+    val collection: LibraryCollection? = null,
     val phase: ImportPhase = ImportPhase.Review,
     val items: List<ImportItemState> = emptyList(),
     val visible: Boolean = false,

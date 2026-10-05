@@ -4,12 +4,12 @@ import kotlinx.coroutines.flow.Flow
 
 interface LibraryRepository {
     val changes: Flow<LibraryChange>
-    suspend fun page(text: String, cursor: PageCursor? = null, collectionId: String? = null): LibraryPage
+    suspend fun page(text: String, cursor: PageCursor? = null, collectionId: String? = null, starred: Boolean? = null, deleted: Boolean = false): LibraryPage
     suspend fun thumbnail(id: String): String
     suspend fun thumbnailStates(ids: List<String>): List<ThumbnailUpdate>
     suspend fun createInput(): ImportSlot
     suspend fun discardInput(input: ImportSlot)
-    suspend fun importInput(input: ImportSlot, name: String, cancelled: () -> Boolean): ImportedItem
+    suspend fun importInput(input: ImportSlot, name: String, collectionId: String? = null, cancelled: () -> Boolean): ImportedItem
     fun retryOpen()
 }
 

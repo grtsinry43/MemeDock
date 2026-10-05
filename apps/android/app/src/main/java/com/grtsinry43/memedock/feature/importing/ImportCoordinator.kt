@@ -53,6 +53,9 @@ class ImportCoordinator(private val repository: LibraryRepository, private val g
         }
     }
     fun show() { mutable.update { it.copy(visible = true) } }
+    fun selectCollection(collection: LibraryCollection?) {
+        if (!mutable.value.busy) mutable.update { it.copy(collection = collection) }
+    }
     fun hide() { mutable.update { it.copy(visible = false) } }
     fun cancel() {
         cancelled.set(true)
@@ -109,7 +112,7 @@ class ImportCoordinator(private val repository: LibraryRepository, private val g
                     input = staged.remove(index) ?: stage(index, item)
                     if (cancelled.get()) throw LibraryFailure("CANCELLED")
                     update(index, ImportItemStatus.Validating)
-                    val result = repository.importInput(input, item.candidate.name, cancelled::get)
+                    val result = repository.importInput(input, item.candidate.name, mutable.value.collection?.id, cancelled::get)
                     update(index, when (result.disposition) {
                         ImportDisposition.Created -> ImportItemStatus.Created
                         ImportDisposition.Reused -> ImportItemStatus.Reused

@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.testTag
 import com.grtsinry43.memedock.ui.components.stickerTransition
+import com.grtsinry43.memedock.ui.components.MemeDockIcons
 import com.grtsinry43.memedock.R
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
@@ -36,6 +37,11 @@ fun LibraryTile(item: LibraryItem, loader: ImageLoader, retry: () -> Unit, open:
                 else CircularProgressIndicator(Modifier.size(24.dp))
                 if (item.animated) Surface(modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp), shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.secondaryContainer) {
                     Text(stringResource(R.string.animated_image), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                }
+                if (item.starred) Surface(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                    shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(MemeDockIcons.Star, stringResource(R.string.favorite), Modifier.padding(5.dp).size(16.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
         }

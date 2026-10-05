@@ -33,7 +33,7 @@ class BottomNavigationTest {
         compose.onNodeWithTag("tab:Search").performClick()
         compose.onNodeWithTag("library-search").performTextReplacement("Navigation-fixture")
         compose.onNodeWithTag("tab:Collections").performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("还没有合集").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("新建合集").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("tab:Settings").performClick()
         compose.onNodeWithText("跟随系统").assertIsDisplayed()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("已保存的原图").fetchSemanticsNodes().isNotEmpty() }

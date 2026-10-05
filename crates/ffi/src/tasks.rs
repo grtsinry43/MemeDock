@@ -100,6 +100,34 @@ task_handle!(
     })
 );
 task_handle!(DiscardInputTask, (), (), |value| Ok(value));
+task_handle!(MutationTask, (), (), |value| Ok(value));
+task_handle!(
+    StickerMutationTask,
+    memedock_domain::sticker::Sticker,
+    crate::StickerMetadata,
+    |value| Ok(value.into())
+);
+task_handle!(
+    CollectionMutationTask,
+    memedock_domain::collection::Collection,
+    crate::CollectionMetadata,
+    |value| Ok(value.into())
+);
+task_handle!(
+    TagMutationTask,
+    memedock_domain::tag::Tag,
+    crate::TagMetadata,
+    |value| Ok(value.into())
+);
+task_handle!(
+    RestoreSuggestionsTask,
+    memedock_core::RestoreSuggestions,
+    crate::RestoreSuggestions,
+    |value: memedock_core::RestoreSuggestions| Ok(crate::RestoreSuggestions {
+        collections: value.collections.into_iter().map(Into::into).collect(),
+        tags: value.tags.into_iter().map(Into::into).collect(),
+    })
+);
 task_handle!(
     ExportTask,
     Arc<memedock_core::ArtifactLease>,

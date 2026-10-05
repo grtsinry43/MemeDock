@@ -53,17 +53,19 @@ class LibraryViewModel(private val repository: LibraryRepository, private val co
         reload(debounce = true)
     }
     fun retry() { repository.retryOpen(); reload() }
+    fun toggleStarred() { mutable.update { it.copy(starredOnly = !it.starredOnly) }; reload() }
     private fun reload(debounce: Boolean = false) {
         generation++
         val request = generation
         val text = mutable.value.search
+        val starred = true.takeIf { mutable.value.starredOnly }
         queryJob?.cancel()
         cursor?.close(); cursor = null
         mutable.update { it.copy(items = emptyList(), loading = true, loadingMore = false, hasMore = false, error = null, pageError = null) }
         queryJob = viewModelScope.launch {
             try {
                 if (debounce) delay(250)
-                val page = repository.page(text, collectionId = collectionId)
+                val page = repository.page(text, collectionId = collectionId, starred = starred)
                 if (request != generation) { page.next?.close(); return@launch }
                 cursor = page.next
                 mutable.update { it.copy(items = page.items, loading = false, hasMore = page.next != null) }
@@ -79,7 +81,7 @@ class LibraryViewModel(private val repository: LibraryRepository, private val co
         mutable.update { it.copy(loadingMore = true, pageError = null) }
         queryJob = viewModelScope.launch {
             try {
-                val page = repository.page(text, next, collectionId)
+                val page = repository.page(text, next, collectionId, starred = true.takeIf { mutable.value.starredOnly })
                 if (request != generation) { page.next?.close(); return@launch }
                 next.close(); cursor = page.next
                 mutable.update { it.copy(items = (it.items + page.items).distinctBy(LibraryItem::id), loadingMore = false, hasMore = page.next != null) }

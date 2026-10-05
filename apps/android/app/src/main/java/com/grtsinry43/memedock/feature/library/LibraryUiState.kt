@@ -4,6 +4,7 @@ import com.grtsinry43.memedock.data.library.LibraryItem
 
 data class LibraryUiState(
     val search: String = "",
+    val starredOnly: Boolean = false,
     val items: List<LibraryItem> = emptyList(),
     val loading: Boolean = true,
     val loadingMore: Boolean = false,

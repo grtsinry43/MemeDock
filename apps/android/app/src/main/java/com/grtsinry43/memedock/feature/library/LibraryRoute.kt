@@ -4,6 +4,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.grtsinry43.memedock.feature.collections.CollectionOrderSheet
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -29,11 +31,14 @@ fun LibraryRoute(container: AppContainer, searchPage: Boolean = false, collectio
     val model: LibraryViewModel = viewModel(viewModelStoreOwner = owner, key = "library:$searchPage:$collectionId", factory = factory)
     val state by model.state.collectAsStateWithLifecycle()
     val imports by container.imports.state.collectAsStateWithLifecycle()
+    var sorting by rememberSaveable(collectionId) { mutableStateOf(false) }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris -> container.imports.prepare(uris.map { it.toString() }) }
     val files = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> container.imports.prepare(uris.map { it.toString() }) }
     LibraryScreen(state, container.imageLoader, model::search, model::retry, model::loadMore,
         model::ensureThumbnail, { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         { files.launch(arrayOf("image/*")) }, imports.busy, container.imports::show, open,
         waitingForImport = imports.items.any { it.status == ImportItemStatus.Staged || it.status == ImportItemStatus.Queued },
-        showSearch = searchPage, title = title, back = back)
+        showSearch = searchPage, title = title, back = back, toggleStarred = model::toggleStarred,
+        order = if (collectionId != null) ({ sorting = true }) else null)
+    if (sorting && collectionId != null) CollectionOrderSheet(collectionId, container.library, container.library) { sorting = false }
 }

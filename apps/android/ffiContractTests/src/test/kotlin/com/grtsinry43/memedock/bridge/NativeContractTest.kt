@@ -9,6 +9,57 @@ import java.nio.file.Files
 import java.io.File
 
 class NativeContractTest {
+    @Test fun editingRelationsAndExplicitRecoverySurviveNativeReopen() = runBlocking {
+        withTimeout(30_000) {
+            val root = Files.createTempDirectory("memedock-management-").toFile()
+            val config = LibraryConfiguration(File(root, "data").path, File(root, "cache").path,
+                File(root, "share").path, defaultResourceConfiguration())
+            var id = ""
+            try {
+                openLibrary(config).use { library ->
+                    try {
+                        val collection = library.createCollection("猫猫合集", null).use { it.awaitResult() }
+                        val tag = library.createTag("工作").use { it.awaitResult() }
+                        library.createImportInput().use { it.awaitResult() }.use { input ->
+                            val pixels = java.awt.image.BufferedImage(12, 12, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                            assertTrue(javax.imageio.ImageIO.write(pixels, "png", File(input.path())))
+                            id = library.importStaged(input, ImportOptions("cat.png", null, collection.id)).use { it.awaitResult().sticker.id }
+                        }
+                        val reference = EntityReference(id, 0)
+                        library.setStickerRelations(reference, null, listOf(EntityReference(tag.id, tag.lifecycle.generation))).use { it.awaitResult() }
+                        library.patchSticker(reference, StickerEdit("摸鱼猫", "明天再说", true)).use { it.awaitResult() }
+                        assertEquals(id, library.listStickers(query().copy(text = "工作 明天", starred = true)).use { it.awaitResult().stickers.single().id })
+                        library.patchSticker(reference, StickerEdit(null, "", null)).use { it.awaitResult() }
+                        val edited = library.stickerDetail(id).use { it.awaitResult() }
+                        assertEquals("摸鱼猫", edited.sticker.title)
+                        assertEquals("", edited.sticker.note)
+                        assertTrue(edited.sticker.starred)
+                        assertEquals(collection.id, edited.collections.single().id)
+                        library.deleteSticker(reference).use { it.awaitResult() }
+                        assertTrue(library.listStickers(query()).use { it.awaitResult().stickers.isEmpty() })
+                        assertEquals(id, library.listStickers(query().copy(deleted = true)).use { it.awaitResult().stickers.single().id })
+                        val suggestions = library.restoreSuggestions(id).use { it.awaitResult() }
+                        assertEquals(collection.id, suggestions.collections.single().id)
+                        assertEquals(tag.id, suggestions.tags.single().id)
+                        val restored = library.restoreSticker(reference, 0).use { it.awaitResult() }
+                        assertEquals(1L, restored.lifecycle.generation)
+                        val detail = library.stickerDetail(id).use { it.awaitResult() }
+                        assertTrue(detail.tags.isEmpty()); assertTrue(detail.collections.isEmpty())
+                        expectCode(ErrorCode.CONFLICT) { library.patchSticker(reference, StickerEdit("stale", null, null)).use { it.awaitResult() } }
+                    } finally { library.shutdown() }
+                }
+                openLibrary(config).use { library ->
+                    try {
+                        val detail = library.stickerDetail(id).use { it.awaitResult() }
+                        assertEquals("摸鱼猫", detail.sticker.title)
+                        assertEquals(1L, detail.sticker.lifecycle.generation)
+                        assertTrue(detail.sticker.starred)
+                        assertNotNull(detail.originalPath)
+                    } finally { library.shutdown() }
+                }
+            } finally { assertTrue(root.deleteRecursively()) }
+        }
+    }
     @Test fun realImagesImportDeduplicateAndSurviveReopenAcrossGeneratedBindings() = runBlocking {
         withTimeout(30_000) {
             val directory = Files.createTempDirectory("memedock-import-").toFile()

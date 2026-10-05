@@ -29,7 +29,7 @@ class LibraryWorkflowTest {
         val slots = mutableListOf<Slot>()
         val imported = mutableListOf<String>()
         var discarded = 0
-        override suspend fun page(text: String, cursor: PageCursor?, collectionId: String?): LibraryPage {
+        override suspend fun page(text: String, cursor: PageCursor?, collectionId: String?, starred: Boolean?, deleted: Boolean): LibraryPage {
             collectionQueries.add(collectionId)
             return pages(text, cursor)
         }
@@ -37,7 +37,7 @@ class LibraryWorkflowTest {
         override suspend fun thumbnailStates(ids: List<String>) = ids.map { ThumbnailUpdate(it, ThumbnailState.Ready, "/test/$it.png", null) }
         override suspend fun createInput() = Slot().also { slots.add(it) }
         override suspend fun discardInput(input: ImportSlot) { discarded++ }
-        override suspend fun importInput(input: ImportSlot, name: String, cancelled: () -> Boolean): ImportedItem {
+        override suspend fun importInput(input: ImportSlot, name: String, collectionId: String?, cancelled: () -> Boolean): ImportedItem {
             if (cancelled()) throw LibraryFailure("CANCELLED")
             imported.add(name)
             return ImportedItem(name, if (name == "duplicate") ImportDisposition.Reused else ImportDisposition.Created)

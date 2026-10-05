@@ -1,7 +1,8 @@
 package com.grtsinry43.memedock.data.library
 
 enum class ThumbnailState { Missing, Generating, Ready, Failed }
-data class LibraryCollection(val id: String, val name: String)
+data class LibraryCollection(val id: String, val name: String, val generation: Long = 0, val revision: Long = 0, val deletedAt: Long? = null)
+data class LibraryTag(val id: String, val name: String, val generation: Long = 0, val revision: Long = 0, val deletedAt: Long? = null)
 data class LibraryStatistics(val originalCount: Long, val savedOriginalBytes: Long)
 data class LibraryItem(
     val id: String,
@@ -14,6 +15,10 @@ data class LibraryItem(
     val thumbnailState: ThumbnailState,
     val thumbnailPath: String?,
     val error: String?,
+    val starred: Boolean = false,
+    val generation: Long = 0,
+    val revision: Long = 0,
+    val deleted: Boolean = false,
 )
 interface PageCursor : AutoCloseable
 data class LibraryPage(val items: List<LibraryItem>, val next: PageCursor?)
@@ -30,6 +35,8 @@ class LibraryFailure(val reason: String, cause: Throwable? = null) : Exception(r
 
 data class StickerDetails(val id: String, val title: String, val note: String, val originalName: String,
     val mime: String, val width: Int, val height: Int, val byteSize: Long, val animated: Boolean,
-    val deleted: Boolean, val tags: List<String>, val collections: List<String>, val previewPath: String?, val originalError: String?)
+    val deleted: Boolean, val tags: List<LibraryTag>, val collections: List<LibraryCollection>, val previewPath: String?, val originalError: String?,
+    val starred: Boolean = false, val generation: Long = 0, val revision: Long = 0)
+data class RestoreSuggestions(val collections: List<LibraryCollection>, val tags: List<LibraryTag>)
 data class ShareArtifact(val id: String, val path: String, val mime: String, val fileName: String, val byteSize: Long, val animated: Boolean)
 interface OutputLease : AutoCloseable
