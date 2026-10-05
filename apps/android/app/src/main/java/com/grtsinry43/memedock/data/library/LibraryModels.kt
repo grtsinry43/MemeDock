@@ -1,6 +1,8 @@
 package com.grtsinry43.memedock.data.library
 
 enum class ThumbnailState { Missing, Generating, Ready, Failed }
+data class LibraryCollection(val id: String, val name: String)
+data class LibraryStatistics(val originalCount: Long, val savedOriginalBytes: Long)
 data class LibraryItem(
     val id: String,
     val title: String,
@@ -25,3 +27,9 @@ enum class ImportDisposition { Created, Reused, RestoreRequired }
 data class ImportedItem(val id: String, val disposition: ImportDisposition)
 interface ImportSlot : AutoCloseable { val path: String }
 class LibraryFailure(val reason: String, cause: Throwable? = null) : Exception(reason, cause)
+
+data class StickerDetails(val id: String, val title: String, val note: String, val originalName: String,
+    val mime: String, val width: Int, val height: Int, val byteSize: Long, val animated: Boolean,
+    val deleted: Boolean, val tags: List<String>, val collections: List<String>, val previewPath: String?, val originalError: String?)
+data class ShareArtifact(val id: String, val path: String, val mime: String, val fileName: String, val byteSize: Long, val animated: Boolean)
+interface OutputLease : AutoCloseable

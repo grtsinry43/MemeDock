@@ -25,10 +25,14 @@ class LibraryWorkflowTest {
     private class Repository : LibraryRepository {
         override val changes = MutableSharedFlow<LibraryChange>()
         var pages: suspend (String, PageCursor?) -> LibraryPage = { _, _ -> LibraryPage(emptyList(), null) }
+        val collectionQueries = mutableListOf<String?>()
         val slots = mutableListOf<Slot>()
         val imported = mutableListOf<String>()
         var discarded = 0
-        override suspend fun page(text: String, cursor: PageCursor?) = pages(text, cursor)
+        override suspend fun page(text: String, cursor: PageCursor?, collectionId: String?): LibraryPage {
+            collectionQueries.add(collectionId)
+            return pages(text, cursor)
+        }
         override suspend fun thumbnail(id: String) = "/test/$id.png"
         override suspend fun thumbnailStates(ids: List<String>) = ids.map { ThumbnailUpdate(it, ThumbnailState.Ready, "/test/$it.png", null) }
         override suspend fun createInput() = Slot().also { slots.add(it) }
@@ -51,6 +55,49 @@ class LibraryWorkflowTest {
         override suspend fun cancelActiveRead() = Unit
     }
     private fun item(id: String) = LibraryItem(id, id, "$id.png", false, "image/png", 40, 20, ThumbnailState.Missing, null, null)
+
+    @Test fun collectionIdentityIsPreservedAcrossSearchAndPagination() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val repository = Repository().apply { pages = { _, _ -> LibraryPage(listOf(item("a")), Cursor()) } }
+            val model = LibraryViewModel(repository, "cats")
+            store.put("collection", model)
+            runCurrent()
+            model.search("cat"); advanceTimeBy(250); runCurrent()
+            model.loadMore(); runCurrent()
+            assertEquals(listOf("cats", "cats", "cats"), repository.collectionQueries)
+        } finally { store.clear(); Dispatchers.resetMain() }
+    }
+
+    @Test fun sharedInputIsCopiedBeforeConfirmationAndNeverReadTwice() = runTest {
+        val repository = Repository()
+        val gateway = Gateway()
+        var reads = 0
+        gateway.onCopy = { reads++ }
+        val coordinator = ImportCoordinator(repository, gateway, backgroundScope)
+        coordinator.prepare(listOf("shared"), eager = true); runCurrent()
+        assertEquals(ImportItemStatus.Staged, coordinator.state.value.items.single().status)
+        assertTrue(repository.imported.isEmpty())
+        coordinator.prepare(listOf("replacement"), eager = true); runCurrent()
+        assertEquals("BATCH_BUSY", coordinator.state.value.selectionError)
+        coordinator.start(); runCurrent()
+        assertEquals(1, reads)
+        assertEquals(listOf("shared"), repository.imported)
+        assertTrue(repository.slots.single().closed)
+    }
+
+    @Test fun abandoningSharedReviewDiscardsAllStaging() = runTest {
+        val repository = Repository()
+        val gateway = Gateway().apply { onCopy = {} }
+        val coordinator = ImportCoordinator(repository, gateway, backgroundScope)
+        coordinator.prepare(listOf("a", "b"), eager = true); runCurrent()
+        coordinator.discard(); runCurrent()
+        assertEquals(2, repository.discarded)
+        assertTrue(repository.slots.all { it.closed })
+        assertFalse(coordinator.state.value.visible)
+        assertTrue(repository.imported.isEmpty())
+    }
 
     @Test fun batchKeepsPartialSuccessAndClosesEverySlot() = runTest {
         val repository = Repository()

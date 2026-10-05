@@ -26,3 +26,4 @@ dependencyResolutionManagement {
 rootProject.name = "MemeDock"
 include(":app")
 include(":rustBridge", ":ffiContractTests")
+include(":shareTestApp")

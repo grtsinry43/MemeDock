@@ -1,13 +1,17 @@
 use sea_orm_migration::prelude::*;
 mod m0001_initial;
+mod m0002_export_artifacts;
 
 pub(super) struct Migrator;
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(m0001_initial::Migration)]
+        vec![
+            Box::new(m0001_initial::Migration),
+            Box::new(m0002_export_artifacts::Migration),
+        ]
     }
 }
-pub(super) const SCHEMA_VERSION: i64 = 1;
+pub(super) const SCHEMA_VERSION: i64 = 2;
 pub(super) const APPLICATION_ID: i64 = 0x4d444f43;
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ package com.grtsinry43.memedock.feature.importing
 import com.grtsinry43.memedock.platform.importing.ImportCandidate
 
 enum class ImportPhase { Preparing, Review, Running, Finished }
-enum class ImportItemStatus { Queued, Reading, Validating, Created, Reused, RestoreRequired, Failed, Cancelled }
+enum class ImportItemStatus { Queued, Staged, Reading, Validating, Created, Reused, RestoreRequired, Failed, Cancelled }
 data class ImportItemState(
     val candidate: ImportCandidate,
     val status: ImportItemStatus = ImportItemStatus.Queued,

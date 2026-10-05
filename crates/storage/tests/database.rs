@@ -25,6 +25,31 @@ async fn raw(path: &std::path::Path) -> TestResult<DatabaseConnection> {
 }
 
 #[tokio::test]
+async fn version_one_upgrade_preserves_library_and_creates_checkpoint() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("library.sqlite");
+    let db = LibraryDatabase::open(&path).await?;
+    let identity = db.identity();
+    let (asset, sticker) = fixture(b"upgrade", "升级", 123)?;
+    insert(&db, &asset, &sticker).await?;
+    db.close().await?;
+    let conn = raw(&path).await?;
+    conn.execute_unprepared("DROP TABLE export_artifacts")
+        .await?;
+    conn.execute_unprepared("DELETE FROM seaql_migrations WHERE version='m0002_export_artifacts'")
+        .await?;
+    conn.execute_unprepared("PRAGMA user_version=1").await?;
+    conn.close().await?;
+    let db = LibraryDatabase::open(&path).await?;
+    assert_eq!(db.identity(), identity);
+    assert_eq!(db.sticker(sticker.id()).await?, Some(sticker));
+    assert!(db.artifact_page(None).await?.is_empty());
+    assert!(path.with_extension("pre-upgrade.sqlite").is_file());
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn restart_preserves_identity_models_and_log() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("库 ?#%.sqlite");
@@ -47,7 +72,7 @@ async fn rejects_future_schema_and_unrelated_database() -> TestResult {
     let path = dir.path().join("library.sqlite");
     LibraryDatabase::open(&path).await?.close().await?;
     let conn = raw(&path).await?;
-    conn.execute_unprepared("PRAGMA user_version=2").await?;
+    conn.execute_unprepared("PRAGMA user_version=999").await?;
     conn.close().await?;
     assert!(matches!(
         LibraryDatabase::open(&path).await,

@@ -1,6 +1,7 @@
 //! Owned library execution independent of the caller's async runtime.
 //! Platforms retain a Library for the process lifetime, close it explicitly,
 //! and retain/cancel individual tasks and subscriptions as needed.
+mod artifacts;
 pub mod config;
 pub mod error;
 pub mod events;
@@ -12,6 +13,7 @@ pub mod tasks;
 mod use_cases;
 mod writes;
 
+pub use artifacts::{ArtifactLease, ExportArtifact};
 pub use config::{LibraryConfig, ResourceLimits};
 pub use error::{CoreError, ErrorCode, Result};
 pub use library::{Library, LibraryState};

@@ -15,6 +15,7 @@ pub(crate) use row;
 pub mod asset;
 pub mod collection;
 pub mod collection_item;
+pub mod export_artifact;
 pub mod library_metadata;
 pub mod local_asset;
 pub mod local_change;

@@ -107,14 +107,31 @@ pub struct StickerDetail {
     pub sticker: StickerMetadata,
     pub asset: AssetMetadata,
     pub tags: Vec<TagMetadata>,
+    pub collections: Vec<CollectionMetadata>,
+    pub original_path: Option<String>,
+    pub original_error: Option<ErrorCode>,
 }
-impl From<memedock_core::StickerDetail> for StickerDetail {
-    fn from(v: memedock_core::StickerDetail) -> Self {
-        Self {
+impl TryFrom<memedock_core::StickerDetail> for StickerDetail {
+    type Error = crate::BridgeError;
+    fn try_from(v: memedock_core::StickerDetail) -> crate::Result<Self> {
+        Ok(Self {
             sticker: v.sticker.into(),
             asset: v.asset.into(),
             tags: v.tags.into_iter().map(Into::into).collect(),
-        }
+            collections: v.collections.into_iter().map(Into::into).collect(),
+            original_path: v
+                .original_path
+                .map(|p| {
+                    p.into_os_string().into_string().map_err(|_| {
+                        crate::BridgeError::new(
+                            ErrorCode::InvalidInput,
+                            "original path is not UTF-8",
+                        )
+                    })
+                })
+                .transpose()?,
+            original_error: v.original_error.map(Into::into),
+        })
     }
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]

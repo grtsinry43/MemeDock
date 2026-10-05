@@ -74,6 +74,9 @@ pub struct StickerDetail {
     pub sticker: Sticker,
     pub asset: Asset,
     pub tags: Vec<Tag>,
+    pub collections: Vec<memedock_domain::collection::Collection>,
+    pub original_path: Option<std::path::PathBuf>,
+    pub original_error: Option<ErrorCode>,
 }
 fn resource_status(
     rows: Vec<(Asset, Option<memedock_domain::local::LocalAsset>)>,
@@ -189,10 +192,35 @@ impl Library {
                     CoreError::new(ErrorCode::CorruptData, "sticker asset missing")
                 })?;
                 let tags = services.db.sticker_tags(id).await?;
+                let collections = services.db.sticker_collections(id).await?;
+                let blobs = services.blobs.clone();
+                let bytes = asset.byte_size().get();
+                let original =
+                    tokio::task::spawn_blocking(move || -> Result<std::path::PathBuf> {
+                        let file = blobs.open_original(id.content_hash())?;
+                        if file.metadata()?.len()
+                            != u64::try_from(bytes)
+                                .map_err(|_| CoreError::internal("asset size overflow"))?
+                        {
+                            return Err(CoreError::new(
+                                ErrorCode::CorruptData,
+                                "original size changed",
+                            ));
+                        }
+                        Ok(blobs.original_path(id.content_hash()))
+                    })
+                    .await?;
+                let (original_path, original_error) = match original {
+                    Ok(path) => (Some(path), None),
+                    Err(error) => (None, Some(error.code())),
+                };
                 Ok(StickerDetail {
                     sticker,
                     asset,
                     tags,
+                    collections,
+                    original_path,
+                    original_error,
                 })
             },
         )

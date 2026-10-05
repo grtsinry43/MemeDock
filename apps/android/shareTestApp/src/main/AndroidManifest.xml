@@ -1,0 +1,17 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="MemeDock 分享验证" android:allowBackup="false">
+        <activity android:name=".SenderActivity" android:exported="true" />
+        <activity android:name=".ReceiverActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+        <provider android:name=".FixtureProvider" android:authorities="com.grtsinry43.memedock.sharetest.fixtures"
+            android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/fixture_paths" />
+        </provider>
+        <provider android:name=".ReportProvider" android:authorities="com.grtsinry43.memedock.sharetest.reports" android:exported="true" />
+    </application>
+</manifest>

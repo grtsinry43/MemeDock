@@ -15,9 +15,12 @@ class AndroidImportGateway(private val resolver: ContentResolver, private val ma
     private data class Read(val signal: CancellationSignal, val input: AtomicReference<InputStream?> = AtomicReference())
     private val active = AtomicReference<Read?>()
     override suspend fun describe(uri: String): ImportCandidate = withContext(Dispatchers.IO) {
+        val read = Read(CancellationSignal())
+        check(active.compareAndSet(null, read)) { "Another URI read is active" }
+        try {
         var name = "未命名图片"
         var size: Long? = null
-        resolver.query(Uri.parse(uri), arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+        resolver.query(Uri.parse(uri), arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null, read.signal)?.use { cursor ->
             if (cursor.moveToFirst()) {
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
@@ -26,6 +29,7 @@ class AndroidImportGateway(private val resolver: ContentResolver, private val ma
             }
         }
         ImportCandidate(uri, name, size)
+        } finally { active.compareAndSet(read, null) }
     }
     override suspend fun copy(candidate: ImportCandidate, destination: String, cancelled: () -> Boolean, progress: (Long) -> Unit) = withContext(Dispatchers.IO) {
         val read = Read(CancellationSignal())

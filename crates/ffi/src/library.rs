@@ -17,6 +17,19 @@ pub fn new_request_id() -> String {
 }
 #[uniffi::export]
 impl LibraryHandle {
+    pub fn export_original(&self, id: String) -> Result<Arc<ExportTask>> {
+        Ok(ExportTask::new(self.inner.export_original(id.parse()?)?))
+    }
+    pub fn prepare_handoff(&self, lease: Arc<ArtifactLeaseHandle>) -> Result<Arc<HandoffTask>> {
+        Ok(HandoffTask::new(
+            self.inner.prepare_handoff(lease.inner.clone())?,
+        ))
+    }
+    pub fn clean_export_artifacts(&self) -> Result<Arc<ArtifactCleanupTask>> {
+        Ok(ArtifactCleanupTask::new(
+            self.inner.clean_export_artifacts()?,
+        ))
+    }
     pub fn sticker_resources(&self, ids: Vec<String>) -> Result<Arc<ResourcesTask>> {
         let ids = ids
             .into_iter()

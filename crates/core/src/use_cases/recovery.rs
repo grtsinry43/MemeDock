@@ -6,9 +6,11 @@ use std::sync::Arc;
 pub(crate) async fn recover(services: &Arc<Services>) -> Result<()> {
     let blobs = services.blobs.clone();
     let derived = services.derived.clone();
+    let exports = services.artifacts.store.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
         blobs.discard_abandoned_staging()?;
         derived.discard_abandoned_publications()?;
+        exports.discard_abandoned_publications()?;
         Ok(())
     })
     .await??;
@@ -26,5 +28,6 @@ pub(crate) async fn recover(services: &Arc<Services>) -> Result<()> {
             tx.commit().await?;
         }
     }
+    super::artifact_maintenance::cleanup(services, crate::writes::now()?.get()).await?;
     Ok(())
 }

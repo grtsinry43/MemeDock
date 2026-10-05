@@ -20,11 +20,12 @@ class LibraryScreenTest {
         try {
             compose.setContent {
                 MemeDockTheme {
-                    LibraryScreen(LibraryUiState(loading = false), loader, { search = it }, {}, {}, { _, _ -> }, { selected = true }, {}, false, {})
+                    LibraryScreen(LibraryUiState(loading = false), loader, { search = it }, {}, {}, { _, _ -> }, { selected = true }, {}, false, {}, {}, showSearch = true)
                 }
             }
-            compose.onNodeWithText("还没有图片，导入第一张吧").assertIsDisplayed()
+            compose.onNodeWithText("收好你的第一张表情").assertIsDisplayed()
             compose.onNodeWithText("导入图片").performClick()
+            compose.onNodeWithText("从相册选择").performClick()
             assertTrue(selected)
             compose.onNode(hasSetTextAction()).performTextInput("猫猫")
             assertEquals("猫猫", search)

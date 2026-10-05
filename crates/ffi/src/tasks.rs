@@ -101,10 +101,23 @@ task_handle!(
 );
 task_handle!(DiscardInputTask, (), (), |value| Ok(value));
 task_handle!(
+    ExportTask,
+    Arc<memedock_core::ArtifactLease>,
+    Arc<crate::ArtifactLeaseHandle>,
+    |value| Ok(crate::ArtifactLeaseHandle::new(value))
+);
+task_handle!(
+    HandoffTask,
+    memedock_core::ExportArtifact,
+    crate::ExportArtifact,
+    TryInto::try_into
+);
+task_handle!(ArtifactCleanupTask, u64, u64, |value| Ok(value));
+task_handle!(
     StickerDetailTask,
     memedock_core::StickerDetail,
     crate::StickerDetail,
-    |v| Ok(v.into())
+    TryInto::try_into
 );
 task_handle!(
     CollectionsTask,

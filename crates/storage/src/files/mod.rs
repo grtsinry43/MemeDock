@@ -2,10 +2,12 @@
 //! executor. All paths live in app-private directories, never public storage.
 mod blobs;
 mod derived;
+mod exports;
 mod recovery;
 mod staging;
 pub use blobs::{FsBlobStore, PublishDisposition, PublishedBlob};
 pub use derived::DerivedStore;
+pub use exports::ExportStore;
 pub use recovery::RecoveryScan;
 pub use staging::{PendingStaging, StagedFile};
 

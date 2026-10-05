@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::sync::{oneshot, watch};
 
 pub(crate) struct Services {
+    pub(crate) artifacts: Arc<crate::artifacts::ArtifactManager>,
     pub(crate) db: LibraryDatabase,
     pub(crate) blobs: FsBlobStore,
     pub(crate) config: LibraryConfig,
@@ -90,6 +91,9 @@ fn owner(config: LibraryConfig, ready: oneshot::Sender<Result<Library>>) {
         };
         let library = Library::from_shared(shared.clone(), db.identity(), config.data_dir.clone());
         let services = Arc::new(Services {
+            artifacts: crate::artifacts::ArtifactManager::new(
+                memedock_storage::files::ExportStore::open(&config.export_dir)?,
+            ),
             derived: DerivedStore::open(&config.cache_dir)?,
             image_budget: crate::images::budget::ImageBudget::new(&config.limits)?,
             write_permit: tokio::sync::Semaphore::new(1),

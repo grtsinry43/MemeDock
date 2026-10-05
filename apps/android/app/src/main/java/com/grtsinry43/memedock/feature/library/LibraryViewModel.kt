@@ -6,7 +6,7 @@ import com.grtsinry43.memedock.data.library.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() {
+class LibraryViewModel(private val repository: LibraryRepository, private val collectionId: String? = null) : ViewModel() {
     private val mutable = MutableStateFlow(LibraryUiState())
     val state = mutable.asStateFlow()
     private var cursor: PageCursor? = null
@@ -63,7 +63,7 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
         queryJob = viewModelScope.launch {
             try {
                 if (debounce) delay(250)
-                val page = repository.page(text)
+                val page = repository.page(text, collectionId = collectionId)
                 if (request != generation) { page.next?.close(); return@launch }
                 cursor = page.next
                 mutable.update { it.copy(items = page.items, loading = false, hasMore = page.next != null) }
@@ -79,7 +79,7 @@ class LibraryViewModel(private val repository: LibraryRepository) : ViewModel() 
         mutable.update { it.copy(loadingMore = true, pageError = null) }
         queryJob = viewModelScope.launch {
             try {
-                val page = repository.page(text, next)
+                val page = repository.page(text, next, collectionId)
                 if (request != generation) { page.next?.close(); return@launch }
                 next.close(); cursor = page.next
                 mutable.update { it.copy(items = (it.items + page.items).distinctBy(LibraryItem::id), loadingMore = false, hasMore = page.next != null) }

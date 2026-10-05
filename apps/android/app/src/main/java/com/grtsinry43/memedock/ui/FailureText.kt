@@ -14,6 +14,8 @@ fun failureText(code: String?): String = stringResource(when (code?.uppercase())
     "RESOURCE_LIMIT" -> R.string.failure_limit
     "BATCH_LIMIT" -> R.string.failure_batch
     "BUSY" -> R.string.failure_busy
+    "BATCH_BUSY" -> R.string.error_batch_busy
+    "NO_SHARE_TARGET" -> R.string.error_share_target
     "NOT_FOUND" -> R.string.failure_missing
     "CORRUPT_DATA", "UNSUPPORTED_SCHEMA", "DATABASE" -> R.string.failure_library
     else -> R.string.failure_unknown

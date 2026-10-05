@@ -6,6 +6,23 @@ use memedock_domain::{
 };
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 impl LibraryDatabase {
+    pub async fn sticker_collections(&self, id: StickerId) -> Result<Vec<Collection>> {
+        use sea_orm::{ConnectionTrait, DbBackend, FromQueryResult, Statement};
+        let rows = self
+            .connection
+            .query_all_raw(Statement::from_sql_and_values(
+                DbBackend::Sqlite,
+                "SELECT c.* FROM collections c JOIN collection_items r ON r.collection_id=c.id
+             JOIN stickers s ON s.id=r.sticker_id WHERE s.id=? AND s.deleted_at IS NULL
+             AND c.deleted_at IS NULL AND r.present=1 AND r.collection_generation=c.generation
+             AND r.sticker_generation=s.generation ORDER BY c.sort_key COLLATE BINARY,c.id",
+                [id.to_string().into()],
+            ))
+            .await?;
+        rows.into_iter()
+            .map(|row| entities::collection::Model::from_query_result(&row, "")?.domain())
+            .collect()
+    }
     pub async fn collection(&self, id: CollectionId) -> Result<Option<Collection>> {
         entities::collection::Entity::find_by_id(id.to_string())
             .one(&self.connection)

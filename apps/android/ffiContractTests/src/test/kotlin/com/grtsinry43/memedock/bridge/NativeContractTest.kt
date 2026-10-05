@@ -34,6 +34,16 @@ class NativeContractTest {
                         val resources = library.stickerResources(listOf(id)).use { it.awaitResult() }
                         assertEquals(ThumbnailStatus.READY, resources.single().thumbnailStatus)
                         assertEquals(1L, library.spaceStatistics().use { it.awaitResult() }.knownAssets)
+                        val detail = library.stickerDetail(id).use { it.awaitResult() }
+                        assertNotNull(detail.originalPath)
+                        assertNull(detail.originalError)
+                        library.exportOriginal(id).use { it.awaitResult() }.use { lease ->
+                            val output = library.prepareHandoff(lease).use { it.awaitResult() }
+                            assertEquals("image/png", output.mime)
+                            assertArrayEquals(File(requireNotNull(detail.originalPath)).readBytes(), File(output.path).readBytes())
+                            assertEquals(0uL, library.cleanExportArtifacts().use { it.awaitResult() })
+                            library.exportOriginal(id).use { it.awaitResult() }.use { second -> assertEquals(output.id, second.metadata().id) }
+                        }
                     } finally { library.shutdown() }
                 }
                 openLibrary(config).use { library ->

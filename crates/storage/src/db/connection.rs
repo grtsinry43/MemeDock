@@ -108,6 +108,14 @@ impl LibraryDatabase {
                 ));
             }
             let known = Migrator::migrations();
+            if usize::try_from(version).ok() != Some(applied.len())
+                || known
+                    .iter()
+                    .take(applied.len())
+                    .any(|k| !applied.iter().any(|m| m.name() == k.name()))
+            {
+                return Err(StorageError::UnsupportedSchema);
+            }
             if applied
                 .iter()
                 .any(|m| !known.iter().any(|k| k.name() == m.name()))
