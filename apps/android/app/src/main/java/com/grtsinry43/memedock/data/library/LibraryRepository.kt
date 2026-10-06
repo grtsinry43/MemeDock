@@ -16,8 +16,17 @@ interface LibraryRepository {
 interface DetailRepository {
     suspend fun detail(id: String): StickerDetails
     suspend fun exportOriginal(id: String): OutputLease
+    suspend fun export(id: String, choice: com.grtsinry43.memedock.data.settings.ExportChoice, firstFrame: Boolean): OutputLease
     suspend fun prepareHandoff(lease: OutputLease): ShareArtifact
     suspend fun recordShareLaunched(id: String)
+    suspend fun recordCopy(id: String)
+    suspend fun recordSaved(id: String)
+}
+
+interface ClipboardRepository {
+    suspend fun protectClipboard(lease: OutputLease): String
+    suspend fun reconcileClipboard(observed: String?)
+    suspend fun abortClipboard(reference: String)
 }
 
 interface CollectionRepository {

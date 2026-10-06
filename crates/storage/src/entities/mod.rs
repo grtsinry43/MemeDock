@@ -13,6 +13,7 @@ macro_rules! row {
 }
 pub(crate) use row;
 pub mod asset;
+pub mod clipboard_reference;
 pub mod collection;
 pub mod collection_item;
 pub mod export_artifact;

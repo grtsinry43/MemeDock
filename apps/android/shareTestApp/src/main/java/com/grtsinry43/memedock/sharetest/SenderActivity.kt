@@ -10,6 +10,17 @@ import java.io.File
 class SenderActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent.getBooleanExtra("createDocument", false)) {
+            val parent = android.provider.DocumentsContract.buildDocumentUri("$packageName.documents",
+                if (intent.getBooleanExtra("failWrite", false)) "failure" else "success")
+            val uri = requireNotNull(android.provider.DocumentsContract.createDocument(contentResolver, parent,
+                "image/png", "MemeDock-test.png"))
+            grantUriPermission("com.grtsinry43.memedock", uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            val key = requireNotNull(intent.getStringExtra("reportKey"))
+            getSharedPreferences("reports", 0).edit().putString("$key.status", "created").putString("$key.hash", uri.toString()).commit()
+            finish(); return
+        }
         // Initialize the provider before looking up its generated files.
         contentResolver.getType(android.net.Uri.parse("content://$packageName.fixtures/fixtures/MemeDock-shared.png"))
         val first = FileProvider.getUriForFile(this, "$packageName.fixtures", File(filesDir, "fixtures/MemeDock-shared.png"))

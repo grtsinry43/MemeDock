@@ -142,6 +142,13 @@ task_handle!(
 );
 task_handle!(ArtifactCleanupTask, u64, u64, |value| Ok(value));
 task_handle!(
+    ClipboardProtectionTask,
+    memedock_domain::identity::OperationId,
+    String,
+    |value: memedock_domain::identity::OperationId| Ok(value.to_string())
+);
+task_handle!(ClipboardUpdateTask, (), (), |value| Ok(value));
+task_handle!(
     StickerDetailTask,
     memedock_core::StickerDetail,
     crate::StickerDetail,

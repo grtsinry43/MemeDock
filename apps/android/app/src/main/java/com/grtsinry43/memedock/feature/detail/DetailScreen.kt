@@ -16,6 +16,7 @@ import coil3.ImageLoader
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.data.library.LibraryItem
 import com.grtsinry43.memedock.data.library.StickerDetails
+import com.grtsinry43.memedock.data.settings.ExportChoice
 import com.grtsinry43.memedock.ui.components.*
 import com.grtsinry43.memedock.ui.failureText
 import com.grtsinry43.memedock.ui.theme.MemeDockLayout
@@ -25,7 +26,9 @@ import com.grtsinry43.memedock.ui.theme.MemeDockLayout
 fun DetailScreen(state: DetailUiState, loader: ImageLoader, back: () -> Unit, retry: () -> Unit,
     togglePlayback: () -> Unit, cancelShare: () -> Unit, share: () -> Unit, initialItem: LibraryItem? = null,
     edit: (() -> Unit)? = null, organize: (() -> Unit)? = null, favorite: (() -> Unit)? = null,
-    delete: (() -> Unit)? = null, restore: (() -> Unit)? = null) {
+    delete: (() -> Unit)? = null, restore: (() -> Unit)? = null,
+    choice: ExportChoice = ExportChoice.Original, choosePreset: (() -> Unit)? = null,
+    copy: (() -> Unit)? = null, save: (() -> Unit)? = null, outputsReady: Boolean = true) {
     val detail = state.detail
     val placeholder = remember(initialItem) { initialItem?.let {
         StickerDetails(it.id, it.title, "", it.originalName, it.mime, it.width, it.height, 0, it.animated,
@@ -44,16 +47,33 @@ fun DetailScreen(state: DetailUiState, loader: ImageLoader, back: () -> Unit, re
                     if (state.sharing) {
                         LinearProgressIndicator(Modifier.widthIn(max = MemeDockLayout.ContentWidth).fillMaxWidth())
                         Row(Modifier.widthIn(max = MemeDockLayout.ContentWidth).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.share_preparing), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Text(stringResource(if (state.saving) R.string.image_saving else R.string.share_preparing), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                             TextButton(onClick = cancelShare) { Text(stringResource(R.string.cancel)) }
                         }
-                    } else Button(onClick = share, enabled = !detail.deleted && detail.originalError == null,
+                    } else {
+                    choosePreset?.let { TextButton(onClick = it, enabled = outputsReady && !state.managing,
+                        modifier = Modifier.testTag("choose-export-preset")) {
+                        Text(stringResource(choice.titleResource()))
+                        Spacer(Modifier.width(8.dp)); Icon(MemeDockIcons.More, null, Modifier.size(18.dp))
+                    } }
+                    Button(onClick = share, enabled = outputsReady && !state.managing && !detail.deleted && detail.originalError == null,
                         shape = MaterialTheme.shapes.large, contentPadding = PaddingValues(16.dp),
                         modifier = Modifier.widthIn(max = MemeDockLayout.ContentWidth).fillMaxWidth()) {
                         Icon(MemeDockIcons.Share, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.share_original))
+                        Text(stringResource(if (choice == ExportChoice.Original) R.string.share_original else R.string.share_sticker))
                     }
-                    state.shareError?.let { Text(if (state.shareLaunched) stringResource(R.string.share_accounting_failed) else failureText(it),
+                    Row(Modifier.widthIn(max = MemeDockLayout.ContentWidth).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        copy?.let { OutlinedButton(onClick = it, enabled = outputsReady && !state.managing && detail.originalError == null, modifier = Modifier.weight(1f).testTag("copy-image")) {
+                            Icon(MemeDockIcons.Copy, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.copy_image))
+                        } }
+                        save?.let { OutlinedButton(onClick = it, enabled = outputsReady && !state.managing && detail.originalError == null, modifier = Modifier.weight(1f).testTag("save-image")) {
+                            Icon(MemeDockIcons.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.save_image))
+                        } }
+                    }
+                    }
+                    if (state.saved) Text(stringResource(R.string.image_saved), style = MaterialTheme.typography.bodySmall)
+                    if (state.copied && android.os.Build.VERSION.SDK_INT < 33) Text(stringResource(R.string.image_copied), style = MaterialTheme.typography.bodySmall)
+                    state.shareError?.let { Text(if (state.shareLaunched || state.saved) stringResource(R.string.output_accounting_failed) else failureText(it),
                         color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp)) }
                 }
             }
@@ -122,7 +142,7 @@ fun DetailScreen(state: DetailUiState, loader: ImageLoader, back: () -> Unit, re
                         }
                         if (detail.deleted) {
                             Text(stringResource(R.string.restore_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            restore?.let { Button(onClick = it, enabled = !state.managing, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.restore)) } }
+                            restore?.let { Button(onClick = it, enabled = !state.managing, modifier = Modifier.fillMaxWidth().testTag("restore-sticker")) { Text(stringResource(R.string.restore)) } }
                         } else delete?.let {
                             TextButton(onClick = it, enabled = !state.managing && !state.sharing) {
                                 Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)

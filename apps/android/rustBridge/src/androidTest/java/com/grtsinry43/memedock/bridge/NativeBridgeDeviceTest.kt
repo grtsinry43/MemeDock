@@ -13,6 +13,45 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class NativeBridgeDeviceTest {
+    @Test fun nativeDerivedExportAndClipboardProtectionSurviveReopenOnDevice() = runBlocking {
+        withTimeout(30_000) {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val directory = File(context.filesDir, "bridge-export-${UUID.randomUUID()}")
+            val config = LibraryConfiguration(File(directory, "data").path,
+                File(directory, "cache").path, File(directory, "exports").path, defaultResourceConfiguration())
+            var token: String? = null
+            try {
+                openLibrary(config).use { library ->
+                    try {
+                        val id = library.createImportInput().use { it.awaitResult() }.use { input ->
+                            val bitmap = android.graphics.Bitmap.createBitmap(40, 20, android.graphics.Bitmap.Config.ARGB_8888)
+                            try {
+                                bitmap.eraseColor(0x804080C0.toInt())
+                                File(input.path()).outputStream().use { assertTrue(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) }
+                            } finally { bitmap.recycle() }
+                            library.importStaged(input, ImportOptions("native-export.png", null, null)).use { it.awaitResult().sticker.id }
+                        }
+                        library.export(id, ExportOptions(ExportPreset.WHITE_BACKGROUND, null, UInt.MAX_VALUE, true, AnimationPolicy.PRESERVE))
+                            .use { it.awaitResult() }.use { lease ->
+                                val artifact = library.prepareHandoff(lease).use { it.awaitResult() }
+                                assertEquals("image/png", artifact.mime)
+                                val bitmap = android.graphics.BitmapFactory.decodeFile(artifact.path)
+                                try { assertEquals(40, bitmap.width); assertEquals(255, bitmap.getPixel(10, 10) ushr 24) }
+                                finally { bitmap.recycle() }
+                                token = library.protectClipboard(lease).use { it.awaitResult() }
+                            }
+                    } finally { library.shutdown() }
+                }
+                openLibrary(config).use { library ->
+                    try {
+                        library.reconcileClipboard(token).use { it.awaitResult() }
+                        assertEquals(0uL, library.cleanExportArtifacts().use { it.awaitResult() })
+                        library.reconcileClipboard(null).use { it.awaitResult() }
+                    } finally { library.shutdown() }
+                }
+            } finally { assertTrue(directory.deleteRecursively()) }
+        }
+    }
     @Test fun nativeLibraryOpensQueriesClosesAndReopensOnDevice() = runBlocking {
         withTimeout(30_000) {
             val context = InstrumentationRegistry.getInstrumentation().targetContext

@@ -5,7 +5,7 @@ import com.grtsinry43.memedock.bridge.generated.*
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicBoolean
 
-class RustLibraryRepository(private val session: LibrarySession) : LibraryRepository, DetailRepository, CollectionRepository, ManagementRepository {
+class RustLibraryRepository(private val session: LibrarySession) : LibraryRepository, DetailRepository, CollectionRepository, ManagementRepository, ClipboardRepository {
     override val changes = session.changes
     private class Cursor(val native: QueryCursorHandle) : PageCursor {
         override fun close() = native.close()
@@ -33,11 +33,24 @@ class RustLibraryRepository(private val session: LibrarySession) : LibraryReposi
             }
         }
     }
-    override suspend fun exportOriginal(id: String): OutputLease {
+    override suspend fun exportOriginal(id: String): OutputLease = export(id, com.grtsinry43.memedock.data.settings.ExportChoice.Original, false)
+    override suspend fun export(id: String, choice: com.grtsinry43.memedock.data.settings.ExportChoice, firstFrame: Boolean): OutputLease {
         var acquired: Lease? = null
         try {
         val result = withContext(Dispatchers.IO) { translate {
-            session.library().exportOriginal(id).use { task ->
+            val original = choice == com.grtsinry43.memedock.data.settings.ExportChoice.Original
+            val preset = when (choice) {
+                com.grtsinry43.memedock.data.settings.ExportChoice.Original -> ExportPreset.ORIGINAL
+                com.grtsinry43.memedock.data.settings.ExportChoice.CompatiblePng -> ExportPreset.COMPATIBLE_PNG
+                com.grtsinry43.memedock.data.settings.ExportChoice.WhiteBackground -> ExportPreset.WHITE_BACKGROUND
+                com.grtsinry43.memedock.data.settings.ExportChoice.SmallJpeg -> ExportPreset.SMALL_JPEG
+            }
+            val options = ExportOptions(preset,
+                when (choice) { com.grtsinry43.memedock.data.settings.ExportChoice.CompatiblePng -> 1024u
+                    com.grtsinry43.memedock.data.settings.ExportChoice.SmallJpeg -> 512u; else -> null },
+                if (choice == com.grtsinry43.memedock.data.settings.ExportChoice.WhiteBackground || choice == com.grtsinry43.memedock.data.settings.ExportChoice.SmallJpeg) UInt.MAX_VALUE else null,
+                !original, if (!original && firstFrame) AnimationPolicy.FIRST_FRAME else AnimationPolicy.PRESERVE)
+            session.library().export(id, options).use { task ->
                 try { Lease(task.awaitResult()).also { acquired = it } } catch (cancel: CancellationException) { task.cancel(); throw cancel }
             }
         } }
@@ -55,6 +68,21 @@ class RustLibraryRepository(private val session: LibrarySession) : LibraryReposi
     }
     override suspend fun recordShareLaunched(id: String) = withContext(Dispatchers.IO) {
         translate { session.library().recordUse(id, UsageAction.SHARE_LAUNCHED).use { it.awaitResult(); Unit } }
+    }
+    override suspend fun recordCopy(id: String) = withContext(Dispatchers.IO) {
+        translate { session.library().recordUse(id, UsageAction.COPY_IMAGE).use { it.awaitResult(); Unit } }
+    }
+    override suspend fun recordSaved(id: String) = withContext(Dispatchers.IO) {
+        translate { session.library().recordUse(id, UsageAction.EXPORT_SAVED).use { it.awaitResult(); Unit } }
+    }
+    override suspend fun protectClipboard(lease: OutputLease): String = withContext(Dispatchers.IO) {
+        translate { session.library().protectClipboard((lease as Lease).native).use { it.awaitResult() } }
+    }
+    override suspend fun reconcileClipboard(observed: String?) = withContext(Dispatchers.IO) {
+        translate { session.library().reconcileClipboard(observed).use { it.awaitResult() } }
+    }
+    override suspend fun abortClipboard(reference: String) = withContext(Dispatchers.IO) {
+        translate { session.library().abortClipboard(reference).use { it.awaitResult() } }
     }
 
     override fun retryOpen() = session.retryOpen()

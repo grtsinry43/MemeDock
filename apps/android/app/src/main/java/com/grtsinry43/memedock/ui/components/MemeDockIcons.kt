@@ -6,6 +6,8 @@ import androidx.compose.ui.res.vectorResource
 import com.composables.icons.materialsymbols.rounded.R as Symbols
 
 object MemeDockIcons {
+    val Copy: ImageVector @Composable get() = ImageVector.vectorResource(Symbols.drawable.materialsymbols_ic_content_copy_rounded)
+    val Download: ImageVector @Composable get() = ImageVector.vectorResource(Symbols.drawable.materialsymbols_ic_download_rounded)
     val Star: ImageVector @Composable get() = ImageVector.vectorResource(Symbols.drawable.materialsymbols_ic_star_rounded)
     val More: ImageVector @Composable get() = ImageVector.vectorResource(Symbols.drawable.materialsymbols_ic_more_vert_rounded)
     val Label: ImageVector @Composable get() = ImageVector.vectorResource(Symbols.drawable.materialsymbols_ic_label_rounded)

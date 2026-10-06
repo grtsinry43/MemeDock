@@ -6,6 +6,7 @@ pub type Result<T> = std::result::Result<T, BridgeError>;
 pub enum ErrorCode {
     InvalidInput,
     UnsupportedFormat,
+    UnsupportedColorProfile,
     InvalidImage,
     ResourceLimit,
     AlreadyOpen,
@@ -29,6 +30,7 @@ impl From<memedock_core::ErrorCode> for ErrorCode {
         match code {
             C::InvalidInput => Self::InvalidInput,
             C::UnsupportedFormat => Self::UnsupportedFormat,
+            C::UnsupportedColorProfile => Self::UnsupportedColorProfile,
             C::InvalidImage => Self::InvalidImage,
             C::ResourceLimit => Self::ResourceLimit,
             C::AlreadyOpen => Self::AlreadyOpen,

@@ -63,10 +63,35 @@ fn frames<'a>(
 /// Full import validation streams all animation frames; thumbnail generation
 /// decodes only the first composed frame. Neither path collects the animation.
 pub(crate) fn decode(
+    file: File,
+    limits: &ResourceLimits,
+    control: &TaskControl,
+    validate_all: bool,
+) -> Result<Decoded> {
+    decode_internal(file, limits, control, validate_all, false)
+}
+pub(crate) fn decode_export(
+    file: File,
+    limits: &ResourceLimits,
+    control: &TaskControl,
+) -> Result<Decoded> {
+    decode_internal(file, limits, control, false, true)
+}
+fn check_profile(decoder: &mut impl ImageDecoder, reject_profile: bool) -> Result<()> {
+    if reject_profile && decoder.icc_profile().map_err(error)?.is_some() {
+        return Err(CoreError::new(
+            ErrorCode::UnsupportedColorProfile,
+            "embedded color profile requires unverified color conversion; use original",
+        ));
+    }
+    Ok(())
+}
+fn decode_internal(
     mut file: File,
     limits: &ResourceLimits,
     control: &TaskControl,
     validate_all: bool,
+    reject_profile: bool,
 ) -> Result<Decoded> {
     control.check()?;
     let reader = ImageReader::new(BufReader::new(file.try_clone()?))
@@ -94,6 +119,7 @@ pub(crate) fn decode(
             let mut decoder =
                 image::codecs::gif::GifDecoder::new(BufReader::new(file)).map_err(error)?;
             let dimensions = bounds(&mut decoder, limits)?;
+            check_profile(&mut decoder, reject_profile)?;
             let (image, animated) = frames(decoder.into_frames(), validate_all, control)?;
             (
                 image,
@@ -106,6 +132,7 @@ pub(crate) fn decode(
             let mut decoder =
                 image::codecs::webp::WebPDecoder::new(BufReader::new(file)).map_err(error)?;
             let dimensions = bounds(&mut decoder, limits)?;
+            check_profile(&mut decoder, reject_profile)?;
             let animated = decoder.has_animation();
             let orientation = decoder.orientation().map_err(error)?;
             let image = if animated {
@@ -122,6 +149,7 @@ pub(crate) fn decode(
                 image::codecs::png::PngDecoder::with_limits(BufReader::new(file), initial)
                     .map_err(error)?;
             let dimensions = bounds(&mut decoder, limits)?;
+            check_profile(&mut decoder, reject_profile)?;
             let animated = decoder.is_apng().map_err(error)?;
             let orientation = decoder.orientation().map_err(error)?;
             let image = if animated {
@@ -141,6 +169,7 @@ pub(crate) fn decode(
                 .into_decoder()
                 .map_err(error)?;
             let dimensions = bounds(&mut decoder, limits)?;
+            check_profile(&mut decoder, reject_profile)?;
             let orientation = decoder.orientation().map_err(error)?;
             (
                 DynamicImage::from_decoder(decoder).map_err(error)?,

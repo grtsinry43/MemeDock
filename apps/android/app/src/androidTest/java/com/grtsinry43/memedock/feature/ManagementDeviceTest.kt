@@ -116,8 +116,8 @@ class ManagementDeviceTest {
             compose.onNodeWithText("回收站").performScrollTo().performClick()
             waitText(title)
             compose.onNodeWithText(title).performClick()
-            waitText("恢复")
-            compose.onNodeWithText("恢复").performScrollTo().performClick()
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("restore-sticker").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("restore-sticker").performScrollTo().performClick()
             waitText("原来的整理")
             compose.onNodeWithTag("confirm-restore-sticker").performClick()
             compose.waitUntil(10_000) { runBlocking { !repository.detail(id).deleted } }

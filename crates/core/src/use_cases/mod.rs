@@ -1,4 +1,5 @@
 pub(crate) mod artifact_maintenance;
+mod clipboard;
 mod collection_management;
 mod export;
 pub(crate) mod import;

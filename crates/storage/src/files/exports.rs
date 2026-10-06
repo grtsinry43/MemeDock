@@ -105,7 +105,7 @@ impl ExportStore {
         mut cancelled: impl FnMut() -> bool,
     ) -> Result<()> {
         let (hash, size) = hash_file(&self.path(record), record.byte_size, &mut cancelled)?;
-        if hash != record.source_hash || size != record.byte_size {
+        if hash != record.output_hash || size != record.byte_size {
             return Err(StorageError::Integrity("artifact bytes changed"));
         }
         Ok(())
@@ -145,7 +145,7 @@ impl ExportStore {
                 output.write_all(&buffer[..read])?;
             }
             let actual: [u8; 32] = digest.finalize().into();
-            if memedock_domain::identity::ContentHash::from_bytes(actual) != record.source_hash
+            if memedock_domain::identity::ContentHash::from_bytes(actual) != record.output_hash
                 || size != record.byte_size
             {
                 return Err(StorageError::Integrity("original bytes changed"));

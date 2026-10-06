@@ -34,9 +34,9 @@ async fn version_one_upgrade_preserves_library_and_creates_checkpoint() -> TestR
     insert(&db, &asset, &sticker).await?;
     db.close().await?;
     let conn = raw(&path).await?;
-    conn.execute_unprepared("DROP TABLE export_artifacts")
+    conn.execute_unprepared("DROP TABLE clipboard_references; DROP TABLE export_artifacts")
         .await?;
-    conn.execute_unprepared("DELETE FROM seaql_migrations WHERE version='m0002_export_artifacts'")
+    conn.execute_unprepared("DELETE FROM seaql_migrations WHERE version IN ('m0002_export_artifacts','m0003_export_recipes')")
         .await?;
     conn.execute_unprepared("PRAGMA user_version=1").await?;
     conn.close().await?;
@@ -45,6 +45,44 @@ async fn version_one_upgrade_preserves_library_and_creates_checkpoint() -> TestR
     assert_eq!(db.sticker(sticker.id()).await?, Some(sticker));
     assert!(db.artifact_page(None).await?.is_empty());
     assert!(path.with_extension("pre-upgrade.sqlite").is_file());
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn upgrade_with_an_existing_checkpoint_preserves_it_and_takes_a_new_snapshot() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("library.sqlite");
+    let db = LibraryDatabase::open(&path).await?;
+    let identity = db.identity();
+    db.close().await?;
+    let checkpoint = path.with_extension("pre-upgrade.sqlite");
+    std::fs::write(&checkpoint, b"earlier checkpoint must survive")?;
+    let conn = raw(&path).await?;
+    conn.execute_unprepared(
+        "DROP TABLE clipboard_references;
+        ALTER TABLE export_artifacts DROP COLUMN output_hash;
+        DELETE FROM seaql_migrations WHERE version='m0003_export_recipes';
+        PRAGMA user_version=2;",
+    )
+    .await?;
+    conn.close().await?;
+    let db = LibraryDatabase::open(&path).await?;
+    assert_eq!(db.identity(), identity);
+    assert_eq!(
+        std::fs::read(checkpoint)?,
+        b"earlier checkpoint must survive"
+    );
+    assert_eq!(
+        std::fs::read_dir(dir.path())?
+            .filter_map(Result::ok)
+            .filter(|entry| entry
+                .file_name()
+                .to_string_lossy()
+                .contains("pre-upgrade-v2-"))
+            .count(),
+        1
+    );
     db.close().await?;
     Ok(())
 }

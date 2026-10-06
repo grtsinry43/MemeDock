@@ -4,6 +4,9 @@ import android.content.ActivityNotFoundException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grtsinry43.memedock.data.library.*
+import com.grtsinry43.memedock.data.settings.ExportChoice
+import com.grtsinry43.memedock.platform.clipboard.ClipboardCoordinator
+import com.grtsinry43.memedock.platform.saving.SaveCoordinator
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -39,22 +42,34 @@ class DetailViewModel(private val id: String, private val repository: DetailRepo
     }
     fun togglePlayback() { mutable.update { it.copy(playing = !it.playing) } }
     fun cancelShare() { sharing?.cancel() }
-    fun share(launch: (ShareArtifact) -> Unit) {
+    fun share(choice: ExportChoice = ExportChoice.Original, firstFrame: Boolean = false, launch: (ShareArtifact) -> Unit) {
+        prepare(choice, firstFrame, { _, artifact -> launch(artifact); false }, { repository.recordShareLaunched(id) })
+    }
+    fun copy(choice: ExportChoice, firstFrame: Boolean, clipboard: ClipboardCoordinator) {
+        prepare(choice, firstFrame, { lease, artifact -> clipboard.copy(lease, artifact); mutable.update { it.copy(copied = true) }; false }, { repository.recordCopy(id) })
+    }
+    fun save(choice: ExportChoice, firstFrame: Boolean, saves: SaveCoordinator) {
+        prepare(choice, firstFrame, { lease, artifact -> saves.prepare(id, lease, artifact); true }, {})
+    }
+    private fun prepare(choice: ExportChoice, firstFrame: Boolean,
+        deliver: suspend (OutputLease, ShareArtifact) -> Boolean, record: suspend () -> Unit) {
         if (mutable.value.sharing || mutable.value.managing || mutable.value.detail?.deleted != false) return
-        mutable.update { it.copy(sharing = true, shareError = null, shareLaunched = false) }
+        mutable.update { it.copy(sharing = true, shareError = null, shareLaunched = false, copied = false) }
         sharing = viewModelScope.launch {
+            var acquired: OutputLease? = null
             try {
-                repository.exportOriginal(id).use { lease ->
+                val lease = repository.export(id, choice, firstFrame)
+                acquired = lease
                     val artifact = repository.prepareHandoff(lease)
                     ensureActive()
-                    launch(artifact)
-                    mutable.update { it.copy(shareLaunched = true) }
+                    val transferred = deliver(lease, artifact)
+                    if (transferred) acquired = null
+                    mutable.update { it.copy(shareLaunched = !transferred) }
                     // Once launched, complete accounting despite page disposal.
-                    withContext(NonCancellable) { repository.recordShareLaunched(id) }
-                }
+                    withContext(NonCancellable) { record() }
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) { mutable.update { it.copy(shareError = reason(error)) } }
-            finally { mutable.update { it.copy(sharing = false) } }
+            finally { acquired?.close(); mutable.update { it.copy(sharing = false) } }
         }
     }
     private fun reason(error: Exception) = when (error) {

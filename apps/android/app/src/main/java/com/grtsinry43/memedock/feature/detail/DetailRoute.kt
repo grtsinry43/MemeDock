@@ -22,6 +22,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.grtsinry43.memedock.app.AppContainer
 import com.grtsinry43.memedock.data.library.LibraryItem
+import com.grtsinry43.memedock.data.settings.ExportChoice
+import kotlinx.coroutines.launch
+
+private enum class OutputAction { Share, Copy, Save }
 
 @Composable
 fun DetailRoute(id: String, container: AppContainer, initialItem: LibraryItem?, back: () -> Unit) {
@@ -32,18 +36,59 @@ fun DetailRoute(id: String, container: AppContainer, initialItem: LibraryItem?, 
     val model: DetailViewModel = viewModel(viewModelStoreOwner = owner, factory = factory)
     val state by model.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val preference by container.exportPreferences.choice.collectAsStateWithLifecycle<ExportChoice?>(null)
+    val choice = preference ?: ExportChoice.Original
+    val saveState by container.saves.state.collectAsStateWithLifecycle()
+    var choosingPreset by rememberSaveable(id) { mutableStateOf(false) }
+    var pendingAction by rememberSaveable(id) { mutableStateOf<OutputAction?>(null) }
+    var pendingChoice by rememberSaveable(id) { mutableStateOf(ExportChoice.Original) }
+    var preferenceError by remember { mutableStateOf<String?>(null) }
+    fun perform(action: OutputAction, selected: ExportChoice, firstFrame: Boolean) {
+        when (action) {
+            OutputAction.Share -> model.share(selected, firstFrame) { container.shares.share(context.activity(), it) }
+            OutputAction.Copy -> model.copy(selected, firstFrame, container.clipboard)
+            OutputAction.Save -> model.save(selected, firstFrame, container.saves)
+        }
+    }
+    fun request(action: OutputAction) {
+        if (preference == null || saveState.artifact != null || state.sharing) return
+        container.saves.clearFeedback()
+        if (state.detail?.animated == true && choice != ExportChoice.Original) {
+            pendingChoice = choice; pendingAction = action
+        } else perform(action, choice, false)
+    }
     var editing by rememberSaveable(id) { mutableStateOf(false) }
     var organizing by rememberSaveable(id) { mutableStateOf(false) }
     var deleting by rememberSaveable(id) { mutableStateOf(false) }
     var restoring by rememberSaveable(id) { mutableStateOf(false) }
     DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
-    DetailScreen(state, container.imageLoader, back, model::retry, model::togglePlayback, model::cancelShare,
+    val shown = state.copy(sharing = state.sharing || saveState.artifact != null,
+        saving = saveState.writing, saved = saveState.stickerId == id && saveState.saved,
+        shareError = preferenceError ?: if (saveState.stickerId == id) saveState.error ?: state.shareError else state.shareError)
+    DetailScreen(shown, container.imageLoader, back, model::retry, model::togglePlayback,
+        { if (saveState.writing) container.saves.cancel() else model.cancelShare() },
         share = {
-        model.share { artifact -> container.shares.share(context.activity(), artifact) }
+        request(OutputAction.Share)
     }, initialItem = initialItem,
         edit = { editing = true }, organize = { organizing = true },
         favorite = { model.manage({ container.library.patchSticker(it, starred = !it.starred) }, model::retry) },
-        delete = { deleting = true }, restore = { restoring = true })
+        delete = { deleting = true }, restore = { restoring = true }, choice = choice,
+        choosePreset = { choosingPreset = true }, copy = { request(OutputAction.Copy) }, save = { request(OutputAction.Save) },
+        outputsReady = preference != null)
+    if (choosingPreset) ExportPresetSheet(choice, { choosingPreset = false }) { selected ->
+        scope.launch {
+            try { container.exportPreferences.select(selected); preferenceError = null; choosingPreset = false }
+            catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: java.io.IOException) { preferenceError = "IO" }
+        }
+    }
+    pendingAction?.let { action -> AlertDialog(onDismissRequest = { pendingAction = null },
+        title = { Text(stringResource(R.string.export_animation_title)) },
+        text = { Text(stringResource(R.string.export_animation_hint)) },
+        dismissButton = { TextButton(onClick = { pendingAction = null }) { Text(stringResource(R.string.cancel)) } },
+        confirmButton = { TextButton(onClick = { pendingAction = null; perform(action, pendingChoice, true) },
+            modifier = Modifier.testTag("confirm-first-frame")) { Text(stringResource(R.string.export_first_frame)) } }) }
     state.detail?.let { detail ->
         if (restoring) {
             val observed = remember { detail }

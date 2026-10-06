@@ -10,6 +10,8 @@ fun failureText(code: String?): String = stringResource(when (code?.uppercase())
     "IO" -> R.string.failure_io
     "STORAGE_FULL" -> R.string.failure_full
     "UNSUPPORTED_FORMAT" -> R.string.failure_format
+    "UNSUPPORTED_COLOR_PROFILE" -> R.string.failure_color_profile
+    "NO_SAVE_TARGET" -> R.string.failure_save_target
     "INVALID_IMAGE" -> R.string.failure_image
     "RESOURCE_LIMIT" -> R.string.failure_limit
     "BATCH_LIMIT" -> R.string.failure_batch

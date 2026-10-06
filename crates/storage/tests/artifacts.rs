@@ -5,6 +5,58 @@ use memedock_storage::{artifacts::ArtifactRecord, files::ExportStore};
 use std::{fs::File, io::Write};
 
 #[tokio::test]
+async fn derived_hash_recipe_and_clipboard_references_survive_restart() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("library.sqlite");
+    let db = memedock_storage::LibraryDatabase::open(&path).await?;
+    let (asset, sticker) = fixture(b"original", "source", 100)?;
+    let (derived, _) = fixture(b"derived", "output", 100)?;
+    insert(&db, &asset, &sticker).await?;
+    let store = ExportStore::open(&dir.path().join("share"))?;
+    let record = ArtifactRecord {
+        id: OperationId::new(),
+        source_hash: asset.hash(),
+        output_hash: derived.hash(),
+        recipe: "derived-v1:test".into(),
+        format: asset.format(),
+        byte_size: 7,
+        animated: false,
+        retained_until: 0,
+        deleting: false,
+    };
+    let source = dir.path().join("encoded");
+    std::fs::write(&source, b"derived")?;
+    store.publish(&record, File::open(&source)?, || false)?;
+    db.save_artifact(&record).await?;
+    assert!(db.artifact_for(asset.hash()).await?.is_none());
+    let pending = OperationId::new();
+    db.protect_clipboard(pending, record.id).await?;
+    assert!(db.remove_artifact(record.id).await.is_err());
+    db.close().await?;
+    let db = memedock_storage::LibraryDatabase::open(&path).await?;
+    assert!(db.artifact_clipboard_protected(record.id).await?);
+    let restored = db
+        .artifact_for_recipe(asset.hash(), &record.recipe)
+        .await?
+        .ok_or("derived missing")?;
+    store.verify(&restored, || false)?;
+    db.reconcile_clipboard(Some(pending)).await?;
+    db.abort_clipboard(pending).await?;
+    assert!(db.artifact_clipboard_protected(record.id).await?);
+    assert!(
+        db.reconcile_clipboard(Some(OperationId::new()))
+            .await
+            .is_err()
+    );
+    assert!(db.artifact_clipboard_protected(record.id).await?);
+    db.reconcile_clipboard(None).await?;
+    assert!(!db.artifact_clipboard_protected(record.id).await?);
+    db.remove_artifact(record.id).await?;
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn registry_and_verified_outputs_survive_restart_without_business_logs() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("library.sqlite");
@@ -19,6 +71,8 @@ async fn registry_and_verified_outputs_survive_restart_without_business_logs() -
     let record = ArtifactRecord {
         id: OperationId::new(),
         source_hash: asset.hash(),
+        output_hash: asset.hash(),
+        recipe: "original-v1".into(),
         format: asset.format(),
         byte_size: bytes.len() as u64,
         animated: false,
@@ -65,6 +119,8 @@ fn failed_publication_and_old_orphan_scan_preserve_unrelated_files() -> TestResu
     let record = ArtifactRecord {
         id: OperationId::new(),
         source_hash: asset.hash(),
+        output_hash: asset.hash(),
+        recipe: "original-v1".into(),
         format: asset.format(),
         byte_size: bytes.len() as u64,
         animated: false,

@@ -16,7 +16,10 @@ pub(crate) async fn cleanup(services: &Arc<Services>, now: i64) -> Result<u64> {
         }
         after = records.last().map(|r| r.id);
         for mut record in records {
-            if record.retained_until > now || services.artifacts.active(record.id)? {
+            if record.retained_until > now
+                || services.artifacts.active(record.id)?
+                || services.db.artifact_clipboard_protected(record.id).await?
+            {
                 continue;
             }
             record.deleting = true;

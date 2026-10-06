@@ -7,6 +7,7 @@ pub type Result<T> = std::result::Result<T, CoreError>;
 pub enum ErrorCode {
     InvalidInput,
     UnsupportedFormat,
+    UnsupportedColorProfile,
     InvalidImage,
     ResourceLimit,
     AlreadyOpen,
@@ -29,6 +30,7 @@ impl ErrorCode {
         match self {
             Self::InvalidInput => "invalid_input",
             Self::UnsupportedFormat => "unsupported_format",
+            Self::UnsupportedColorProfile => "unsupported_color_profile",
             Self::InvalidImage => "invalid_image",
             Self::ResourceLimit => "resource_limit",
             Self::AlreadyOpen => "already_open",

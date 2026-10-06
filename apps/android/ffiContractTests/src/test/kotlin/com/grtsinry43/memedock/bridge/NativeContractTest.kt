@@ -9,6 +9,50 @@ import java.nio.file.Files
 import java.io.File
 
 class NativeContractTest {
+    @Test fun derivedPresetsAndDurableClipboardTokensCrossGeneratedBindings() = runBlocking {
+        withTimeout(30_000) {
+            val root = Files.createTempDirectory("memedock-export-contract-").toFile()
+            val config = LibraryConfiguration(File(root, "data").path, File(root, "cache").path,
+                File(root, "share").path, defaultResourceConfiguration())
+            var token: String? = null
+            try {
+                openLibrary(config).use { library ->
+                    try {
+                        val pixels = java.awt.image.BufferedImage(40, 20, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                        for (y in 0 until 20) for (x in 0 until 40) pixels.setRGB(x, y, 0x804080C0.toInt())
+                        val id = library.createImportInput().use { it.awaitResult() }.use { input ->
+                            assertTrue(javax.imageio.ImageIO.write(pixels, "png", File(input.path())))
+                            library.importStaged(input, ImportOptions("contract.png", null, null)).use { it.awaitResult().sticker.id }
+                        }
+                        val ids = mutableSetOf<String>()
+                        for (preset in listOf(ExportPreset.COMPATIBLE_PNG, ExportPreset.WHITE_BACKGROUND, ExportPreset.SMALL_JPEG)) {
+                            val options = ExportOptions(preset, if (preset == ExportPreset.SMALL_JPEG) 512u else 1024u,
+                                if (preset == ExportPreset.COMPATIBLE_PNG) null else UInt.MAX_VALUE, true, AnimationPolicy.PRESERVE)
+                            library.export(id, options).use { it.awaitResult() }.use { lease ->
+                                val artifact = library.prepareHandoff(lease).use { it.awaitResult() }
+                                assertTrue(ids.add(artifact.id))
+                                val display = javax.imageio.ImageIO.read(File(artifact.path))
+                                assertEquals(40, display.width); assertEquals(20, display.height)
+                                assertEquals(if (preset == ExportPreset.COMPATIBLE_PNG) 128 else 255, display.getRGB(10, 10) ushr 24)
+                                token = library.protectClipboard(lease).use { it.awaitResult() }
+                                library.reconcileClipboard(token).use { it.awaitResult() }
+                                assertEquals(artifact.id, library.export(id, options).use { it.awaitResult() }.use { it.metadata().id })
+                            }
+                        }
+                        expectCode(ErrorCode.INVALID_INPUT) {
+                            library.export(id, ExportOptions(ExportPreset.ORIGINAL, 512u, null, false, AnimationPolicy.PRESERVE)).close()
+                        }
+                    } finally { library.shutdown() }
+                }
+                openLibrary(config).use { library ->
+                    try {
+                        library.reconcileClipboard(token).use { it.awaitResult() }
+                        library.reconcileClipboard(null).use { it.awaitResult() }
+                    } finally { library.shutdown() }
+                }
+            } finally { assertTrue(root.deleteRecursively()) }
+        }
+    }
     @Test fun editingRelationsAndExplicitRecoverySurviveNativeReopen() = runBlocking {
         withTimeout(30_000) {
             val root = Files.createTempDirectory("memedock-management-").toFile()

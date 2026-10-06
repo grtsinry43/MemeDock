@@ -50,7 +50,6 @@
     <string name="import_background">后台继续</string>
     <string name="back_to_library">返回图片库</string>
     <string name="share_original">分享原图</string>
-    <string name="share_accounting_failed">分享面板已打开，但这次使用未能记录。</string>
     <string name="pause_animation">暂停动画</string>
     <string name="play_animation">播放动画</string>
     <string name="import_staged">准备好了</string>
@@ -142,4 +141,25 @@
     <string name="tag_delete_hint">标签会移入回收站，图片仍然保留。</string>
     <string name="collection_delete_hint">合集会移入回收站，里面的图片仍然保留。</string>
     <string name="load_more">查看更多</string>
+    <string name="share_sticker">分享图片</string>
+    <string name="copy_image">复制图片</string>
+    <string name="save_image">保存图片</string>
+    <string name="export_choose">图片格式</string>
+    <string name="export_original">原图</string>
+    <string name="export_png">兼容 PNG</string>
+    <string name="export_white">白底 PNG</string>
+    <string name="export_small">小尺寸 JPEG</string>
+    <string name="export_original_hint">保留原来的画质、透明背景和动画</string>
+    <string name="export_png_hint">保留透明背景，最长边 1024 像素</string>
+    <string name="export_white_hint">把透明区域铺成白色，保留原尺寸</string>
+    <string name="export_small_hint">最长边 512 像素，透明区域铺成白色</string>
+    <string name="export_animation_title">只使用第一帧？</string>
+    <string name="export_animation_hint">这个格式会把动图变成一张静态图片。想保留动画，可以选择原图。</string>
+    <string name="export_first_frame">使用第一帧</string>
+    <string name="image_saved">图片已保存</string>
+    <string name="image_copied">图片已复制</string>
+    <string name="image_saving">正在保存图片…</string>
+    <string name="output_accounting_failed">图片已准备好，但未能更新最近使用记录。</string>
+    <string name="failure_color_profile">这张图片暂时无法转换颜色，请选择原图。</string>
+    <string name="failure_save_target">没有可用的保存位置。</string>
 </resources>

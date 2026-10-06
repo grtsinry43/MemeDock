@@ -126,8 +126,16 @@ impl LibraryDatabase {
                 .await?
                 .is_empty()
             {
-                super::snapshot::snapshot(&connection, &path.with_extension("pre-upgrade.sqlite"))
-                    .await?;
+                let checkpoint = path.with_extension("pre-upgrade.sqlite");
+                let checkpoint = match checkpoint.symlink_metadata() {
+                    Ok(_) => path.with_extension(format!(
+                        "pre-upgrade-v{version}-{}.sqlite",
+                        memedock_domain::identity::OperationId::new()
+                    )),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => checkpoint,
+                    Err(error) => return Err(error.into()),
+                };
+                super::snapshot::snapshot(&connection, &checkpoint).await?;
             }
         }
         Migrator::up(&connection, None).await?;

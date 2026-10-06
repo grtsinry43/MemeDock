@@ -7,6 +7,7 @@ pub mod asset;
 pub mod change;
 pub mod collection;
 pub mod error;
+pub mod export;
 pub mod identity;
 pub mod lifecycle;
 pub mod local;

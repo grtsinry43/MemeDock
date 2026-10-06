@@ -12,10 +12,24 @@ import java.util.concurrent.TimeUnit
 
 class ReceiverActivity : Activity() {
     private val executor = Executors.newSingleThreadScheduledExecutor()
+    private var started = false
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(TextView(this).apply { text = "MemeDock：等待延迟读取"; textSize = 22f })
-        val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+        if (!intent.getBooleanExtra("clipboard", false)) {
+            read(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+        }
+    }
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && intent.getBooleanExtra("clipboard", false) && !started) {
+            val clipboard = requireNotNull(getSystemService(android.content.ClipboardManager::class.java))
+            read(clipboard.primaryClip?.getItemAt(0)?.uri)
+        }
+    }
+    private fun read(uri: Uri?) {
+        if (started) return
+        started = true
         val key = intent.getStringExtra("reportKey") ?: "default"
         val preferences = getSharedPreferences("reports", 0)
         preferences.edit().putString("$key.status", "pending").commit()
@@ -33,6 +47,6 @@ class ReceiverActivity : Activity() {
                 runOnUiThread { finish() }
             } catch (error: Exception) { preferences.edit().putString("$key.status", error.javaClass.simpleName).commit(); runOnUiThread { finish() } }
             finally { executor.shutdown() }
-        }, 3, TimeUnit.SECONDS)
+        }, intent.getLongExtra("delaySeconds", 3), TimeUnit.SECONDS)
     }
 }
