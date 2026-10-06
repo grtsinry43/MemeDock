@@ -12,6 +12,7 @@ import kotlinx.coroutines.*
 
 class AppContainer(context: Context) {
     val appearance = com.grtsinry43.memedock.data.settings.AppearancePreferences(context)
+    val language = com.grtsinry43.memedock.data.settings.LanguagePreferences(context)
     val exportPreferences = com.grtsinry43.memedock.data.settings.ExportPreferences(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val session = LibrarySession(context, scope)

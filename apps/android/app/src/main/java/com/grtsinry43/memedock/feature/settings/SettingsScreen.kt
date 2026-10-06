@@ -16,14 +16,15 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.grtsinry43.memedock.R
+import com.grtsinry43.memedock.data.settings.LanguageMode
 import com.grtsinry43.memedock.data.settings.ThemeMode
 import com.grtsinry43.memedock.ui.components.*
 import com.grtsinry43.memedock.ui.failureText
 import com.grtsinry43.memedock.ui.theme.MemeDockLayout
 
 @Composable
-fun SettingsScreen(state: SettingsState, select: (ThemeMode) -> Unit, retry: () -> Unit, trash: () -> Unit, backup: () -> Unit,
-    contentPadding: PaddingValues) {
+fun SettingsScreen(state: SettingsState, select: (ThemeMode) -> Unit, selectLanguage: (LanguageMode) -> Unit,
+    retry: () -> Unit, trash: () -> Unit, backup: () -> Unit, contentPadding: PaddingValues) {
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())
             .windowInsetsPadding(WindowInsets.statusBars)
@@ -63,6 +64,13 @@ fun SettingsScreen(state: SettingsState, select: (ThemeMode) -> Unit, retry: () 
                 row { ThemeRow(mode, state.mode == mode, !state.saving) { select(mode) } }
             }
         }
+        Spacer(Modifier.height(MemeDockLayout.SectionGap))
+        MemeDockGroup(title = stringResource(R.string.settings_language),
+            footer = if (state.languageError) stringResource(R.string.settings_language_save_failed) else null) {
+            LanguageMode.entries.forEach { mode ->
+                row { LanguageRow(mode, state.languageMode == mode, !state.savingLanguage) { selectLanguage(mode) } }
+            }
+        }
     }
 }
 
@@ -82,3 +90,21 @@ private fun ThemeRow(mode: ThemeMode, selected: Boolean, enabled: Boolean, onCli
         if (selected) Icon(MemeDockIcons.Check, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }
+
+@Composable
+private fun LanguageRow(mode: LanguageMode, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.RowHeight)
+            .selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 16.dp).testTag("language:${mode.name}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(stringResource(when (mode) {
+            LanguageMode.System -> R.string.language_system
+            LanguageMode.Chinese -> R.string.language_chinese
+            LanguageMode.English -> R.string.language_english
+        }), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        if (selected) Icon(MemeDockIcons.Check, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+    }
+}
+

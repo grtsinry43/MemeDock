@@ -51,12 +51,23 @@ import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
 import java.io.IOException
 
+import android.content.res.Configuration
+import android.os.LocaleList
+import androidx.compose.ui.platform.LocalConfiguration
+import com.grtsinry43.memedock.data.settings.LanguageMode
+import java.util.Locale
+
 @Composable
 fun MemeDockApp(container: AppContainer) {
     val epoch by container.libraryEpoch.collectAsStateWithLifecycle()
     // Outside key(epoch): a message about a restore must outlive the library it replaced.
     val messages = remember { SnackbarHostState() }
-    CompositionLocalProvider(LocalMemeDockMessages provides messages) {
+    val localizedContext = rememberLocalizedContext(container)
+    CompositionLocalProvider(
+        LocalMemeDockMessages provides messages,
+        LocalContext provides localizedContext,
+        LocalConfiguration provides localizedContext.resources.configuration,
+    ) {
         key(epoch) {
             val owner = remember { object : androidx.lifecycle.ViewModelStoreOwner {
                 override val viewModelStore = androidx.lifecycle.ViewModelStore()
@@ -214,3 +225,30 @@ private fun rememberDarkTheme(container: AppContainer): Boolean {
 }
 
 private fun Context.activityWindow(): android.view.Window? = findActivity()?.window
+
+@Composable
+private fun rememberLocalizedContext(container: AppContainer): Context {
+    val baseContext = LocalContext.current
+    val languageMode by remember(container) {
+        container.language.mode.retryWhen { error, _ ->
+            if (error is IOException) { delay(1_000); true } else false
+        }.catch { emit(LanguageMode.System) }
+    }.collectAsStateWithLifecycle(LanguageMode.System)
+
+    return remember(baseContext, languageMode) {
+        when (languageMode) {
+            LanguageMode.System -> baseContext
+            LanguageMode.Chinese -> {
+                val config = Configuration(baseContext.resources.configuration)
+                config.setLocales(LocaleList(Locale.SIMPLIFIED_CHINESE))
+                baseContext.createConfigurationContext(config)
+            }
+            LanguageMode.English -> {
+                val config = Configuration(baseContext.resources.configuration)
+                config.setLocales(LocaleList(Locale.ENGLISH))
+                baseContext.createConfigurationContext(config)
+            }
+        }
+    }
+}
+

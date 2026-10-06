@@ -11,10 +11,10 @@ import com.grtsinry43.memedock.app.AppContainer
 fun SettingsRoute(container: AppContainer, contentPadding: PaddingValues, trash: () -> Unit, backup: () -> Unit) {
     val factory = remember(container) { object : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            modelClass.cast(SettingsViewModel(container.appearance, container.library))!!
+            modelClass.cast(SettingsViewModel(container.appearance, container.language, container.library))!!
     } }
     val model: SettingsViewModel = viewModel(factory = factory)
     val state by model.state.collectAsStateWithLifecycle()
     LaunchedEffect(model) { model.refresh() }
-    SettingsScreen(state, model::select, model::retry, trash, backup, contentPadding)
+    SettingsScreen(state, model::select, model::selectLanguage, model::retry, trash, backup, contentPadding)
 }
