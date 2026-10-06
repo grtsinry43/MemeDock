@@ -3,6 +3,7 @@
 //! Filesystem verification, database transactions, authorization and scheduling
 //! belong to storage/core. Deserializing metadata does not verify image bytes.
 
+pub mod archive;
 pub mod asset;
 pub mod change;
 pub mod collection;

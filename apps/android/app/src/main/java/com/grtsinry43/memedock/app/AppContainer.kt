@@ -15,6 +15,10 @@ class AppContainer(context: Context) {
     val exportPreferences = com.grtsinry43.memedock.data.settings.ExportPreferences(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val session = LibrarySession(context, scope)
+    val libraryEpoch = session.epoch
+    val backups = com.grtsinry43.memedock.feature.backup.BackupCoordinator(
+        com.grtsinry43.memedock.data.library.BackupRepository(session),
+        com.grtsinry43.memedock.platform.backup.AndroidBackupGateway(context.contentResolver), scope)
     val library = RustLibraryRepository(session)
     val imports = ImportCoordinator(library, AndroidImportGateway(context.contentResolver), scope)
     val shares = AndroidShareGateway()

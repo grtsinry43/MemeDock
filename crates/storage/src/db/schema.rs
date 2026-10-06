@@ -1,42 +1,30 @@
-use sea_orm_migration::prelude::*;
+use crate::Result;
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, TransactionTrait};
 
-#[derive(DeriveMigrationName)]
-pub struct Migration;
+// An exact identifier for the current structure, never an upgrade target.
+pub(super) const SCHEMA_VERSION: i64 = 4;
+pub(super) const APPLICATION_ID: i64 = 0x4d444f43;
 
-#[async_trait::async_trait]
-impl MigrationTrait for Migration {
-    fn use_transaction(&self) -> Option<bool> {
-        Some(true)
+pub(super) async fn initialize(db: &DatabaseConnection) -> Result<()> {
+    let tx = db.begin().await?;
+    for sql in STATEMENTS {
+        tx.execute_unprepared(sql).await?;
     }
-    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        // SQLite-specific constraints are deliberate. No automatic entity sync.
-        for sql in STATEMENTS {
-            manager.get_connection().execute_unprepared(sql).await?;
-        }
-        // Identity is created with the schema in the same migration transaction.
-        // Never silently regenerate identity for an already initialized library.
-        manager
-            .get_connection()
-            .execute_raw(sea_orm::Statement::from_sql_and_values(
-                sea_orm::DbBackend::Sqlite,
-                "INSERT INTO library_metadata(singleton,library_id,device_id) VALUES(1,?,?)",
-                [
-                    memedock_domain::identity::LibraryId::new()
-                        .to_string()
-                        .into(),
-                    memedock_domain::identity::DeviceId::new()
-                        .to_string()
-                        .into(),
-                ],
-            ))
-            .await?;
-        Ok(())
-    }
-    async fn down(&self, _: &SchemaManager) -> Result<(), DbErr> {
-        Err(DbErr::Migration(
-            "destructive library downgrade is not supported".into(),
-        ))
-    }
+    tx.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "INSERT INTO library_metadata(singleton,library_id,device_id) VALUES(1,?,?)",
+        [
+            memedock_domain::identity::LibraryId::new()
+                .to_string()
+                .into(),
+            memedock_domain::identity::DeviceId::new()
+                .to_string()
+                .into(),
+        ],
+    ))
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 const STATEMENTS: &[&str] = &[
@@ -118,6 +106,23 @@ const STATEMENTS: &[&str] = &[
         singleton INTEGER PRIMARY KEY CHECK(singleton=1),
         library_id TEXT NOT NULL CHECK(length(library_id)=36), device_id TEXT NOT NULL CHECK(length(device_id)=36)
     ) STRICT",
+    "CREATE TABLE export_artifacts (
+        id TEXT PRIMARY KEY CHECK(length(id)=36),
+        source_hash TEXT NOT NULL REFERENCES assets(hash) CHECK(length(source_hash)=64),
+        output_hash TEXT NOT NULL CHECK(length(output_hash)=64),
+        recipe TEXT NOT NULL CHECK(length(recipe) BETWEEN 1 AND 256),
+        mime TEXT NOT NULL CHECK(mime IN ('image/png','image/jpeg','image/gif','image/webp')),
+        byte_size INTEGER NOT NULL CHECK(byte_size>=0), animated INTEGER NOT NULL CHECK(animated IN (0,1)),
+        retained_until INTEGER NOT NULL, state TEXT NOT NULL CHECK(state IN ('ready','deleting'))
+    ) STRICT",
+    "CREATE UNIQUE INDEX export_artifacts_ready ON export_artifacts(source_hash,recipe) WHERE state='ready'",
+    "CREATE TABLE clipboard_references (
+        id TEXT PRIMARY KEY CHECK(length(id)=36),
+        artifact_id TEXT NOT NULL REFERENCES export_artifacts(id) ON DELETE RESTRICT,
+        state TEXT NOT NULL CHECK(state IN ('pending','current'))
+    ) STRICT",
+    "CREATE UNIQUE INDEX clipboard_current ON clipboard_references(state) WHERE state='current'",
+    "CREATE INDEX clipboard_artifact ON clipboard_references(artifact_id)",
     "CREATE INDEX stickers_recent ON stickers(created_at DESC,id DESC) WHERE deleted_at IS NULL",
     "CREATE INDEX stickers_deleted ON stickers(deleted_at DESC,id DESC) WHERE deleted_at IS NOT NULL",
     "CREATE INDEX collections_order ON collections(sort_key COLLATE BINARY,id) WHERE deleted_at IS NULL",
@@ -127,5 +132,30 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX tags_name ON tags(normalized_name,id) WHERE deleted_at IS NULL",
     "CREATE INDEX local_changes_pending ON local_changes(status,local_order)",
     "PRAGMA application_id=1296322371",
-    "PRAGMA user_version=1",
+    "PRAGMA user_version=4",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn failed_initialization_rolls_back_all_created_tables()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let db = sea_orm::Database::connect("sqlite::memory:").await?;
+        db.execute_unprepared("CREATE TABLE tags (collision INTEGER)")
+            .await?;
+        assert!(initialize(&db).await.is_err());
+        let row=db.query_one_raw(Statement::from_string(DbBackend::Sqlite,"SELECT count(*) AS count FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'".to_owned())).await?.ok_or("table count missing")?;
+        assert_eq!(row.try_get::<i64>("", "count")?, 1);
+        let row = db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA user_version".to_owned(),
+            ))
+            .await?
+            .ok_or("schema marker missing")?;
+        assert_eq!(row.try_get::<i64>("", "user_version")?, 0);
+        db.close().await?;
+        Ok(())
+    }
+}

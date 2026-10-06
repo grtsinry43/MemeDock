@@ -20,6 +20,12 @@ import android.content.Context
 import android.net.Uri
 
 class MainActivity : ComponentActivity() {
+    private val backupSaveLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) {
+        (application as MemeDockApplication).container.backups.savedTo(it)
+    }
+    private val backupOpenLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) {
+        (application as MemeDockApplication).container.backups.opened(it)
+    }
     private val saveLauncher = registerForActivityResult(object : ActivityResultContract<ShareArtifact, Uri?>() {
         override fun createIntent(context: Context, input: ShareArtifact): Intent =
             ActivityResultContracts.CreateDocument(input.mime).createIntent(context, input.fileName)
@@ -34,6 +40,17 @@ class MainActivity : ComponentActivity() {
         setContent { MemeDockApp(container) }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                launch {
+                    container.backups.state.collect {
+                        val request = container.backups.claimPicker() ?: return@collect
+                        try {
+                            when (request) {
+                                is com.grtsinry43.memedock.feature.backup.BackupPicker.Save -> backupSaveLauncher.launch(request.fileName)
+                                com.grtsinry43.memedock.feature.backup.BackupPicker.Open -> backupOpenLauncher.launch(arrayOf("*/*"))
+                            }
+                        } catch (error: Exception) { container.backups.pickerFailed(error) }
+                    }
+                }
                 container.saves.state.collect {
                     val artifact = container.saves.selecting() ?: return@collect
                     try { saveLauncher.launch(artifact) }

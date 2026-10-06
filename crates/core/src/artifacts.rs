@@ -14,6 +14,13 @@ pub(crate) struct ArtifactManager {
     live: Mutex<HashMap<OperationId, usize>>,
 }
 impl ArtifactManager {
+    pub(crate) fn has_active_leases(&self) -> Result<bool> {
+        Ok(!self
+            .live
+            .lock()
+            .map_err(|_| CoreError::internal("artifact lease lock poisoned"))?
+            .is_empty())
+    }
     pub(crate) fn new(store: ExportStore) -> Arc<Self> {
         Arc::new(Self {
             store,

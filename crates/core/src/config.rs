@@ -18,6 +18,9 @@ pub struct ResourceLimits {
     pub max_decode_bytes: u64,
     pub image_budget_bytes: u64,
     pub export_budget_bytes: u64,
+    pub max_archive_bytes: u64,
+    pub max_archive_metadata_bytes: u64,
+    pub max_archive_entries: usize,
 }
 impl Default for ResourceLimits {
     fn default() -> Self {
@@ -35,6 +38,9 @@ impl Default for ResourceLimits {
             max_decode_bytes: 128 * 1024 * 1024,
             image_budget_bytes: 192 * 1024 * 1024,
             export_budget_bytes: 512 * 1024 * 1024,
+            max_archive_bytes: 8 * 1024 * 1024 * 1024,
+            max_archive_metadata_bytes: 32 * 1024 * 1024,
+            max_archive_entries: 100_000,
         }
     }
 }
@@ -76,6 +82,12 @@ impl LibraryConfig {
         if l.file_jobs > l.blocking_threads
             || l.max_file_bytes == 0
             || l.export_budget_bytes == 0
+            || l.max_archive_bytes == 0
+            || l.max_archive_bytes > i64::MAX as u64
+            || l.max_archive_metadata_bytes == 0
+            || l.max_archive_metadata_bytes > 64 * 1024 * 1024
+            || l.max_archive_entries < 2
+            || l.max_archive_entries > 100_000
             || l.max_file_bytes > i64::MAX as u64
             || l.max_frame_pixels == 0
             || l.max_decode_bytes == 0

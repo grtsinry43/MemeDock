@@ -7,10 +7,14 @@ pub(crate) async fn recover(services: &Arc<Services>) -> Result<()> {
     let blobs = services.blobs.clone();
     let derived = services.derived.clone();
     let exports = services.artifacts.store.clone();
+    let root = services.config.data_dir.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
         blobs.discard_abandoned_staging()?;
         derived.discard_abandoned_publications()?;
         exports.discard_abandoned_publications()?;
+        memedock_storage::files::archive::discard_abandoned_archives(&root)?;
+        memedock_storage::files::library_layout::LibraryLayout::open(&root)?
+            .discard_abandoned_candidates()?;
         Ok(())
     })
     .await??;

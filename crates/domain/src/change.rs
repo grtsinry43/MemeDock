@@ -128,6 +128,11 @@ impl NamePatch {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OperationKind {
+    /// Current local restore audit; never replay imported historical outbox entries.
+    ImportArchive {
+        archive_hash: crate::identity::ContentHash,
+        state: Box<crate::archive::ArchiveData>,
+    },
     CreateSticker {
         asset: Asset,
         title: String,
@@ -236,6 +241,7 @@ pub struct Operation(OperationKind);
 impl Operation {
     pub fn new(kind: OperationKind) -> Result<Self, DomainError> {
         match &kind {
+            OperationKind::ImportArchive { state, .. } => state.validate()?,
             OperationKind::CreateCollection {
                 collection_id,
                 before_id: Some(before),

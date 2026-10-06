@@ -1,4 +1,4 @@
-use super::migration::{APPLICATION_ID, Migrator, SCHEMA_VERSION};
+use super::schema::{self, APPLICATION_ID, SCHEMA_VERSION};
 use crate::{Result, StorageError, entities::library_metadata};
 use memedock_domain::identity::{DeviceId, LibraryId};
 use sea_orm::sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous};
@@ -6,7 +6,6 @@ use sea_orm::{
     ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, EntityTrait,
     Statement,
 };
-use sea_orm_migration::MigratorTrait;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -77,68 +76,20 @@ impl LibraryDatabase {
         let connection = Database::connect(options).await?;
         let version = pragma(&connection, "PRAGMA user_version", "user_version").await?;
         let application = pragma(&connection, "PRAGMA application_id", "application_id").await?;
-        if !(0..=SCHEMA_VERSION).contains(&version)
+        if ![0, SCHEMA_VERSION].contains(&version)
             || (version > 0 && application != APPLICATION_ID)
             || (version == 0 && application != 0)
         {
             return Err(StorageError::UnsupportedSchema);
         }
         if version == 0 {
-            // SeaORM installs its bookkeeping table before the initial migration.
-            // An empty bookkeeping table is recoverable after interrupted setup.
-            let row = connection.query_one_raw(Statement::from_string(DbBackend::Sqlite, "SELECT count(*) AS count FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name!='seaql_migrations'".to_owned())).await?.ok_or(StorageError::Integrity("schema count missing"))?;
+            let row = connection.query_one_raw(Statement::from_string(DbBackend::Sqlite, "SELECT count(*) AS count FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'".to_owned())).await?.ok_or(StorageError::Integrity("schema count missing"))?;
             let count: i64 = row.try_get("", "count")?;
             if count != 0 {
                 return Err(StorageError::UnsupportedSchema);
             }
-            if !Migrator::get_applied_migrations_read_only(&connection)
-                .await?
-                .is_empty()
-            {
-                return Err(StorageError::Integrity(
-                    "initial schema has applied migrations",
-                ));
-            }
-        } else {
-            // Refuse unknown migration history before modifying the database.
-            let applied = Migrator::get_applied_migrations_read_only(&connection).await?;
-            if applied.is_empty() {
-                return Err(StorageError::Integrity(
-                    "initialized schema lacks migration history",
-                ));
-            }
-            let known = Migrator::migrations();
-            if usize::try_from(version).ok() != Some(applied.len())
-                || known
-                    .iter()
-                    .take(applied.len())
-                    .any(|k| !applied.iter().any(|m| m.name() == k.name()))
-            {
-                return Err(StorageError::UnsupportedSchema);
-            }
-            if applied
-                .iter()
-                .any(|m| !known.iter().any(|k| k.name() == m.name()))
-            {
-                return Err(StorageError::UnsupportedSchema);
-            }
-            if !Migrator::get_pending_migrations_read_only(&connection)
-                .await?
-                .is_empty()
-            {
-                let checkpoint = path.with_extension("pre-upgrade.sqlite");
-                let checkpoint = match checkpoint.symlink_metadata() {
-                    Ok(_) => path.with_extension(format!(
-                        "pre-upgrade-v{version}-{}.sqlite",
-                        memedock_domain::identity::OperationId::new()
-                    )),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => checkpoint,
-                    Err(error) => return Err(error.into()),
-                };
-                super::snapshot::snapshot(&connection, &checkpoint).await?;
-            }
+            schema::initialize(&connection).await?;
         }
-        Migrator::up(&connection, None).await?;
         if pragma(&connection, "PRAGMA user_version", "user_version").await? != SCHEMA_VERSION {
             return Err(StorageError::UnsupportedSchema);
         }

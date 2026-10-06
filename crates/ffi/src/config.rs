@@ -23,6 +23,9 @@ pub struct ResourceConfiguration {
     pub max_decode_bytes: u64,
     pub image_budget_bytes: u64,
     pub export_budget_bytes: u64,
+    pub max_archive_bytes: u64,
+    pub max_archive_metadata_bytes: u64,
+    pub max_archive_entries: u32,
 }
 fn size(value: u32) -> Result<usize> {
     usize::try_from(value)
@@ -59,6 +62,9 @@ impl TryFrom<LibraryConfiguration> for LibraryConfig {
                 max_decode_bytes: l.max_decode_bytes,
                 image_budget_bytes: l.image_budget_bytes,
                 export_budget_bytes: l.export_budget_bytes,
+                max_archive_bytes: l.max_archive_bytes,
+                max_archive_metadata_bytes: l.max_archive_metadata_bytes,
+                max_archive_entries: size(l.max_archive_entries)?,
             },
         })
     }
@@ -84,5 +90,8 @@ pub fn default_resource_configuration() -> Result<ResourceConfiguration> {
         max_decode_bytes: l.max_decode_bytes,
         image_budget_bytes: l.image_budget_bytes,
         export_budget_bytes: l.export_budget_bytes,
+        max_archive_bytes: l.max_archive_bytes,
+        max_archive_metadata_bytes: l.max_archive_metadata_bytes,
+        max_archive_entries: small(l.max_archive_entries)?,
     })
 }

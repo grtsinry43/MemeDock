@@ -43,11 +43,27 @@ private data class AppPage(val tab: HomeTab, val sticker: String?, val collectio
 
 @Composable
 fun MemeDockApp(container: AppContainer) {
-    var tab by rememberSaveable { mutableStateOf(HomeTab.Stickers) }
+    val epoch by container.libraryEpoch.collectAsStateWithLifecycle()
+    key(epoch) {
+        val owner = remember { object : androidx.lifecycle.ViewModelStoreOwner {
+            override val viewModelStore = androidx.lifecycle.ViewModelStore()
+        } }
+        DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
+        LaunchedEffect(epoch) { if (epoch > 0) container.imageLoader.memoryCache?.clear() }
+        CompositionLocalProvider(androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner provides owner) {
+            MemeDockContent(container)
+        }
+    }
+}
+
+@Composable
+private fun MemeDockContent(container: AppContainer) {
+    val restoring = remember(container) { container.backups.state.value.phase == com.grtsinry43.memedock.feature.backup.BackupPhase.Restoring }
+    var tab by rememberSaveable { mutableStateOf(if (restoring) HomeTab.Settings else HomeTab.Stickers) }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var collection by rememberSaveable { mutableStateOf<String?>(null) }
     var collectionName by rememberSaveable { mutableStateOf<String?>(null) }
-    var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
+    var settingsPage by rememberSaveable { mutableStateOf<String?>(if (restoring) "backup" else null) }
     var initialItem by remember { mutableStateOf<LibraryItem?>(null) }
     val holder = rememberSaveableStateHolder()
     var previousCollection by remember { mutableStateOf<String?>(null) }
@@ -117,7 +133,8 @@ fun MemeDockApp(container: AppContainer) {
                                     HomeTab.Settings -> when (destination.settingsPage) {
                                         "tags" -> TagsRoute(container) { settingsPage = null }
                                         "trash" -> TrashRoute(container, { settingsPage = null }, open)
-                                        else -> SettingsRoute(container, { settingsPage = "tags" }, { settingsPage = "trash" })
+                                        "backup" -> com.grtsinry43.memedock.feature.backup.BackupRoute(container.backups) { settingsPage = null }
+                                        else -> SettingsRoute(container, { settingsPage = "tags" }, { settingsPage = "trash" }, { settingsPage = "backup" })
                                     }
                                 }
                             }

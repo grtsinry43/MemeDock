@@ -2,7 +2,7 @@
 
 ## Project
 
-MemeDock is a local-first sticker library with shared Rust business logic and native platform UIs. Develop Rust + Android first; Linux follows. Domain, storage, core runtime/tasks, and UniFFI integration are implemented; image/import use cases and product UI are pending. Android contains a starter UI and a native Rust bridge.
+MemeDock is a local-first sticker library with shared Rust business logic and native platform UIs. Develop Rust + Android first; Linux follows. Local import, organization, export, sharing, clipboard, saving, portable backup and recovery are implemented.
 
 Read relevant local designs in `docs/design.md`, `docs/domain-model.md`, and `docs/infrastructure.md`. If absent, use code as evidence and ask about missing requirements; do not invent them.
 
@@ -22,7 +22,7 @@ From `apps/android/`: `./gradlew :app:testDebugUnitTest :app:verifyDebugBridge` 
 ## Boundaries
 
 - `crates/domain`: validated IDs, models, rules, and contracts; no database, runtime, image, or UI dependencies.
-- `crates/storage`: SeaORM/SQLite, explicit migrations, queries, and file primitives; depends on domain. ORM entities stay internal.
+- `crates/storage`: SeaORM/SQLite, explicit current schema initialization, queries, and file primitives; depends on domain. ORM entities stay internal.
 - `crates/core`: use cases, images, tasks, and notifications; depends on domain/storage.
 - `crates/ffi`: UniFFI DTO/error conversion; calls core. Android calls ffi; Linux calls core directly.
 - Platforms own input, sharing, clipboard, credentials, and lifecycle. UI never accesses the business database directly.
@@ -39,8 +39,9 @@ From `apps/android/`: `./gradlew :app:testDebugUnitTest :app:verifyDebugBridge` 
 - 5. Use `apply_patch` for file creation, edits, and deletion; no ad hoc Python or shell-generated project files.
 - 6. Ask about test expectations before adding tests. Run relevant checks and report actual results.
 - 7. Report changes, limitations, review focus, and test/CI results directly in conversation, never in project files.
+- 8. Until the user explicitly declares the initial release complete, do not implement historical-data compatibility, upgrades, downgrades, or old-format conversion. Extend the current design directly; accept only the current schema and contracts. Retain transaction rollback and recovery of interrupted current operations.
 
 ## Git
 
-- Track `AGENTS.md`, source, migrations, build configuration, and lockfiles. Never track `docs/`, credentials, signing keys, runtime data, or build outputs; never force-add ignored documents.
+- Track `AGENTS.md`, source, schema, build configuration, and lockfiles. Never track `docs/`, credentials, signing keys, runtime data, or build outputs; never force-add ignored documents.
 - Inspect status and staged changes before committing. Commit/push/publish only when requested; use Conventional Commits.

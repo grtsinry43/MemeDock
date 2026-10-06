@@ -53,6 +53,12 @@ fn owner(config: LibraryConfig, ready: oneshot::Sender<Result<Library>>) {
             return;
         }
     };
+    if let Err(error) =
+        memedock_storage::files::library_layout::LibraryLayout::open(&config.data_dir)
+    {
+        let _ = ready.send(Err(error.into()));
+        return;
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(config.limits.runtime_threads)
         .max_blocking_threads(config.limits.blocking_threads)

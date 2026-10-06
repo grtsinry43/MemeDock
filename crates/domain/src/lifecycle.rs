@@ -24,7 +24,7 @@ impl Lifecycle {
             deleted_at: None,
         }
     }
-    /// Rehydrate typed state from a migration-checked database row or snapshot.
+    /// Rehydrate typed state from a current-schema database row or snapshot.
     pub fn from_state(
         generation: Generation,
         revision: Revision,

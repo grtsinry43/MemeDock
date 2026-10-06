@@ -1,8 +1,10 @@
 //! Synchronous file primitives. Core must call these on a bounded blocking
 //! executor. All paths live in app-private directories, never public storage.
+pub mod archive;
 mod blobs;
 mod derived;
 mod exports;
+pub mod library_layout;
 mod recovery;
 mod staging;
 pub use blobs::{FsBlobStore, PublishDisposition, PublishedBlob};

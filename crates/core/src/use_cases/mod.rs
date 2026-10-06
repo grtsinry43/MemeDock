@@ -1,4 +1,6 @@
+pub(crate) mod archive_restore;
 pub(crate) mod artifact_maintenance;
+mod backup;
 mod clipboard;
 mod collection_management;
 mod export;

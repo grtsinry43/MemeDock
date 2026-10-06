@@ -1,5 +1,6 @@
 //! Owned Kotlin boundary for existing core use cases. No database access or
 //! platform lifecycle decisions belong to the production FFI layer.
+mod archive;
 mod artifacts;
 mod config;
 mod cursor;
@@ -12,6 +13,7 @@ mod management;
 mod streams;
 mod tasks;
 
+pub use archive::*;
 pub use artifacts::*;
 pub use config::*;
 pub use cursor::*;

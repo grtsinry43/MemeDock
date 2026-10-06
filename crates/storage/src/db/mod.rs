@@ -1,5 +1,5 @@
 mod connection;
-mod migration;
+mod schema;
 mod snapshot;
 
 pub use connection::{LibraryDatabase, LibraryIdentity};

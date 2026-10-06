@@ -25,9 +25,21 @@ class LibrarySession(context: Context, private val scope: CoroutineScope) {
     private val connection = MutableStateFlow<Connection>(Connection.Opening)
     private val events = MutableSharedFlow<LibraryChange>(extraBufferCapacity = 1)
     val changes: SharedFlow<LibraryChange> = events.asSharedFlow()
+    private val mutableEpoch = MutableStateFlow(0L)
+    val epoch = mutableEpoch.asStateFlow()
     private var opening: Job? = null
 
     init { retryOpen() }
+
+    internal suspend fun reconnect() = withContext(NonCancellable + Dispatchers.Main.immediate) {
+        connection.value = Connection.Opening
+        opening?.cancelAndJoin()
+        opening = null
+        mutableEpoch.update { it + 1 }
+        retryOpen()
+        library()
+        Unit
+    }
 
     fun retryOpen() {
         if (opening?.isActive == true || connection.value is Connection.Ready) return

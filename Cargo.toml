@@ -15,13 +15,13 @@ unicode-normalization = "=0.1.25"
 fractional_index = { version = "=2.0.2", default-features = false }
 serde_json = "=1.0.151"
 sea-orm = { version = "=2.0.4", default-features = false, features = ["macros", "sqlx-sqlite", "runtime-tokio"] }
-sea-orm-migration = { version = "=2.0.4", default-features = false, features = ["sqlx-sqlite", "runtime-tokio"] }
 tokio = { version = "=1.53.2", features = ["rt-multi-thread", "sync", "time"] }
 sha2 = { version = "=0.11.0", default-features = false }
 tempfile = "=3.27.0"
 uniffi = "=0.32.2"
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 rustix = { version = "=1.1.5", features = ["fs"] }
+zip = { version = "=8.6.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

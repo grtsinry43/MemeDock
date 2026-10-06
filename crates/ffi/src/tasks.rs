@@ -4,26 +4,27 @@ use crate::{
 use memedock_core::tasks::{Task, TaskController};
 use std::sync::{Arc, Mutex};
 
-struct TaskSlot<T> {
+pub(crate) struct TaskSlot<T> {
     task: Mutex<Option<Task<T>>>,
-    controller: TaskController,
+    pub(crate) controller: TaskController,
 }
 impl<T> TaskSlot<T> {
-    fn new(task: Task<T>) -> Self {
+    pub(crate) fn new(task: Task<T>) -> Self {
         let controller = task.controller();
         Self {
             task: Mutex::new(Some(task)),
             controller,
         }
     }
-    async fn wait(&self) -> Result<T> {
-        let task = self
-            .task
+    pub(crate) async fn wait(&self) -> Result<T> {
+        Ok(self.take()?.wait().await?)
+    }
+    pub(crate) fn take(&self) -> Result<Task<T>> {
+        self.task
             .lock()
             .map_err(|_| BridgeError::new(ErrorCode::Internal, "task slot poisoned"))?
             .take()
-            .ok_or_else(|| BridgeError::new(ErrorCode::Conflict, "task result already consumed"))?;
-        Ok(task.wait().await?)
+            .ok_or_else(|| BridgeError::new(ErrorCode::Conflict, "task result already consumed"))
     }
 }
 macro_rules! task_handle {
@@ -100,6 +101,24 @@ task_handle!(
     })
 );
 task_handle!(DiscardInputTask, (), (), |value| Ok(value));
+task_handle!(
+    BackupTask,
+    memedock_core::BackupFile,
+    Arc<crate::BackupFileHandle>,
+    crate::BackupFileHandle::new
+);
+task_handle!(
+    ArchiveInputTask,
+    memedock_core::ArchiveInput,
+    Arc<crate::ArchiveInputHandle>,
+    crate::ArchiveInputHandle::new
+);
+task_handle!(
+    ArchiveInspectionTask,
+    Arc<memedock_core::PreparedArchive>,
+    Arc<crate::PreparedArchiveHandle>,
+    |value| Ok(crate::PreparedArchiveHandle::new(value))
+);
 task_handle!(MutationTask, (), (), |value| Ok(value));
 task_handle!(
     StickerMutationTask,

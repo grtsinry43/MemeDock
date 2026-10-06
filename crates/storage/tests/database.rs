@@ -25,69 +25,6 @@ async fn raw(path: &std::path::Path) -> TestResult<DatabaseConnection> {
 }
 
 #[tokio::test]
-async fn version_one_upgrade_preserves_library_and_creates_checkpoint() -> TestResult {
-    let dir = tempfile::tempdir()?;
-    let path = dir.path().join("library.sqlite");
-    let db = LibraryDatabase::open(&path).await?;
-    let identity = db.identity();
-    let (asset, sticker) = fixture(b"upgrade", "升级", 123)?;
-    insert(&db, &asset, &sticker).await?;
-    db.close().await?;
-    let conn = raw(&path).await?;
-    conn.execute_unprepared("DROP TABLE clipboard_references; DROP TABLE export_artifacts")
-        .await?;
-    conn.execute_unprepared("DELETE FROM seaql_migrations WHERE version IN ('m0002_export_artifacts','m0003_export_recipes')")
-        .await?;
-    conn.execute_unprepared("PRAGMA user_version=1").await?;
-    conn.close().await?;
-    let db = LibraryDatabase::open(&path).await?;
-    assert_eq!(db.identity(), identity);
-    assert_eq!(db.sticker(sticker.id()).await?, Some(sticker));
-    assert!(db.artifact_page(None).await?.is_empty());
-    assert!(path.with_extension("pre-upgrade.sqlite").is_file());
-    db.close().await?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn upgrade_with_an_existing_checkpoint_preserves_it_and_takes_a_new_snapshot() -> TestResult {
-    let dir = tempfile::tempdir()?;
-    let path = dir.path().join("library.sqlite");
-    let db = LibraryDatabase::open(&path).await?;
-    let identity = db.identity();
-    db.close().await?;
-    let checkpoint = path.with_extension("pre-upgrade.sqlite");
-    std::fs::write(&checkpoint, b"earlier checkpoint must survive")?;
-    let conn = raw(&path).await?;
-    conn.execute_unprepared(
-        "DROP TABLE clipboard_references;
-        ALTER TABLE export_artifacts DROP COLUMN output_hash;
-        DELETE FROM seaql_migrations WHERE version='m0003_export_recipes';
-        PRAGMA user_version=2;",
-    )
-    .await?;
-    conn.close().await?;
-    let db = LibraryDatabase::open(&path).await?;
-    assert_eq!(db.identity(), identity);
-    assert_eq!(
-        std::fs::read(checkpoint)?,
-        b"earlier checkpoint must survive"
-    );
-    assert_eq!(
-        std::fs::read_dir(dir.path())?
-            .filter_map(Result::ok)
-            .filter(|entry| entry
-                .file_name()
-                .to_string_lossy()
-                .contains("pre-upgrade-v2-"))
-            .count(),
-        1
-    );
-    db.close().await?;
-    Ok(())
-}
-
-#[tokio::test]
 async fn restart_preserves_identity_models_and_log() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("库 ?#%.sqlite");
@@ -105,17 +42,34 @@ async fn restart_preserves_identity_models_and_log() -> TestResult {
     Ok(())
 }
 #[tokio::test]
-async fn rejects_future_schema_and_unrelated_database() -> TestResult {
+async fn rejects_non_current_schema_and_unrelated_database() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("library.sqlite");
     LibraryDatabase::open(&path).await?.close().await?;
-    let conn = raw(&path).await?;
-    conn.execute_unprepared("PRAGMA user_version=999").await?;
-    conn.close().await?;
-    assert!(matches!(
-        LibraryDatabase::open(&path).await,
-        Err(StorageError::UnsupportedSchema)
-    ));
+    for version in [3, 999] {
+        let conn = raw(&path).await?;
+        conn.execute_unprepared(&format!("PRAGMA user_version={version}"))
+            .await?;
+        conn.close().await?;
+        assert!(matches!(
+            LibraryDatabase::open(&path).await,
+            Err(StorageError::UnsupportedSchema)
+        ));
+        let conn = raw(&path).await?;
+        let marker = conn
+            .query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DbBackend::Sqlite,
+                "PRAGMA user_version".to_owned(),
+            ))
+            .await?
+            .ok_or("marker missing")?;
+        assert_eq!(
+            marker.try_get::<i64>("", "user_version")?,
+            version,
+            "opening must not convert the existing database"
+        );
+        conn.close().await?;
+    }
     let other = dir.path().join("other.sqlite");
     let conn = raw(&other).await?;
     conn.execute_unprepared("CREATE TABLE unrelated (id INTEGER)")
@@ -203,12 +157,9 @@ async fn snapshot_contains_committed_wal_and_never_overwrites() -> TestResult {
 }
 
 #[tokio::test]
-async fn interrupted_setup_is_recoverable_but_lost_identity_is_an_error() -> TestResult {
+async fn lost_identity_is_an_error() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("library.sqlite");
-    let conn = raw(&path).await?;
-    conn.execute_unprepared("CREATE TABLE seaql_migrations(version VARCHAR(255) PRIMARY KEY,applied_at BIGINT NOT NULL)").await?;
-    conn.close().await?;
     let db = LibraryDatabase::open(&path).await?;
     let conn = raw(&path).await?;
     conn.execute_unprepared("DELETE FROM library_metadata")
