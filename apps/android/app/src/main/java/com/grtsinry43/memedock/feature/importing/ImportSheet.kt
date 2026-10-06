@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import coil3.decode.BitmapFactoryDecoder
 import coil3.request.ImageRequest
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.data.library.LibraryCollection
@@ -36,9 +37,13 @@ import com.grtsinry43.memedock.ui.failureCode
 import com.grtsinry43.memedock.ui.failureText
 import com.grtsinry43.memedock.ui.theme.MemeDockLayout
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Semaphore
 import java.io.File
 
 private enum class ImportSheetMode { Review, Problems }
+
+// Share admission across preview requests; animated originals need only a static first frame here.
+private val importPreviewDecoder = BitmapFactoryDecoder.Factory(parallelismLock = Semaphore(2))
 
 /**
  * Reviews a batch shared from another app, or lists what a finished batch could not add. Running batches never
@@ -174,7 +179,16 @@ private fun ImportThumbnail(item: ImportItemState, loader: ImageLoader, source: 
     val working = item.status == ImportItemStatus.Queued || item.status == ImportItemStatus.Reading
     val bad = item.status == ImportItemStatus.Failed || item.status == ImportItemStatus.RestoreRequired
     Box(modifier.clip(MaterialTheme.shapes.small).background(colors.surfaceContainer), contentAlignment = Alignment.Center) {
-        val request = remember(source) { source?.let { ImageRequest.Builder(context).data(it).size(192).build() } }
+        val request = remember(context, source) {
+            source?.let {
+                ImageRequest.Builder(context)
+                    .data(it)
+                    .size(192)
+                    .decoderFactory(importPreviewDecoder)
+                    .memoryCacheKeyExtra("memedock:import-preview", "static-first-frame")
+                    .build()
+            }
+        }
         if (request != null) AsyncImage(request, null, loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else Icon(MemeDockIcons.Image, null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
         if (working && source == null) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
