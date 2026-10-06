@@ -429,9 +429,14 @@ async fn collection_and_last_used_pages_keep_binary_order_and_ties() -> TestResu
         }
     }
     assert_eq!(actual, expected);
+    // Unused and created later, with an id below the first unused sticker's, so
+    // creation time rather than id decides the order of never-used stickers.
+    let (asset, newer) = fixture(&[9], "排序", 150)?;
+    assert!(newer.id() < expected[0]);
+    insert(&db, &asset, &newer).await?;
     let mut expected_used = expected[2..].to_vec();
     expected_used.sort_unstable_by(|a, b| b.cmp(a));
-    expected_used.extend([expected[1], expected[0]]);
+    expected_used.extend([expected[1], newer.id(), expected[0]]);
     let query = StickerQuery {
         sort: StickerSort::LastUsed,
         ..Default::default()
@@ -457,7 +462,11 @@ async fn collection_and_last_used_pages_keep_binary_order_and_ties() -> TestResu
         after = page.last().copied();
         hashes.extend(page);
     }
-    let mut expected_hashes: Vec<_> = expected.into_iter().map(|id| id.content_hash()).collect();
+    let mut expected_hashes: Vec<_> = expected
+        .into_iter()
+        .chain([newer.id()])
+        .map(|id| id.content_hash())
+        .collect();
     expected_hashes.sort_unstable();
     assert_eq!(hashes, expected_hashes);
     db.close().await?;

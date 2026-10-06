@@ -138,7 +138,12 @@ impl LibraryDatabase {
                 false,
             ),
             StickerSort::CollectionOrder => ("ci.sort_key COLLATE BINARY", true),
-            StickerSort::LastUsed => ("coalesce(u.last_used_at,-9223372036854775808)", false),
+            // Never-used stickers trail every used one, newest created first; the
+            // clamp keeps the shifted key inside i64 for any stored timestamp.
+            StickerSort::LastUsed => (
+                "CASE WHEN u.last_used_at IS NULL THEN max(s.created_at,-4611686018427387904)-4611686018427387904 ELSE u.last_used_at END",
+                false,
+            ),
         };
         if let Some(c) = cursor {
             let value: Value = match &c.key {
