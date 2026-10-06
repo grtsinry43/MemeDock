@@ -14,6 +14,57 @@ use std::{
 };
 
 #[tokio::test]
+async fn space_statistics_combines_originals_with_only_thumbnail_and_share_files() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let settings = config(directory.path());
+    let library = Library::open(settings.clone()).await?;
+    let empty = library.space_statistics()?.wait().await?;
+    assert_eq!(empty.known_assets, 0);
+    assert_eq!(empty.ready_original_bytes, 0);
+    assert_eq!(empty.thumbnail_bytes, 0);
+    assert_eq!(empty.temporary_share_bytes, 0);
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::new_rgba8(16, 16).write_to(&mut encoded, image::ImageFormat::Png)?;
+    let bytes = encoded.into_inner();
+    let original_bytes = i64::try_from(bytes.len())?;
+    let input = library.create_import_input()?.wait().await?;
+    std::fs::write(input.path(), &bytes)?;
+    let imported = library
+        .import_staged(input, memedock_core::ImportOptions::default())?
+        .wait()
+        .await?;
+    let thumbnail = library
+        .request_thumbnail(imported.sticker.id(), Priority::Visible)?
+        .wait()
+        .await?;
+    let thumbnail_bytes = i64::try_from(std::fs::metadata(thumbnail.path)?.len())?;
+    assert!(thumbnail_bytes > 0);
+    let output = library
+        .export_original(imported.sticker.id())?
+        .wait()
+        .await?;
+    assert_eq!(std::fs::read(&output.metadata().path)?, bytes);
+    let pending = library.create_import_input()?.wait().await?;
+    std::fs::write(pending.path(), b"partial import")?;
+    library.create_checkpoint()?.wait().await?;
+    std::fs::write(settings.cache_dir.join("excluded"), b"unrelated cache")?;
+    let stats = library.space_statistics()?.wait().await?;
+    assert_eq!(stats.known_assets, 1);
+    assert_eq!(stats.known_original_bytes, original_bytes);
+    assert_eq!(stats.ready_original_bytes, original_bytes);
+    assert_eq!(stats.thumbnail_bytes, thumbnail_bytes);
+    assert_eq!(stats.temporary_share_bytes, original_bytes);
+    drop(output);
+    std::fs::remove_file(pending.path())?;
+    drop(pending);
+    library.close().await?;
+    let library = Library::open(settings).await?;
+    assert_eq!(library.space_statistics()?.wait().await?, stats);
+    library.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn usage_is_serial_atomic_and_notified_after_commit() -> TestResult {
     let dir = tempfile::tempdir()?;
     let settings = config(dir.path());
@@ -200,6 +251,10 @@ fn core_open_queries_blocking_work_and_close_work_without_tokio_on_the_caller() 
     drop(runtime);
     assert!(tokio::runtime::Handle::try_current().is_err());
     let library = outside_tokio(Library::open(settings))??;
+    assert_eq!(
+        outside_tokio(library.space_statistics()?.wait())??.thumbnail_bytes,
+        0
+    );
     assert_eq!(
         outside_tokio(library.sticker_detail(sticker.id())?.wait())??.sticker,
         sticker

@@ -51,6 +51,14 @@ fun SettingsScreen(state: SettingsState, select: (ThemeMode) -> Unit, selectLang
                         MemeDockSkeleton(Modifier.size(width = 56.dp, height = 16.dp), MaterialTheme.shapes.extraSmall)
                 }
             }
+            row {
+                MemeDockRow(stringResource(R.string.settings_cache_usage), Modifier.testTag("settings-cache-usage"),
+                    subtitle = stringResource(R.string.settings_cache_usage_hint),
+                    value = statistics?.let { formatFileSize(it.cachedBytes) }) {
+                    if (statistics == null && state.error == null)
+                        MemeDockSkeleton(Modifier.size(width = 56.dp, height = 16.dp), MaterialTheme.shapes.extraSmall)
+                }
+            }
             row { MemeDockRow(stringResource(R.string.trash), Modifier.testTag("settings-trash"), icon = MemeDockIcons.Delete, onClick = trash) }
             row {
                 MemeDockRow(stringResource(R.string.backup_title), Modifier.testTag("settings-backup"), icon = MemeDockIcons.BackupRestore,
@@ -107,4 +115,3 @@ private fun LanguageRow(mode: LanguageMode, selected: Boolean, enabled: Boolean,
         if (selected) Icon(MemeDockIcons.Check, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }
-

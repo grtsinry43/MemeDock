@@ -13,6 +13,60 @@ use std::{
 type TestResult = Result<(), Box<dyn Error>>;
 
 #[test]
+fn cache_usage_counts_only_direct_regular_files_and_handles_eviction() -> TestResult {
+    use memedock_storage::files::{DerivedStore, ExportStore};
+    let directory = tempfile::tempdir()?;
+    let derived = DerivedStore::open(directory.path())?;
+    let exports_path = directory.path().join("exports");
+    let exports = ExportStore::open(&exports_path)?;
+    let thumbnails = directory.path().join("thumbnails");
+    assert_eq!(derived.bytes_used(|| false)?, 0);
+    assert_eq!(exports.bytes_used()?, 0);
+    let thumbnail = thumbnails.join("sample.png");
+    let export = exports_path.join("sample.png");
+    fs::write(&thumbnail, b"thumbnail")?;
+    fs::write(&export, b"share")?;
+    fs::write(directory.path().join("unrelated"), b"not cache")?;
+    fs::create_dir(thumbnails.join("nested"))?;
+    fs::write(thumbnails.join("nested/ignored"), b"not a thumbnail")?;
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&export, thumbnails.join("file-link"))?;
+        std::os::unix::fs::symlink(&thumbnail, exports_path.join("file-link"))?;
+        std::os::unix::fs::symlink(&exports_path, thumbnails.join("directory-link"))?;
+    }
+    assert_eq!(derived.bytes_used(|| false)?, 9);
+    assert_eq!(exports.bytes_used()?, 5);
+    assert!(matches!(
+        derived.bytes_used(|| true),
+        Err(StorageError::Cancelled)
+    ));
+    assert!(matches!(
+        exports.bytes_used_cancellable(|| true),
+        Err(StorageError::Cancelled)
+    ));
+
+    // Remove the file after directory iteration starts, before metadata is read.
+    let mut checks = 0;
+    let mut removal = None;
+    assert_eq!(
+        exports.bytes_used_cancellable(|| {
+            checks += 1;
+            if checks == 2 {
+                removal = Some(fs::remove_file(&export));
+            }
+            false
+        })?,
+        0
+    );
+    removal.ok_or("eviction callback did not run")??;
+    assert!(!export.exists());
+    fs::remove_dir_all(&thumbnails)?;
+    assert_eq!(derived.bytes_used(|| false)?, 0);
+    Ok(())
+}
+
+#[test]
 fn platform_staging_is_rehashed_and_modified_candidates_cannot_publish() -> TestResult {
     let directory = tempfile::tempdir()?;
     let store = FsBlobStore::open(directory.path())?;

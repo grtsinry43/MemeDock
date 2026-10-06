@@ -289,6 +289,8 @@ pub struct SpaceStatistics {
     pub known_assets: i64,
     pub known_original_bytes: i64,
     pub ready_original_bytes: i64,
+    pub thumbnail_bytes: i64,
+    pub temporary_share_bytes: i64,
 }
 impl From<memedock_core::SpaceStatistics> for SpaceStatistics {
     fn from(v: memedock_core::SpaceStatistics) -> Self {
@@ -296,6 +298,8 @@ impl From<memedock_core::SpaceStatistics> for SpaceStatistics {
             known_assets: v.known_assets,
             known_original_bytes: v.known_original_bytes,
             ready_original_bytes: v.ready_original_bytes,
+            thumbnail_bytes: v.thumbnail_bytes,
+            temporary_share_bytes: v.temporary_share_bytes,
         }
     }
 }

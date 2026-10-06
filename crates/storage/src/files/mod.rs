@@ -24,6 +24,47 @@ pub(crate) fn sync_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// A snapshot of regular files directly in an owned cache directory. Never
+/// follows symlinks or descends into unrelated directories.
+pub(crate) fn directory_bytes(path: &Path, mut cancelled: impl FnMut() -> bool) -> Result<u64> {
+    if cancelled() {
+        return Err(StorageError::Cancelled);
+    }
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(StorageError::InvalidInput("unsafe cache directory"));
+    }
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error.into()),
+    };
+    let mut size = 0u64;
+    for entry in entries {
+        if cancelled() {
+            return Err(StorageError::Cancelled);
+        }
+        let metadata = match entry.and_then(|entry| entry.metadata()) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if metadata.is_file() {
+            size = size
+                .checked_add(metadata.len())
+                .ok_or(StorageError::Integrity("cache usage overflow"))?;
+        }
+    }
+    if cancelled() {
+        return Err(StorageError::Cancelled);
+    }
+    Ok(size)
+}
+
 pub(crate) fn directory(path: &Path) -> Result<()> {
     match fs::create_dir(path) {
         Ok(()) => {

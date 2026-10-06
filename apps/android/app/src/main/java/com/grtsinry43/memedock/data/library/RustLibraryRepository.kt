@@ -293,7 +293,9 @@ class RustLibraryRepository(private val session: LibrarySession) : LibraryReposi
 
     override suspend fun statistics(): LibraryStatistics = withContext(Dispatchers.IO) { translate {
         session.library().spaceStatistics().use { task ->
-            try { task.awaitResult().let { LibraryStatistics(it.knownAssets, it.readyOriginalBytes) } }
+            try { task.awaitResult().let {
+                LibraryStatistics(it.knownAssets, it.readyOriginalBytes, it.thumbnailBytes, it.temporaryShareBytes)
+            } }
             catch (cancel: CancellationException) { task.cancel(); throw cancel }
         }
     } }

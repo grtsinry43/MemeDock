@@ -169,6 +169,8 @@
     <string name="settings_language_save_failed">语言设置保存失败，请重试</string>
     <string name="settings_original_count">原图数量</string>
     <string name="settings_saved_originals">原图占用</string>
+    <string name="settings_cache_usage">缓存占用</string>
+    <string name="settings_cache_usage_hint">缩略图和临时分享文件</string>
 
     <!-- Backup -->
     <string name="backup_title">备份与恢复</string>

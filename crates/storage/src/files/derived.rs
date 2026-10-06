@@ -12,6 +12,10 @@ pub struct DerivedStore {
     root: PathBuf,
 }
 impl DerivedStore {
+    pub fn bytes_used(&self, cancelled: impl FnMut() -> bool) -> Result<u64> {
+        super::directory_bytes(&self.root, cancelled)
+    }
+
     /// No encoders are active during startup. Keep unknown files untouched.
     pub fn discard_abandoned_publications(&self) -> Result<()> {
         directory(&self.root)?;

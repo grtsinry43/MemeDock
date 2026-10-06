@@ -9,9 +9,18 @@ use memedock_domain::{
     sticker::Sticker,
     tag::Tag,
 };
-use memedock_storage::queries::{SpaceStatistics, StickerQuery};
+use memedock_storage::queries::StickerQuery;
 use std::{fmt, str::FromStr};
 use uuid::Uuid;
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct SpaceStatistics {
+    pub known_assets: i64,
+    pub known_original_bytes: i64,
+    pub ready_original_bytes: i64,
+    pub thumbnail_bytes: i64,
+    pub temporary_share_bytes: i64,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RequestId(Uuid);
@@ -254,7 +263,35 @@ impl Library {
             Priority::Visible,
             move |services, control| async move {
                 control.check()?;
-                Ok(services.db.space_statistics().await?)
+                let originals = services.db.space_statistics().await?;
+                control.check()?;
+                let derived = services.derived.clone();
+                let exports = services.artifacts.store.clone();
+                let worker_control = control.clone();
+                let (thumbnail_bytes, temporary_share_bytes) =
+                    tokio::task::spawn_blocking(move || {
+                        let thumbnails = derived.bytes_used(|| worker_control.is_cancelled())?;
+                        let shares =
+                            exports.bytes_used_cancellable(|| worker_control.is_cancelled())?;
+                        let total = thumbnails
+                            .checked_add(shares)
+                            .ok_or_else(|| CoreError::internal("cache usage overflow"))?;
+                        if total > i64::MAX as u64 {
+                            return Err(CoreError::internal(
+                                "cache usage exceeds statistics range",
+                            ));
+                        }
+                        Ok::<_, CoreError>((thumbnails as i64, shares as i64))
+                    })
+                    .await??;
+                control.check()?;
+                Ok(SpaceStatistics {
+                    known_assets: originals.known_assets,
+                    known_original_bytes: originals.known_original_bytes,
+                    ready_original_bytes: originals.ready_original_bytes,
+                    thumbnail_bytes,
+                    temporary_share_bytes,
+                })
             },
         )
     }

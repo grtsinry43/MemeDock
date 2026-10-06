@@ -169,6 +169,8 @@
     <string name="settings_language_save_failed">Failed to save language settings. Please try again.</string>
     <string name="settings_original_count">Original stickers</string>
     <string name="settings_saved_originals">Storage used</string>
+    <string name="settings_cache_usage">Cache used</string>
+    <string name="settings_cache_usage_hint">Thumbnails and temporary sharing files</string>
 
     <!-- Backup -->
     <string name="backup_title">Backup &amp; Restore</string>

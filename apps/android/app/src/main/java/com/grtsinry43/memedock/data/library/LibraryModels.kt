@@ -5,7 +5,14 @@ enum class ThumbnailState { Missing, Generating, Ready, Failed }
 enum class LibrarySort { Added, LastUsed }
 data class LibraryCollection(val id: String, val name: String, val generation: Long = 0, val revision: Long = 0, val deletedAt: Long? = null)
 data class LibraryTag(val id: String, val name: String, val generation: Long = 0, val revision: Long = 0, val deletedAt: Long? = null)
-data class LibraryStatistics(val originalCount: Long, val savedOriginalBytes: Long)
+data class LibraryStatistics(
+    val originalCount: Long,
+    val savedOriginalBytes: Long,
+    val thumbnailBytes: Long,
+    val temporaryShareBytes: Long,
+) {
+    val cachedBytes: Long get() = thumbnailBytes + temporaryShareBytes
+}
 data class LibraryItem(
     val id: String,
     val title: String,

@@ -87,17 +87,10 @@ impl ExportStore {
             .join(format!("{}.{}", record.id, record.format.extension()))
     }
     pub fn bytes_used(&self) -> Result<u64> {
-        directory(&self.root)?;
-        let mut size = 0u64;
-        for entry in fs::read_dir(&self.root)? {
-            let entry = entry?;
-            if entry.file_type()?.is_file() {
-                size = size
-                    .checked_add(entry.metadata()?.len())
-                    .ok_or(StorageError::Integrity("export usage overflow"))?;
-            }
-        }
-        Ok(size)
+        self.bytes_used_cancellable(|| false)
+    }
+    pub fn bytes_used_cancellable(&self, cancelled: impl FnMut() -> bool) -> Result<u64> {
+        super::directory_bytes(&self.root, cancelled)
     }
     pub fn verify(
         &self,
