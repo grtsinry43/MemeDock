@@ -6,6 +6,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.ViewModel
@@ -34,6 +35,7 @@ fun DetailRoute(id: String, container: AppContainer, initialItem: LibraryItem?, 
     val model: DetailViewModel = viewModel(factory = factory)
     val state by model.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val messages = LocalMemeDockMessages.current
     val preference by container.exportPreferences.choice.collectAsStateWithLifecycle<ExportChoice?>(null)
@@ -47,7 +49,7 @@ fun DetailRoute(id: String, container: AppContainer, initialItem: LibraryItem?, 
 
     // Messages outlive the effect that raised them, so they run in the route scope.
     fun notify(@StringRes text: Int, type: MemeDockMessageType) {
-        val message = MemeDockMessage(context.getString(text), type)
+        val message = MemeDockMessage(resources.getString(text), type)
         scope.launch { messages.showMemeDockMessage(message) }
     }
     fun request(action: OutputAction, firstFrame: Boolean) {

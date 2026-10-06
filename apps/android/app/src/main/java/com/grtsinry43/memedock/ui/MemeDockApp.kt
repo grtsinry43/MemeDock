@@ -1,6 +1,9 @@
 package com.grtsinry43.memedock.ui
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.res.AssetManager
+import android.content.res.Resources
 import androidx.annotation.StringRes
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -17,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -67,6 +71,7 @@ fun MemeDockApp(container: AppContainer) {
         LocalMemeDockMessages provides messages,
         LocalContext provides localizedContext,
         LocalConfiguration provides localizedContext.resources.configuration,
+        LocalResources provides localizedContext.resources,
     ) {
         key(epoch) {
             val owner = remember { object : androidx.lifecycle.ViewModelStoreOwner {
@@ -229,26 +234,25 @@ private fun Context.activityWindow(): android.view.Window? = findActivity()?.win
 @Composable
 private fun rememberLocalizedContext(container: AppContainer): Context {
     val baseContext = LocalContext.current
+    val baseConfiguration = LocalConfiguration.current
     val languageMode by remember(container) {
         container.language.mode.retryWhen { error, _ ->
             if (error is IOException) { delay(1_000); true } else false
         }.catch { emit(LanguageMode.System) }
     }.collectAsStateWithLifecycle(LanguageMode.System)
 
-    return remember(baseContext, languageMode) {
-        when (languageMode) {
-            LanguageMode.System -> baseContext
-            LanguageMode.Chinese -> {
-                val config = Configuration(baseContext.resources.configuration)
-                config.setLocales(LocaleList(Locale.SIMPLIFIED_CHINESE))
-                baseContext.createConfigurationContext(config)
-            }
-            LanguageMode.English -> {
-                val config = Configuration(baseContext.resources.configuration)
-                config.setLocales(LocaleList(Locale.ENGLISH))
-                baseContext.createConfigurationContext(config)
+    return remember(baseContext, baseConfiguration, languageMode) {
+        if (languageMode == LanguageMode.System) baseContext else {
+            val config = Configuration(baseConfiguration)
+            val locale = if (languageMode == LanguageMode.Chinese) Locale.SIMPLIFIED_CHINESE else Locale.ENGLISH
+            config.setLocales(LocaleList(locale))
+            val localized = baseContext.createConfigurationContext(config)
+            // Keep the Activity in the context chain for result launchers,
+            // sharing and window access; replace only locale-aware resources.
+            object : ContextWrapper(baseContext) {
+                override fun getResources(): Resources = localized.resources
+                override fun getAssets(): AssetManager = localized.assets
             }
         }
     }
 }
-

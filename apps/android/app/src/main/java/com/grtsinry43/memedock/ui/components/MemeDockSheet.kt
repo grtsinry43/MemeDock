@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -55,6 +56,7 @@ fun MemeDockSheet(
         if (visible) shown = true else if (shown) { state.hide(); shown = false }
     }
     if (!shown) return
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val dismissRequest by rememberUpdatedState(onDismissRequest)
     val close = remember(state) { {
@@ -74,16 +76,20 @@ fun MemeDockSheet(
         dragHandle = { SheetHandle() },
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = dismissible, shouldDismissOnClickOutside = dismissible),
     ) {
-        if (title != null) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-                if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // The separate window supplies its own Context. Keep app-selected
+        // resources for strings without replacing that window's Context.
+        CompositionLocalProvider(LocalResources provides resources) {
+            if (title != null) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                    if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
+            MemeDockSheetScope(this, close).content()
+            Spacer(Modifier.height(12.dp))
         }
-        MemeDockSheetScope(this, close).content()
-        Spacer(Modifier.height(12.dp))
     }
 }
 
