@@ -29,7 +29,8 @@ class LibraryWorkflowTest {
         val slots = mutableListOf<Slot>()
         val imported = mutableListOf<String>()
         var discarded = 0
-        override suspend fun page(text: String, cursor: PageCursor?, collectionId: String?, starred: Boolean?, deleted: Boolean): LibraryPage {
+        override suspend fun page(text: String, cursor: PageCursor?, collectionId: String?, starred: Boolean?, deleted: Boolean,
+            tagIds: List<String>, sort: LibrarySort?): LibraryPage {
             collectionQueries.add(collectionId)
             return pages(text, cursor)
         }

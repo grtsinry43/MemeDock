@@ -4,13 +4,36 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grtsinry43.memedock.data.library.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
-class LibraryViewModel(private val repository: LibraryRepository, private val collectionId: String? = null) : ViewModel() {
+/**
+ * Grid state for the home page, for one collection or tag when [collectionId] or [tagId] is set, or for the
+ * trash when [deleted] is set. Home also lists [collections] so they can be offered as filters.
+ */
+class LibraryViewModel(
+    private val repository: LibraryRepository,
+    private val collectionId: String? = null,
+    private val collections: CollectionRepository? = null,
+    private val tagId: String? = null,
+    private val deleted: Boolean = false,
+) : ViewModel() {
+    private data class Query(val text: String, val collectionId: String?, val starred: Boolean?, val sort: LibrarySort?,
+        val tagIds: List<String>, val deleted: Boolean)
+
     private val mutable = MutableStateFlow(LibraryUiState())
     val state = mutable.asStateFlow()
+    private val failureChannel = Channel<String>(Channel.BUFFERED)
+    /** One-shot failures of actions started from the grid, such as a move that did not save. */
+    val failures = failureChannel.receiveAsFlow()
+    private val moves = Mutex()
+    private val scoped = collectionId != null || tagId != null || deleted
     private var cursor: PageCursor? = null
+    private var active: Query? = null
     private var queryJob: Job? = null
+    private var collectionsJob: Job? = null
     private var generation = 0L
     private val thumbnails = mutableMapOf<String, Job>()
     private var pendingReload = false
@@ -20,6 +43,7 @@ class LibraryViewModel(private val repository: LibraryRepository, private val co
 
     init {
         reload()
+        loadCollections()
         viewModelScope.launch {
             repository.changes.collect { change ->
                 when (change) {
@@ -36,7 +60,8 @@ class LibraryViewModel(private val repository: LibraryRepository, private val co
                 if (pendingReload) {
                     pendingReload = false
                     pendingThumbnails.clear()
-                    reload()
+                    reload(keepItems = true)
+                    loadCollections()
                 } else {
                     while (pendingThumbnails.isNotEmpty()) {
                         val ids = pendingThumbnails.take(200)
@@ -47,41 +72,96 @@ class LibraryViewModel(private val repository: LibraryRepository, private val co
             }
         }
     }
+
     fun search(text: String) {
         if (text == mutable.value.search) return
         mutable.update { it.copy(search = text) }
         reload(debounce = true)
     }
-    fun retry() { repository.retryOpen(); reload() }
-    fun toggleStarred() { mutable.update { it.copy(starredOnly = !it.starredOnly) }; reload() }
-    private fun reload(debounce: Boolean = false) {
+
+    fun select(filter: LibraryFilter) {
+        if (filter == mutable.value.filter) return
+        mutable.update { it.copy(filter = filter) }
+        reload()
+    }
+
+    fun retry() { repository.retryOpen(); reload(); loadCollections() }
+
+    private fun query(state: LibraryUiState): Query {
+        val filter = if (scoped) LibraryFilter.All else state.filter
+        val collection = collectionId ?: (filter as? LibraryFilter.Collection)?.id
+        return Query(
+            text = state.search,
+            collectionId = collection,
+            starred = true.takeIf { filter == LibraryFilter.Starred },
+            sort = when (filter) {
+                LibraryFilter.Recent -> LibrarySort.LastUsed
+                LibraryFilter.All, LibraryFilter.Starred -> LibrarySort.Added
+                is LibraryFilter.Collection -> null
+            }.takeIf { !scoped },
+            tagIds = listOfNotNull(tagId),
+            deleted = deleted,
+        )
+    }
+
+    /**
+     * Shows [order] at once and saves where [moved] landed through [commit], which receives the item now
+     * following it. [order] must hold every page, otherwise the last loaded item has an unknown successor.
+     * Moves save one at a time; a failure reloads the saved order.
+     */
+    fun reorder(order: List<LibraryItem>, moved: LibraryItem, commit: suspend (before: LibraryItem?) -> Unit) {
+        val index = order.indexOfFirst { it.id == moved.id }
+        if (index < 0 || cursor != null) return
+        val before = order.getOrNull(index + 1)
+        mutable.update { it.copy(items = order) }
+        viewModelScope.launch {
+            moves.withLock {
+                try { commit(before) }
+                catch (cancel: CancellationException) { throw cancel }
+                catch (error: Exception) {
+                    failureChannel.send(reason(error))
+                    reload(keepItems = true)
+                }
+            }
+        }
+    }
+
+    /** [keepItems] refreshes in place so library changes do not flash the grid back to placeholders. */
+    private fun reload(debounce: Boolean = false, keepItems: Boolean = false) {
         generation++
         val request = generation
-        val text = mutable.value.search
-        val starred = true.takeIf { mutable.value.starredOnly }
+        val query = query(mutable.value)
         queryJob?.cancel()
-        cursor?.close(); cursor = null
-        mutable.update { it.copy(items = emptyList(), loading = true, loadingMore = false, hasMore = false, error = null, pageError = null) }
+        cursor?.close(); cursor = null; active = null
+        mutable.update {
+            if (keepItems) it.copy(loadingMore = false, pageError = null)
+            else it.copy(items = emptyList(), loading = true, loadingMore = false, hasMore = false, error = null, pageError = null)
+        }
         queryJob = viewModelScope.launch {
             try {
                 if (debounce) delay(250)
-                val page = repository.page(text, collectionId = collectionId, starred = starred)
+                val page = fetch(query, null)
                 if (request != generation) { page.next?.close(); return@launch }
-                cursor = page.next
-                mutable.update { it.copy(items = page.items, loading = false, hasMore = page.next != null) }
+                cursor = page.next; active = query
+                mutable.update { it.copy(items = page.items, loading = false, error = null, hasMore = page.next != null) }
             } catch (cancel: CancellationException) { throw cancel }
-            catch (error: Exception) { if (request == generation) mutable.update { it.copy(loading = false, error = reason(error)) } }
+            catch (error: Exception) {
+                if (request == generation) mutable.update {
+                    if (keepItems && it.items.isNotEmpty()) it.copy(pageError = reason(error)) else it.copy(loading = false, error = reason(error))
+                }
+            }
         }
     }
+
     fun loadMore() {
         val next = cursor ?: return
+        val query = active ?: return
         if (mutable.value.loading || mutable.value.loadingMore) return
         val request = generation
-        val text = mutable.value.search
         mutable.update { it.copy(loadingMore = true, pageError = null) }
         queryJob = viewModelScope.launch {
             try {
-                val page = repository.page(text, next, collectionId, starred = true.takeIf { mutable.value.starredOnly })
+                val page = fetch(query, next)
                 if (request != generation) { page.next?.close(); return@launch }
                 next.close(); cursor = page.next
                 mutable.update { it.copy(items = (it.items + page.items).distinctBy(LibraryItem::id), loadingMore = false, hasMore = page.next != null) }
@@ -89,6 +169,25 @@ class LibraryViewModel(private val repository: LibraryRepository, private val co
             catch (error: Exception) { if (request == generation) mutable.update { it.copy(loadingMore = false, pageError = reason(error)) } }
         }
     }
+
+    private suspend fun fetch(query: Query, next: PageCursor?) =
+        repository.page(query.text, next, query.collectionId, query.starred, query.deleted, query.tagIds, query.sort)
+
+    private fun loadCollections() {
+        val source = collections ?: return
+        collectionsJob?.cancel()
+        collectionsJob = viewModelScope.launch {
+            try {
+                val values = source.collections()
+                val filter = mutable.value.filter
+                val gone = filter is LibraryFilter.Collection && values.none { it.id == filter.id }
+                mutable.update { it.copy(collections = values) }
+                if (gone) select(LibraryFilter.Recent)
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { /* Filters are optional; the grid reports library failures. */ }
+        }
+    }
+
     fun ensureThumbnail(item: LibraryItem, retry: Boolean = false) {
         if ((!retry && item.thumbnailPath != null) || thumbnails[item.id]?.isActive == true || (!retry && item.thumbnailState == ThumbnailState.Failed)) return
         // Native admission and image budgets bound work; do not queue the whole library.
@@ -110,6 +209,7 @@ class LibraryViewModel(private val repository: LibraryRepository, private val co
         thumbnails[item.id] = job
         job.start()
     }
+
     private suspend fun refreshThumbnails(ids: List<String>) {
         try {
             val updates = repository.thumbnailStates(ids).associateBy(ThumbnailUpdate::id)
@@ -119,6 +219,7 @@ class LibraryViewModel(private val repository: LibraryRepository, private val co
         } catch (cancel: CancellationException) { throw cancel }
         catch (error: Exception) { mutable.update { it.copy(pageError = reason(error)) } }
     }
+
     private fun reason(error: Exception) = (error as? LibraryFailure)?.reason ?: "INTERNAL"
     override fun onCleared() { cursor?.close(); super.onCleared() }
 }

@@ -1,7 +1,12 @@
 package com.grtsinry43.memedock.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -10,16 +15,28 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun MemeDockEmptyState(title: String, message: String, action: String, onAction: () -> Unit,
-    modifier: Modifier = Modifier, icon: ImageVector = MemeDockIcons.Image) {
-    Column(modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
-            Icon(icon, null, Modifier.padding(20.dp).size(32.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+fun MemeDockEmptyState(
+    title: String,
+    message: String,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    icon: ImageVector = MemeDockIcons.Image,
+) {
+    Column(modifier.widthIn(max = 360.dp).padding(horizontal = 32.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(64.dp).background(MaterialTheme.colorScheme.surfaceContainer, CircleShape),
+            contentAlignment = Alignment.Center) {
+            Icon(icon, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(16.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(6.dp))
         Text(message, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        FilledTonalButton(onClick = onAction) { Text(action) }
+        if (action != null && onAction != null) {
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onAction, contentPadding = PaddingValues(horizontal = 24.dp)) { Text(action) }
+        }
     }
 }

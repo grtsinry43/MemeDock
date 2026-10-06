@@ -10,6 +10,8 @@ data class ImportItemState(
     val status: ImportItemStatus = ImportItemStatus.Queued,
     val bytesRead: Long = 0,
     val error: String? = null,
+    /** Our own copy while the item waits in staging; previews read it instead of the source again. */
+    val stagedPath: String? = null,
 )
 data class ImportState(
     val collection: LibraryCollection? = null,
@@ -20,5 +22,13 @@ data class ImportState(
     val selectionError: String? = null,
 ) {
     val busy get() = phase == ImportPhase.Preparing || phase == ImportPhase.Running
+    val ready get() = items.count { it.status == ImportItemStatus.Queued || it.status == ImportItemStatus.Staged }
+    val unresolved get() = items.count { it.status in Unresolved }
+    val retryable get() = items.any { it.status == ImportItemStatus.Failed || it.status == ImportItemStatus.Cancelled }
     fun count(status: ImportItemStatus) = items.count { it.status == status }
+    companion object {
+        val Unresolved = setOf(ImportItemStatus.Failed, ImportItemStatus.Cancelled, ImportItemStatus.RestoreRequired)
+    }
 }
+
+data class ImportReport(val created: Int, val reused: Int, val unresolved: Int, val stopped: Boolean)

@@ -132,6 +132,12 @@ class BackupCoordinator(private val repository: BackupRepository, private val ga
             catch (error: Exception) { failed(error) }
         }
     }
+    /** Clears a finished result or failure once it has been shown. */
+    fun acknowledge() {
+        val current = mutable.value
+        if (current.phase == BackupPhase.Saved || current.phase == BackupPhase.Restored ||
+            (current.phase == BackupPhase.Idle && current.error != null)) mutable.value = BackupState()
+    }
     fun cancel() {
         cancelled.set(true)
         if (mutable.value.phase == BackupPhase.Restoring) restoreTask?.cancel()

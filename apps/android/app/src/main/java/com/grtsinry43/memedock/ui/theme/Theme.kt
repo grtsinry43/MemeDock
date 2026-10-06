@@ -2,6 +2,7 @@ package com.grtsinry43.memedock.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -28,7 +29,9 @@ fun MemeDockTheme(
     LaunchedEffect(resolver) { resolver.preload(MemeDockFontFamily) }
     CompositionLocalProvider(LocalMemeDockSemanticColors provides
         if (darkTheme) MemeDockSemanticColors.Dark else MemeDockSemanticColors.Light) {
-        MaterialTheme(colorScheme = colors, typography = MemeDockTypography,
-            shapes = MemeDockShapes, content = content)
+        MaterialTheme(colorScheme = colors, typography = MemeDockTypography, shapes = MemeDockShapes) {
+            // Pages draw on the window background rather than a Surface.
+            CompositionLocalProvider(LocalContentColor provides colors.onBackground, content = content)
+        }
     }
 }

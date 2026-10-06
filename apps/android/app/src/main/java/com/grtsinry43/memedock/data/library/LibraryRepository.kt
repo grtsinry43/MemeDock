@@ -4,7 +4,9 @@ import kotlinx.coroutines.flow.Flow
 
 interface LibraryRepository {
     val changes: Flow<LibraryChange>
-    suspend fun page(text: String, cursor: PageCursor? = null, collectionId: String? = null, starred: Boolean? = null, deleted: Boolean = false): LibraryPage
+    /** A null [sort] keeps the natural order: collection order inside a collection, newest first elsewhere. */
+    suspend fun page(text: String, cursor: PageCursor? = null, collectionId: String? = null, starred: Boolean? = null,
+        deleted: Boolean = false, tagIds: List<String> = emptyList(), sort: LibrarySort? = null): LibraryPage
     suspend fun thumbnail(id: String): String
     suspend fun thumbnailStates(ids: List<String>): List<ThumbnailUpdate>
     suspend fun createInput(): ImportSlot

@@ -1,105 +1,208 @@
 package com.grtsinry43.memedock.feature.detail
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.data.library.*
+import com.grtsinry43.memedock.ui.components.*
+import com.grtsinry43.memedock.ui.failureCode
 import com.grtsinry43.memedock.ui.failureText
+import com.grtsinry43.memedock.ui.theme.MemeDockLayout
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Picks collections and tags for [detail]; shown while it is non-null. Closing the sheet in any way saves the
+ * selection: unchanged selections just [close], otherwise [save] runs and the caller clears [detail] on success.
+ * A failed save keeps the sheet open with [error].
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun StickerRelationsSheet(detail: StickerDetails, repository: ManagementRepository, busy: Boolean, error: String?,
-    dismiss: () -> Unit, save: (List<LibraryCollection>, List<LibraryTag>) -> Unit) {
-    var collections by remember { mutableStateOf<List<LibraryCollection>?>(null) }
-    var tags by remember { mutableStateOf<List<LibraryTag>?>(null) }
-    val selectionSaver = listSaver<List<String>, String>(save = { it }, restore = { it.toList() })
-    var selectedCollections by rememberSaveable(detail.id, stateSaver = selectionSaver) { mutableStateOf(detail.collections.map { it.id }) }
-    var selectedTags by rememberSaveable(detail.id, stateSaver = selectionSaver) { mutableStateOf(detail.tags.map { it.id }) }
-    var loadError by remember { mutableStateOf<String?>(null) }
+fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementRepository, busy: Boolean, error: String?,
+    close: () -> Unit, save: (List<LibraryCollection>, List<LibraryTag>) -> Unit) {
+    val target = rememberRetained(detail) ?: return
+    val visible = detail != null
+    var collections by remember(target.id) { mutableStateOf<List<LibraryCollection>?>(null) }
+    var tags by remember(target.id) { mutableStateOf<List<LibraryTag>?>(null) }
+    var selectedCollections by remember(target) { mutableStateOf(target.collections.map { it.id }.toSet()) }
+    var selectedTags by remember(target) { mutableStateOf(target.tags.map { it.id }.toSet()) }
+    var loadError by remember(target.id) { mutableStateOf<String?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
+    var addingTag by remember(target.id) { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
-    var tagName by rememberSaveable { mutableStateOf("") }
+    var createError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(repository, refresh) {
+    LaunchedEffect(target.id, visible, refresh) {
+        if (!visible) return@LaunchedEffect
         loadError = null
         try { collections = repository.collections(false); tags = repository.tags() }
         catch (cancel: CancellationException) { throw cancel }
-        catch (failure: Exception) { loadError = (failure as? LibraryFailure)?.reason ?: "INTERNAL" }
+        catch (failure: Exception) { loadError = failureCode(failure) }
     }
-    ModalBottomSheet(onDismissRequest = { if (!busy && !creating) dismiss() },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 650.dp).imePadding().padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(R.string.organize), style = MaterialTheme.typography.headlineSmall)
-            LazyColumn(Modifier.weight(1f, fill = false)) {
-                item { Text(stringResource(R.string.select_collections), style = MaterialTheme.typography.titleMedium) }
-                if (collections?.isEmpty() == true) item {
-                    Text(stringResource(R.string.choices_empty), Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                items(collections.orEmpty(), key = { "collection:" + it.id }) { value ->
-                    RelationChoice(value.name, value.id in selectedCollections, !busy && !creating) {
-                        selectedCollections = if (value.id in selectedCollections) selectedCollections - value.id else selectedCollections + value.id
-                    }
-                }
-                item { Text(stringResource(R.string.select_tags), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
-                if (tags?.isEmpty() == true) item {
-                    Text(stringResource(R.string.choices_empty), Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                items(tags.orEmpty(), key = { "tag:" + it.id }) { value ->
-                    RelationChoice(value.name, value.id in selectedTags, !busy && !creating) {
-                        selectedTags = if (value.id in selectedTags) selectedTags - value.id else selectedTags + value.id
-                    }
-                }
-                item {
-                    if (collections == null || tags == null) {
-                        if (loadError == null) CircularProgressIndicator(Modifier.padding(16.dp))
-                    }
-                    OutlinedTextField(tagName, { tagName = it }, enabled = !busy && !creating, singleLine = true,
-                        label = { Text(stringResource(R.string.new_tag)) }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp))
-                    TextButton(enabled = tagName.isNotBlank() && !busy && !creating, onClick = {
-                        creating = true
-                        scope.launch {
-                            try {
-                                val tag = repository.createTag(tagName)
-                                tags = repository.tags()
-                                selectedTags = (selectedTags + tag.id).distinct()
-                                tagName = ""; loadError = null
-                            } catch (cancel: CancellationException) { throw cancel }
-                            catch (failure: Exception) { loadError = (failure as? LibraryFailure)?.reason ?: "INTERNAL" }
-                            finally { creating = false }
-                        }
-                    }) { Text(stringResource(R.string.new_tag)) }
+    val loaded = collections != null && tags != null
+    val changed = loaded && (selectedCollections != target.collections.map { it.id }.toSet() ||
+        selectedTags != target.tags.map { it.id }.toSet())
+    val locked = busy || creating
+    MemeDockSheet(
+        visible = visible,
+        onDismissRequest = close,
+        title = stringResource(R.string.organize),
+        subtitle = target.title,
+        dismissible = !locked,
+        confirmDismiss = {
+            when {
+                locked -> false
+                !changed -> true
+                else -> {
+                    save(collections.orEmpty().filter { it.id in selectedCollections }, tags.orEmpty().filter { it.id in selectedTags })
+                    false
                 }
             }
-            (error ?: loadError)?.let {
-                Text(failureText(it), color = MaterialTheme.colorScheme.error)
-                if (loadError != null) TextButton(onClick = { refresh++ }, enabled = !creating) { Text(stringResource(R.string.retry)) }
+        },
+    ) {
+        val sheet = this
+        Column(Modifier.weight(1f, fill = false).imePadding().verticalScroll(rememberScrollState())) {
+            SectionLabel(stringResource(R.string.select_collections))
+            val available = collections
+            when {
+                available == null -> if (loadError == null) LoadingRows()
+                available.isEmpty() -> EmptyHint(stringResource(R.string.no_collections_hint))
+                else -> available.forEach { collection ->
+                    val checked = collection.id in selectedCollections
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.RowHeight)
+                            .toggleable(checked, enabled = !locked, role = Role.Checkbox) {
+                                selectedCollections = if (it) selectedCollections + collection.id else selectedCollections - collection.id
+                            }
+                            .padding(horizontal = 24.dp).testTag("relation-collection:${collection.id}"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Icon(MemeDockIcons.Folder, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(collection.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (checked) Icon(MemeDockIcons.Check, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
             }
-            Button(onClick = {
-                save(collections.orEmpty().filter { it.id in selectedCollections }, tags.orEmpty().filter { it.id in selectedTags })
-            }, enabled = !busy && !creating && collections != null && tags != null && loadError == null,
-                modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.save)) }
+            SectionLabel(stringResource(R.string.select_tags), Modifier.padding(top = 16.dp))
+            val labels = tags
+            if (labels == null) { if (loadError == null) LoadingRows() }
+            else FlowRow(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                labels.forEach { tag ->
+                    TagChip(tag.name, tag.id in selectedTags, !locked) {
+                        selectedTags = if (tag.id in selectedTags) selectedTags - tag.id else selectedTags + tag.id
+                    }
+                }
+                if (!addingTag) AddTagChip(enabled = !locked) { createError = null; addingTag = true }
+            }
+            if (labels != null && addingTag) MemeDockInlineEdit(
+                initial = "",
+                placeholder = stringResource(R.string.new_tag),
+                onCommit = { name ->
+                    creating = true
+                    createError = null
+                    scope.launch {
+                        try {
+                            val tag = repository.createTag(name)
+                            tags = repository.tags()
+                            selectedTags = selectedTags + tag.id
+                            addingTag = false
+                        } catch (cancel: CancellationException) { throw cancel }
+                        catch (failure: Exception) { createError = failureCode(failure) }
+                        finally { creating = false }
+                    }
+                },
+                onCancel = { addingTag = false; createError = null },
+                modifier = Modifier.padding(horizontal = 24.dp).padding(top = 12.dp),
+                busy = creating,
+                error = createError?.let { failureText(it) },
+            )
+            (error ?: loadError)?.let { code ->
+                Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(failureText(code), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error)
+                    if (loadError != null) TextButton(onClick = { refresh++ }) { Text(stringResource(R.string.retry)) }
+                }
+            }
+        }
+        Button(
+            onClick = { if (!locked) sheet.dismiss() },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 20.dp).height(52.dp)
+                .testTag("relations-done"),
+            shape = MaterialTheme.shapes.medium,
+        ) {
+            if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+            else Text(stringResource(R.string.done))
         }
     }
 }
 
 @Composable
-private fun RelationChoice(name: String, selected: Boolean, enabled: Boolean, toggle: () -> Unit) {
-    Row(Modifier.fillMaxWidth().toggleable(selected, enabled = enabled, role = Role.Checkbox, onValueChange = { toggle() })
-        .padding(vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-        Checkbox(selected, onCheckedChange = null, enabled = enabled)
-        Text(name, Modifier.padding(start = 8.dp).weight(1f))
+private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.padding(horizontal = 24.dp, vertical = 8.dp).semantics { heading() })
+}
+
+@Composable
+private fun EmptyHint(text: String) {
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+}
+
+@Composable
+private fun LoadingRows() {
+    Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        MemeDockSkeleton(Modifier.fillMaxWidth(.6f).height(20.dp), MaterialTheme.shapes.extraSmall)
+        MemeDockSkeleton(Modifier.fillMaxWidth(.4f).height(20.dp), MaterialTheme.shapes.extraSmall)
+    }
+}
+
+@Composable
+private fun TagChip(name: String, selected: Boolean, enabled: Boolean, toggle: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        Modifier.heightIn(min = 36.dp).clip(MaterialTheme.shapes.small)
+            .background(if (selected) colors.primary.copy(alpha = .12f) else colors.surfaceContainer)
+            .toggleable(selected, enabled = enabled, role = Role.Checkbox) { toggle() }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (selected) Icon(MemeDockIcons.Check, null, Modifier.size(16.dp), tint = colors.primary)
+        Text(name, style = MaterialTheme.typography.bodyMedium, color = if (selected) colors.primary else colors.onSurface,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun AddTagChip(enabled: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        Modifier.heightIn(min = 36.dp).clip(MaterialTheme.shapes.small).background(colors.primary.copy(alpha = .10f))
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(start = 8.dp, end = 12.dp).testTag("relations-new-tag"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(MemeDockIcons.Add, null, Modifier.size(16.dp), tint = colors.primary)
+        Text(stringResource(R.string.new_tag), style = MaterialTheme.typography.bodyMedium, color = colors.primary)
     }
 }

@@ -72,7 +72,7 @@ fun StickerPreview(detail: StickerDetails, loader: ImageLoader, playing: Boolean
         update()
         onDispose { lifecycle.removeObserver(observer); animation?.stop() }
     }
-    Surface(modifier = Modifier.fillMaxWidth().testTag("detail-preview").stickerTransition(detail.id), color = MaterialTheme.colorScheme.surfaceContainerLow,
+    Surface(modifier = Modifier.fillMaxWidth().testTag("detail-preview").stickerTransition(detail.id), color = MaterialTheme.colorScheme.surfaceContainerLowest,
         shape = MaterialTheme.shapes.large) {
         Box(Modifier.fillMaxWidth().height(height).clipToBounds().pointerInput(detail.id, moving) {
             if (!moving) detectTransformGestures { _, pan, zoom, _ ->

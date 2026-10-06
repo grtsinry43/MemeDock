@@ -1,36 +1,33 @@
 package com.grtsinry43.memedock.ui.components
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.AccessibilityManager
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.grtsinry43.memedock.R
-import com.grtsinry43.memedock.ui.theme.LocalMemeDockSemanticColors
 
-/** Place in Scaffold.snackbarHost; Scaffold handles system insets, imePadding adds only the IME remainder. */
+/** App-wide message queue; mounted once at the root so messages survive page changes. */
+val LocalMemeDockMessages = staticCompositionLocalOf<SnackbarHostState> { error("MemeDock message host is not mounted") }
+
+/**
+ * Bottom-anchored message bar. [bottomInset] lifts it above app chrome such as the tab bar; the
+ * keyboard replaces that inset while it is open.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun MemeDockMessageHost(hostState: SnackbarHostState, modifier: Modifier = Modifier) {
+fun MemeDockMessageHost(hostState: SnackbarHostState, modifier: Modifier = Modifier, bottomInset: Dp = 0.dp) {
     val manager = LocalAccessibilityManager.current
     val adjustedManager = remember(manager, hostState) {
         manager?.let { delegate ->
@@ -49,65 +46,50 @@ fun MemeDockMessageHost(hostState: SnackbarHostState, modifier: Modifier = Modif
             }
         }
     }
+    val lift = if (WindowInsets.isImeVisible) 0.dp else bottomInset
     CompositionLocalProvider(LocalAccessibilityManager provides adjustedManager) {
-        SnackbarHost(hostState, modifier.imePadding()) { data ->
-            val message = data.visuals as? MemeDockMessage
-            val semantic = LocalMemeDockSemanticColors.current
-            val colors = MaterialTheme.colorScheme
-            val container = when (message?.type) {
-                MemeDockMessageType.Success -> semantic.successContainer
-                MemeDockMessageType.Warning -> semantic.warningContainer
-                MemeDockMessageType.Error -> colors.errorContainer
-                null -> colors.inverseSurface
+        SnackbarHost(hostState, modifier.windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+            .padding(bottom = lift)) { data -> MessageBar(data) }
+    }
+}
+
+@Composable
+private fun MessageBar(data: SnackbarData) {
+    val message = data.visuals as? MemeDockMessage
+    val colors = MaterialTheme.colorScheme
+    // The bar sits on inverseSurface in both themes, so status hues are picked for that background.
+    val dark = colors.inverseSurface.luminance() < .5f
+    val (icon, label, tint) = when (message?.type) {
+        MemeDockMessageType.Success -> Triple(R.drawable.ic_message_success, R.string.message_success,
+            if (dark) Color(0xFF5BD68A) else Color(0xFF1E8E4E))
+        MemeDockMessageType.Warning -> Triple(R.drawable.ic_message_warning, R.string.message_warning,
+            if (dark) Color(0xFFFFC94D) else Color(0xFFA86B00))
+        MemeDockMessageType.Error -> Triple(R.drawable.ic_message_error, R.string.message_error,
+            if (dark) Color(0xFFFF8A80) else Color(0xFFC5221F))
+        null -> Triple(null, null, Color.Unspecified)
+    }
+    Surface(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).widthIn(max = 560.dp).fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = colors.inverseSurface,
+        contentColor = colors.inverseOnSurface,
+        shadowElevation = 6.dp,
+    ) {
+        Row(
+            Modifier.heightIn(min = 52.dp).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (icon != null && label != null) Icon(painterResource(icon), stringResource(label), Modifier.size(20.dp), tint = tint)
+            Text(data.visuals.message, Modifier.weight(1f).padding(vertical = 8.dp),
+                style = MaterialTheme.typography.bodyMedium)
+            data.visuals.actionLabel?.let { action ->
+                TextButton(onClick = data::performAction) { Text(action, color = colors.inversePrimary) }
             }
-            val content = when (message?.type) {
-                MemeDockMessageType.Success -> semantic.onSuccessContainer
-                MemeDockMessageType.Warning -> semantic.onWarningContainer
-                MemeDockMessageType.Error -> colors.onErrorContainer
-                null -> colors.inverseOnSurface
-            }
-            val icon = when (message?.type) {
-                MemeDockMessageType.Success -> R.drawable.ic_message_success
-                MemeDockMessageType.Warning -> R.drawable.ic_message_warning
-                MemeDockMessageType.Error -> R.drawable.ic_message_error
-                null -> null
-            }
-            val typeLabel = when (message?.type) {
-                MemeDockMessageType.Success -> R.string.message_success
-                MemeDockMessageType.Warning -> R.string.message_warning
-                MemeDockMessageType.Error -> R.string.message_error
-                null -> null
-            }
-            Snackbar(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = MaterialTheme.shapes.medium,
-                containerColor = container, contentColor = content,
-                // Keep actions below the text: long Chinese messages and large fonts stay readable.
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        if (icon != null && typeLabel != null) {
-                            Icon(painterResource(icon), stringResource(typeLabel),
-                                Modifier.size(20.dp), tint = content)
-                        }
-                        Text(data.visuals.message, style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f))
-                    }
-                    if (data.visuals.actionLabel != null || data.visuals.withDismissAction) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically) {
-                            data.visuals.actionLabel?.let { label ->
-                                TextButton(onClick = data::performAction) { Text(label, color = content) }
-                            }
-                            if (data.visuals.withDismissAction) {
-                                IconButton(onClick = data::dismiss) {
-                                    Icon(painterResource(R.drawable.ic_message_close),
-                                        stringResource(R.string.message_dismiss), tint = content)
-                                }
-                            }
-                        }
-                    }
+            if (data.visuals.withDismissAction) {
+                IconButton(onClick = data::dismiss) {
+                    Icon(painterResource(R.drawable.ic_message_close), stringResource(R.string.message_dismiss),
+                        Modifier.size(20.dp), tint = colors.inverseOnSurface.copy(alpha = .7f))
                 }
             }
         }

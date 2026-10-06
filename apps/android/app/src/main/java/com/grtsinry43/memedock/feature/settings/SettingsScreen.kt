@@ -1,70 +1,84 @@
 package com.grtsinry43.memedock.feature.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.data.settings.ThemeMode
-import com.grtsinry43.memedock.ui.components.formatFileSize
+import com.grtsinry43.memedock.ui.components.*
 import com.grtsinry43.memedock.ui.failureText
+import com.grtsinry43.memedock.ui.theme.MemeDockLayout
 
 @Composable
-fun SettingsScreen(state: SettingsState, select: (ThemeMode) -> Unit, retry: () -> Unit,
-    tags: (() -> Unit)? = null, trash: (() -> Unit)? = null, backup: (() -> Unit)? = null) {
-    Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(stringResource(R.string.tab_settings), style = MaterialTheme.typography.headlineLarge)
-        tags?.let { action -> OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.manage_tags)) } }
-        trash?.let { action -> OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.trash)) } }
-        backup?.let { action -> OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.backup_title)) } }
-        Text(stringResource(R.string.settings_appearance), style = MaterialTheme.typography.titleMedium)
-        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            Column(Modifier.fillMaxWidth().selectableGroup()) {
-                ThemeMode.entries.forEach { mode ->
-                    Row(Modifier.fillMaxWidth().selectable(selected = state.mode == mode, enabled = !state.saving,
-                        role = Role.RadioButton, onClick = { select(mode) }).padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(when (mode) {
-                            ThemeMode.System -> R.string.theme_system
-                            ThemeMode.Light -> R.string.theme_light
-                            ThemeMode.Dark -> R.string.theme_dark
-                        }), modifier = Modifier.weight(1f))
-                        RadioButton(selected = state.mode == mode, onClick = null)
+fun SettingsScreen(state: SettingsState, select: (ThemeMode) -> Unit, retry: () -> Unit, trash: () -> Unit, backup: () -> Unit,
+    contentPadding: PaddingValues) {
+    Column(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(bottom = contentPadding.calculateBottomPadding() + MemeDockLayout.SectionGap),
+    ) {
+        Text(stringResource(R.string.tab_mine), style = MaterialTheme.typography.headlineLarge,
+            modifier = Modifier.padding(horizontal = MemeDockLayout.PagePadding).padding(top = 18.dp, bottom = 18.dp)
+                .semantics { heading() })
+        val statistics = state.statistics
+        MemeDockGroup(title = stringResource(R.string.settings_library),
+            footer = state.error?.let { failureText(it) }) {
+            row {
+                MemeDockRow(stringResource(R.string.settings_original_count), value = statistics?.originalCount?.toString()) {
+                    when {
+                        state.error != null -> TextButton(onClick = retry) { Text(stringResource(R.string.retry)) }
+                        statistics == null -> MemeDockSkeleton(Modifier.size(width = 40.dp, height = 16.dp), MaterialTheme.shapes.extraSmall)
                     }
                 }
             }
-        }
-        if (state.appearanceError) Text(stringResource(R.string.settings_save_failed), color = MaterialTheme.colorScheme.error)
-        Text(stringResource(R.string.settings_storage), style = MaterialTheme.typography.titleMedium)
-        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                when {
-                    state.loading -> CircularProgressIndicator(Modifier.size(24.dp))
-                    state.error != null -> {
-                        Text(failureText(state.error))
-                        TextButton(onClick = retry) { Text(stringResource(R.string.retry)) }
-                    }
-                    state.statistics != null -> {
-                        Row(Modifier.fillMaxWidth()) {
-                            Text(stringResource(R.string.settings_original_count), Modifier.weight(1f))
-                            Text(state.statistics.originalCount.toString())
-                        }
-                        Row(Modifier.fillMaxWidth()) {
-                            Text(stringResource(R.string.settings_saved_originals), Modifier.weight(1f))
-                            Text(formatFileSize(state.statistics.savedOriginalBytes))
-                        }
-                    }
+            row {
+                MemeDockRow(stringResource(R.string.settings_saved_originals),
+                    value = statistics?.let { formatFileSize(it.savedOriginalBytes) }) {
+                    if (statistics == null && state.error == null)
+                        MemeDockSkeleton(Modifier.size(width = 56.dp, height = 16.dp), MaterialTheme.shapes.extraSmall)
                 }
             }
+            row { MemeDockRow(stringResource(R.string.trash), Modifier.testTag("settings-trash"), icon = MemeDockIcons.Delete, onClick = trash) }
+            row {
+                MemeDockRow(stringResource(R.string.backup_title), Modifier.testTag("settings-backup"), icon = MemeDockIcons.BackupRestore,
+                    onClick = backup)
+            }
         }
+        Spacer(Modifier.height(MemeDockLayout.SectionGap))
+        MemeDockGroup(title = stringResource(R.string.settings_appearance),
+            footer = if (state.appearanceError) stringResource(R.string.settings_save_failed) else null) {
+            ThemeMode.entries.forEach { mode ->
+                row { ThemeRow(mode, state.mode == mode, !state.saving) { select(mode) } }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeRow(mode: ThemeMode, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.RowHeight)
+            .selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 16.dp).testTag("theme:${mode.name}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(stringResource(when (mode) {
+            ThemeMode.System -> R.string.theme_system
+            ThemeMode.Light -> R.string.theme_light
+            ThemeMode.Dark -> R.string.theme_dark
+        }), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        if (selected) Icon(MemeDockIcons.Check, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }

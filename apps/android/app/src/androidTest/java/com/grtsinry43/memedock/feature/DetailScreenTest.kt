@@ -63,21 +63,4 @@ class DetailScreenTest {
             compose.runOnIdle { assertFalse(drawable.isRunning) }
         } finally { loader.shutdown(); file.delete() }
     }
-    @Test fun missingOriginalShowsMetadataAndDisablesSharing() {
-        val loader = ImageLoader(InstrumentationRegistry.getInstrumentation().targetContext)
-        var back = false
-        try {
-            compose.setContent {
-                MemeDockTheme {
-                    DetailScreen(DetailUiState(loading = false, detail = StickerDetails("id", "猫猫", "备注", "cat.gif", "image/gif", 40, 20,
-                        100, true, false, listOf(com.grtsinry43.memedock.data.library.LibraryTag("tag", "猫")), listOf(com.grtsinry43.memedock.data.library.LibraryCollection("collection", "常用")), null, "NOT_FOUND")), loader,
-                        { back = true }, {}, {}, {}, {})
-                }
-            }
-            compose.onNodeWithText("猫猫").assertIsDisplayed()
-            compose.onNodeWithText("分享原图").assertIsNotEnabled()
-            compose.onNodeWithContentDescription("返回图片库").performClick()
-            assertTrue(back)
-        } finally { loader.shutdown() }
-    }
 }

@@ -1,79 +1,196 @@
 package com.grtsinry43.memedock.ui
 
+import android.content.Context
+import androidx.annotation.StringRes
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigation3.runtime.NavEntry
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.navigation3.ui.NavDisplay
+import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.app.AppContainer
 import com.grtsinry43.memedock.data.library.LibraryItem
 import com.grtsinry43.memedock.data.settings.ThemeMode
-import com.grtsinry43.memedock.feature.collections.CollectionsRoute
+import com.grtsinry43.memedock.feature.backup.BackupPhase
+import com.grtsinry43.memedock.feature.backup.BackupRoute
 import com.grtsinry43.memedock.feature.detail.DetailRoute
 import com.grtsinry43.memedock.feature.importing.ImportSheet
-import com.grtsinry43.memedock.feature.library.LibraryRoute
-import com.grtsinry43.memedock.feature.search.SearchRoute
+import com.grtsinry43.memedock.feature.library.GroupLibraryRoute
+import com.grtsinry43.memedock.feature.library.HomeLibraryRoute
+import com.grtsinry43.memedock.feature.library.StickerGroup
+import com.grtsinry43.memedock.feature.organize.OrganizeRoute
 import com.grtsinry43.memedock.feature.settings.SettingsRoute
-import com.grtsinry43.memedock.feature.tags.TagsRoute
 import com.grtsinry43.memedock.feature.trash.TrashRoute
 import com.grtsinry43.memedock.ui.components.*
+import com.grtsinry43.memedock.ui.navigation.BackStackSaver
+import com.grtsinry43.memedock.ui.navigation.Destination
 import com.grtsinry43.memedock.ui.theme.*
+import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.retryWhen
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.IOException
-
-private data class AppPage(val tab: HomeTab, val sticker: String?, val collection: String?, val collectionName: String?, val settingsPage: String?) {
-    val stateKey get() = "${tab.name}:${collection.orEmpty()}:${settingsPage.orEmpty()}"
-}
 
 @Composable
 fun MemeDockApp(container: AppContainer) {
     val epoch by container.libraryEpoch.collectAsStateWithLifecycle()
-    key(epoch) {
-        val owner = remember { object : androidx.lifecycle.ViewModelStoreOwner {
-            override val viewModelStore = androidx.lifecycle.ViewModelStore()
-        } }
-        DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
-        LaunchedEffect(epoch) { if (epoch > 0) container.imageLoader.memoryCache?.clear() }
-        CompositionLocalProvider(androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner provides owner) {
-            MemeDockContent(container)
+    // Outside key(epoch): a message about a restore must outlive the library it replaced.
+    val messages = remember { SnackbarHostState() }
+    CompositionLocalProvider(LocalMemeDockMessages provides messages) {
+        key(epoch) {
+            val owner = remember { object : androidx.lifecycle.ViewModelStoreOwner {
+                override val viewModelStore = androidx.lifecycle.ViewModelStore()
+            } }
+            DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
+            LaunchedEffect(epoch) { if (epoch > 0) container.imageLoader.memoryCache?.clear() }
+            CompositionLocalProvider(androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner provides owner) {
+                MemeDockContent(container, messages)
+            }
         }
     }
 }
 
 @Composable
-private fun MemeDockContent(container: AppContainer) {
-    val restoring = remember(container) { container.backups.state.value.phase == com.grtsinry43.memedock.feature.backup.BackupPhase.Restoring }
-    var tab by rememberSaveable { mutableStateOf(if (restoring) HomeTab.Settings else HomeTab.Stickers) }
-    var selected by rememberSaveable { mutableStateOf<String?>(null) }
-    var collection by rememberSaveable { mutableStateOf<String?>(null) }
-    var collectionName by rememberSaveable { mutableStateOf<String?>(null) }
-    var settingsPage by rememberSaveable { mutableStateOf<String?>(if (restoring) "backup" else null) }
-    var initialItem by remember { mutableStateOf<LibraryItem?>(null) }
-    val holder = rememberSaveableStateHolder()
-    var previousCollection by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(collection) {
-        previousCollection?.takeIf { it != collection }?.let { holder.removeState("Collections:$it:") }
-        previousCollection = collection
+private fun MemeDockContent(container: AppContainer, messages: SnackbarHostState) {
+    val restoring = remember(container) { container.backups.state.value.phase == BackupPhase.Restoring }
+    val backStack = rememberSaveable(saver = BackStackSaver) {
+        if (restoring) mutableStateListOf(Destination.Home, Destination.Backup) else mutableStateListOf(Destination.Home)
     }
+    var tab by rememberSaveable { mutableStateOf(if (restoring) HomeTab.Mine else HomeTab.Stickers) }
+    // The tapped tile seeds the detail transition; it is display state, not navigation state.
+    var initialItem by remember { mutableStateOf<LibraryItem?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val imports by container.imports.state.collectAsStateWithLifecycle()
+    val dark = rememberDarkTheme(container)
+    fun push(destination: Destination) { focus.clearFocus(); keyboard?.hide(); backStack.add(destination) }
+    fun pop() { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) }
+    val open: (LibraryItem) -> Unit = { item -> initialItem = item; push(Destination.Sticker(item.id)) }
+    val scope = rememberCoroutineScope()
+    val resources = LocalContext.current.resources
+    /** Leaves a page whose subject just moved to the trash, offering to follow it there. */
+    fun deleted(@StringRes text: Int) {
+        pop()
+        val message = MemeDockMessage(resources.getString(text), MemeDockMessageType.Success,
+            actionLabel = resources.getString(R.string.view), duration = SnackbarDuration.Long)
+        scope.launch { if (messages.showMemeDockMessage(message) == SnackbarResult.ActionPerformed) push(Destination.Trash) }
+    }
+    val groupDeleted: (StickerGroup) -> Unit = { group ->
+        deleted(if (group is StickerGroup.Tag) R.string.tag_deleted else R.string.collection_deleted)
+    }
+    LaunchedEffect(container.imports) {
+        container.imports.reports.collect { report ->
+            val problems = report.unresolved > 0 && !report.stopped
+            val text = when {
+                report.stopped -> resources.getString(R.string.import_stopped, report.created)
+                problems -> resources.getString(R.string.import_done_partial, report.created + report.reused, report.unresolved)
+                report.created == 0 -> resources.getString(R.string.import_done_existing)
+                report.reused > 0 -> resources.getString(R.string.import_done_reused, report.created, report.reused)
+                else -> resources.getString(R.string.import_done, report.created)
+            }
+            val message = MemeDockMessage(text, if (problems) MemeDockMessageType.Warning else MemeDockMessageType.Success,
+                actionLabel = if (problems) resources.getString(R.string.view) else null,
+                duration = if (problems) SnackbarDuration.Long else SnackbarDuration.Short)
+            // Reports queue behind each other; a later batch never replaces the summary of an earlier one.
+            if (messages.showMemeDockMessage(message) == SnackbarResult.ActionPerformed) container.imports.show()
+        }
+    }
+    LaunchedEffect(imports.selectionError) {
+        val code = imports.selectionError ?: return@LaunchedEffect
+        container.imports.clearSelectionError()
+        val message = MemeDockMessage(resources.getString(failureTextRes(code)), MemeDockMessageType.Error)
+        scope.launch { messages.showMemeDockMessage(message) }
+    }
+    MemeDockTheme(darkTheme = dark) {
+        Box(Modifier.fillMaxSize()) {
+            SharedTransitionLayout {
+                val shared = this
+                NavDisplay(
+                    backStack = backStack,
+                    modifier = Modifier.fillMaxSize(),
+                    onBack = ::pop,
+                    entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
+                    sharedTransitionScope = shared,
+                    transitionSpec = { enterPage() togetherWith fadeOut(tween(MemeDockMotion.Feedback)) },
+                    popTransitionSpec = { fadeIn(tween(MemeDockMotion.Feedback)) togetherWith exitPage() },
+                    predictivePopTransitionSpec = { _ -> fadeIn(tween(MemeDockMotion.Feedback)) togetherWith exitPage() },
+                    entryProvider = { destination ->
+                        NavEntry(destination) {
+                            ProvideStickerTransition(shared) {
+                                when (destination) {
+                                    Destination.Home -> HomeScreen(container, tab, { next ->
+                                        focus.clearFocus(); keyboard?.hide(); tab = next
+                                    }, open, ::push)
+                                    is Destination.Sticker -> DetailRoute(destination.id, container,
+                                        initialItem?.takeIf { it.id == destination.id }, ::pop) { deleted(R.string.sticker_deleted) }
+                                    is Destination.Collection -> GroupLibraryRoute(container, StickerGroup.Collection(destination.id),
+                                        destination.name, ::pop, open, { push(Destination.Trash) }, groupDeleted)
+                                    is Destination.Tag -> GroupLibraryRoute(container, StickerGroup.Tag(destination.id),
+                                        destination.name, ::pop, open, { push(Destination.Trash) }, groupDeleted)
+                                    Destination.Trash -> TrashRoute(container, ::pop, open)
+                                    Destination.Backup -> BackupRoute(container.backups, ::pop)
+                                }
+                            }
+                        }
+                    },
+                )
+            }
+            MemeDockMessageHost(messages, Modifier.align(Alignment.BottomCenter),
+                bottomInset = if (backStack.last() == Destination.Home) MemeDockLayout.BottomBarHeight else 0.dp)
+            ImportSheet(imports, container.imports, container.library, container.imageLoader)
+        }
+    }
+}
+
+@Composable
+private fun HomeScreen(container: AppContainer, tab: HomeTab, select: (HomeTab) -> Unit,
+    open: (LibraryItem) -> Unit, push: (Destination) -> Unit) {
+    val tabs = rememberSaveableStateHolder()
+    BackHandler(enabled = tab != HomeTab.Stickers) { select(HomeTab.Stickers) }
+    val glass = rememberHazeState()
+    // Tab content runs under the frosted bar; it pads its own scrollable content by this much.
+    val bar = PaddingValues(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
+        MemeDockLayout.BottomBarHeight + MemeDockLayout.Hairline)
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().glassSource(glass)) {
+            tabs.SaveableStateProvider(tab.name) {
+                when (tab) {
+                    HomeTab.Stickers -> HomeLibraryRoute(container, bar, open) { push(Destination.Trash) }
+                    HomeTab.Organize -> OrganizeRoute(container, bar, { push(Destination.Collection(it.id, it.name)) },
+                        { push(Destination.Tag(it.id, it.name)) }) { push(Destination.Trash) }
+                    HomeTab.Mine -> SettingsRoute(container, bar, { push(Destination.Trash) }, { push(Destination.Backup) })
+                }
+            }
+        }
+        MemeDockBottomBar(tab, select, glass, Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+private fun enterPage() = fadeIn(tween(MemeDockMotion.Page)) + slideInVertically(tween(MemeDockMotion.Page)) { it / 24 }
+private fun exitPage() = fadeOut(tween(MemeDockMotion.Page)) + slideOutVertically(tween(MemeDockMotion.Page)) { it / 24 }
+
+@Composable
+private fun rememberDarkTheme(container: AppContainer): Boolean {
     val appearance = remember(container) { container.appearance.mode.retryWhen { error, _ ->
         if (error is IOException) { delay(1_000); true } else false
     }.catch { emit(ThemeMode.System) } }
@@ -93,62 +210,7 @@ private fun MemeDockContent(container: AppContainer) {
             }
         }
     }
-    val page = AppPage(tab, selected, collection, collectionName, settingsPage)
-    val back = {
-        when {
-            selected != null -> selected = null
-            settingsPage != null -> settingsPage = null
-            collection != null -> { collection = null; collectionName = null }
-            else -> tab = HomeTab.Stickers
-        }
-    }
-    BackHandler(enabled = selected != null || collection != null || settingsPage != null || tab != HomeTab.Stickers, onBack = back)
-    val open: (LibraryItem) -> Unit = { item ->
-        focus.clearFocus(); keyboard?.hide(); initialItem = item; selected = item.id
-    }
-    MemeDockTheme(darkTheme = dark) {
-        SharedTransitionLayout {
-            AnimatedContent(page, modifier = Modifier.fillMaxSize(), transitionSpec = {
-                (fadeIn(tween(MemeDockMotion.Page)) + slideInVertically(tween(MemeDockMotion.Page)) { it / 24 })
-                    .togetherWith(fadeOut(tween(MemeDockMotion.Feedback)))
-                    .using(SizeTransform(clip = false))
-            }, label = "MemeDockPages") { destination ->
-                CompositionLocalProvider(LocalStickerTransition provides StickerTransition(this@SharedTransitionLayout, this, page == destination)) {
-                    if (destination.sticker != null) {
-                        DetailRoute(destination.sticker, container, initialItem?.takeIf { it.id == destination.sticker }) { selected = null }
-                    } else holder.SaveableStateProvider(destination.stateKey) {
-                        Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                            bottomBar = { MemeDockBottomBar(destination.tab) { next ->
-                                focus.clearFocus(); keyboard?.hide()
-                                tab = next; collection = null; collectionName = null; settingsPage = null
-                            } }) { padding ->
-                            Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-                                when (destination.tab) {
-                                    HomeTab.Stickers -> LibraryRoute(container, open = open)
-                                    HomeTab.Search -> SearchRoute(container, open)
-                                    HomeTab.Collections -> if (destination.collection == null) CollectionsRoute(container) {
-                                        collection = it.id; collectionName = it.name
-                                    } else LibraryRoute(container, collectionId = destination.collection,
-                                        title = destination.collectionName.orEmpty(), back = { collection = null; collectionName = null }, open = open)
-                                    HomeTab.Settings -> when (destination.settingsPage) {
-                                        "tags" -> TagsRoute(container) { settingsPage = null }
-                                        "trash" -> TrashRoute(container, { settingsPage = null }, open)
-                                        "backup" -> com.grtsinry43.memedock.feature.backup.BackupRoute(container.backups) { settingsPage = null }
-                                        else -> SettingsRoute(container, { settingsPage = "tags" }, { settingsPage = "trash" }, { settingsPage = "backup" })
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if (imports.visible) ImportSheet(imports, container.imports, container.library)
-    }
+    return dark
 }
 
-private fun Context.activityWindow(): android.view.Window? = when (this) {
-    is Activity -> window
-    is ContextWrapper -> baseContext.activityWindow()
-    else -> null
-}
+private fun Context.activityWindow(): android.view.Window? = findActivity()?.window

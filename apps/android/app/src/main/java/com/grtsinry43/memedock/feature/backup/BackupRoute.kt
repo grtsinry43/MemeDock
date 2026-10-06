@@ -1,114 +1,152 @@
 package com.grtsinry43.memedock.feature.backup
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.bridge.generated.ArchiveRestoreMode
-import com.grtsinry43.memedock.ui.components.MemeDockIcons
-import com.grtsinry43.memedock.ui.components.formatFileSize
-import com.grtsinry43.memedock.ui.failureText
+import com.grtsinry43.memedock.ui.components.*
+import com.grtsinry43.memedock.ui.failureTextRes
+import com.grtsinry43.memedock.ui.theme.MemeDockLayout
+import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val CreatePhases = setOf(BackupPhase.Creating, BackupPhase.ChooseDestination, BackupPhase.Saving)
+private val RestorePhases = setOf(BackupPhase.ChooseSource, BackupPhase.Reading, BackupPhase.Restoring)
+
 @Composable
 fun BackupRoute(coordinator: BackupCoordinator, back: () -> Unit) {
     val state by coordinator.state.collectAsStateWithLifecycle()
-    var replace by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        TopAppBar(title = { Text(stringResource(R.string.backup_title)) }, navigationIcon = {
-            IconButton(onClick = back) { Icon(MemeDockIcons.Back, stringResource(R.string.back_to_library)) }
-        })
-        Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
-                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.backup_heading), style = MaterialTheme.typography.headlineSmall)
-                    Text(stringResource(R.string.backup_description), style = MaterialTheme.typography.bodyLarge)
-                    Button(onClick = coordinator::create, enabled = !state.busy && state.phase != BackupPhase.Preview) {
-                        Text(stringResource(R.string.backup_create))
-                    }
+    var replacing by rememberSaveable { mutableStateOf(false) }
+    val messages = LocalMemeDockMessages.current
+    val resources = LocalContext.current.resources
+    val scope = rememberCoroutineScope()
+    // A replace swaps the library and recreates this page, so the result is read from the coordinator, not remembered.
+    LaunchedEffect(state.phase, state.error) {
+        val error = state.error
+        val message = when {
+            state.phase == BackupPhase.Saved -> MemeDockMessage(resources.getString(R.string.backup_saved), MemeDockMessageType.Success)
+            state.phase == BackupPhase.Restored -> MemeDockMessage(resources.getString(R.string.backup_restored), MemeDockMessageType.Success)
+            error != null -> MemeDockMessage(resources.getString(backupFailureRes(error)), MemeDockMessageType.Error)
+            else -> return@LaunchedEffect
+        }
+        coordinator.acknowledge()
+        // Acknowledging restarts this effect; the message must not be cancelled with it.
+        scope.launch { messages.showMemeDockMessage(message) }
+    }
+    val scroll = rememberScrollState()
+    val glass = rememberHazeState()
+    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + MemeDockLayout.TopBarHeight
+    val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val title = stringResource(R.string.backup_title)
+    val previewing = state.phase == BackupPhase.Preview
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Column(Modifier.fillMaxSize().glassSource(glass).verticalScroll(scroll)
+            .padding(top = top + 8.dp, bottom = bottom + MemeDockLayout.SectionGap)) {
+            Text(title, style = MaterialTheme.typography.headlineLarge,
+                modifier = Modifier.padding(horizontal = MemeDockLayout.PagePadding, vertical = 12.dp).semantics { heading() })
+            MemeDockGroup(title = stringResource(R.string.backup_heading), footer = stringResource(R.string.backup_description)) {
+                row {
+                    if (state.phase in CreatePhases) Progress(state.phase, coordinator::cancel)
+                    else MemeDockRow(stringResource(R.string.backup_create), Modifier.testTag("backup-create"), icon = MemeDockIcons.Archive,
+                        enabled = !state.busy && !previewing, onClick = coordinator::create)
                 }
             }
-            if (state.busy) {
-                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                        Text(stringResource(when (state.phase) {
-                            BackupPhase.Creating -> R.string.backup_creating
-                            BackupPhase.Saving -> R.string.backup_saving
-                            BackupPhase.Reading -> R.string.backup_reading
-                            BackupPhase.Restoring -> R.string.backup_restoring
-                            else -> R.string.backup_selecting
-                        }))
-                        if (state.phase !in listOf(BackupPhase.ChooseDestination, BackupPhase.ChooseSource)) {
-                            TextButton(onClick = coordinator::cancel) { Text(stringResource(R.string.cancel)) }
-                        }
-                    }
+            Spacer(Modifier.height(MemeDockLayout.SectionGap))
+            MemeDockGroup(title = stringResource(R.string.backup_restore_heading),
+                footer = stringResource(R.string.backup_restore_description)) {
+                row {
+                    if (state.phase in RestorePhases) Progress(state.phase, coordinator::cancel)
+                    else MemeDockRow(stringResource(R.string.backup_choose), Modifier.testTag("backup-choose"), icon = MemeDockIcons.Unarchive,
+                        enabled = !state.busy && !previewing, onClick = coordinator::chooseSource)
                 }
             }
-            if (state.phase == BackupPhase.Saved || state.phase == BackupPhase.Restored) {
-                Text(stringResource(if (state.phase == BackupPhase.Saved) R.string.backup_saved else R.string.backup_restored),
-                    color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
-            }
-            state.error?.let {
-                val text = when (it) {
-                    "CORRUPT_DATA", "INVALID_IMAGE" -> stringResource(R.string.backup_invalid)
-                    "UNSUPPORTED_FORMAT" -> stringResource(R.string.backup_unsupported)
-                    else -> failureText(it)
+            if (previewing) state.summary?.let { summary ->
+                Spacer(Modifier.height(MemeDockLayout.SectionGap))
+                MemeDockGroup(title = stringResource(R.string.backup_preview),
+                    footer = stringResource(R.string.backup_merge_summary, summary.added.toLong(), summary.preserved.toLong())) {
+                    row { MemeDockRow(stringResource(R.string.tab_stickers), value = (summary.stickers - summary.deletedStickers).toString()) }
+                    row { MemeDockRow(stringResource(R.string.trash), value = summary.deletedStickers.toString()) }
+                    row { MemeDockRow(stringResource(R.string.tab_collections), value = summary.collections.toString()) }
+                    row { MemeDockRow(stringResource(R.string.tags_title), value = summary.tags.toString()) }
+                    row { MemeDockRow(stringResource(R.string.backup_originals), value = formatFileSize(summary.originalBytes.toLong())) }
                 }
-                Text(text, color = MaterialTheme.colorScheme.error)
-            }
-            Text(stringResource(R.string.backup_restore_heading), style = MaterialTheme.typography.titleLarge)
-            Text(stringResource(R.string.backup_restore_description))
-            OutlinedButton(onClick = coordinator::chooseSource, enabled = !state.busy && state.phase != BackupPhase.Preview,
-                modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.backup_choose)) }
-            if (state.phase == BackupPhase.Preview) state.summary?.let { summary ->
-                Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Text(stringResource(R.string.backup_preview), style = MaterialTheme.typography.titleMedium)
-                        SummaryRow(stringResource(R.string.tab_stickers), (summary.stickers - summary.deletedStickers).toString())
-                        SummaryRow(stringResource(R.string.trash), summary.deletedStickers.toString())
-                        SummaryRow(stringResource(R.string.tab_collections), summary.collections.toString())
-                        SummaryRow(stringResource(R.string.manage_tags), summary.tags.toString())
-                        SummaryRow(stringResource(R.string.backup_originals), formatFileSize(summary.originalBytes.toLong()))
-                        HorizontalDivider()
-                        Text(stringResource(R.string.backup_merge_hint))
-                        Text(stringResource(R.string.backup_merge_summary, summary.added.toLong(), summary.preserved.toLong()),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                        Button(onClick = { coordinator.restore(ArchiveRestoreMode.MERGE) }, modifier = Modifier.fillMaxWidth()) {
-                            Text(stringResource(R.string.backup_merge))
-                        }
-                        TextButton(onClick = { replace = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text(stringResource(R.string.backup_replace))
-                        }
-                        TextButton(onClick = coordinator::dismissPreview, modifier = Modifier.fillMaxWidth()) {
-                            Text(stringResource(R.string.cancel))
-                        }
-                    }
-                }
+                PreviewActions(
+                    merge = { coordinator.restore(ArchiveRestoreMode.MERGE) },
+                    replace = { replacing = true },
+                    cancel = coordinator::dismissPreview,
+                )
             }
         }
+        val scrolled by remember { derivedStateOf { scroll.value > 0 } }
+        val density = LocalDensity.current
+        val titled by remember { derivedStateOf { scroll.value > with(density) { 56.dp.roundToPx() } } }
+        MemeDockTopBar(if (titled) title else "", glass, back = back, scrolled = scrolled)
     }
-    if (replace && state.phase == BackupPhase.Preview) AlertDialog(onDismissRequest = { replace = false },
-        title = { Text(stringResource(R.string.backup_replace_confirm)) },
-        text = { Text(stringResource(R.string.backup_replace_hint)) },
-        dismissButton = { TextButton(onClick = { replace = false }) { Text(stringResource(R.string.cancel)) } },
-        confirmButton = { TextButton(onClick = { replace = false; coordinator.restore(ArchiveRestoreMode.REPLACE) }) {
-            Text(stringResource(R.string.backup_replace))
-        } })
+    MemeDockConfirmSheet(
+        visible = replacing && (previewing || state.phase == BackupPhase.Restoring),
+        title = stringResource(R.string.backup_replace_confirm),
+        message = stringResource(R.string.backup_replace_hint),
+        confirmLabel = stringResource(R.string.backup_replace),
+        onConfirm = { coordinator.restore(ArchiveRestoreMode.REPLACE) },
+        onDismissRequest = { replacing = false },
+        destructive = true,
+        busy = state.phase == BackupPhase.Restoring,
+    )
 }
 
 @Composable
-private fun SummaryRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(label, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.labelLarge)
+private fun Progress(phase: BackupPhase, cancel: () -> Unit) {
+    val waitingForPicker = phase == BackupPhase.ChooseDestination || phase == BackupPhase.ChooseSource
+    Row(Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.RowHeight).padding(start = 16.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        }
+        Text(stringResource(when (phase) {
+            BackupPhase.Creating -> R.string.backup_creating
+            BackupPhase.Saving -> R.string.backup_saving
+            BackupPhase.Reading -> R.string.backup_reading
+            BackupPhase.Restoring -> R.string.backup_restoring
+            else -> R.string.backup_selecting
+        }), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!waitingForPicker) TextButton(onClick = cancel) { Text(stringResource(R.string.cancel)) }
     }
+}
+
+@Composable
+private fun PreviewActions(merge: () -> Unit, replace: () -> Unit, cancel: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(horizontal = MemeDockLayout.PagePadding).padding(top = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.backup_merge_hint), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        Button(onClick = merge, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp).testTag("backup-merge"),
+            shape = MaterialTheme.shapes.medium) { Text(stringResource(R.string.backup_merge)) }
+        TextButton(onClick = replace, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("backup-replace"),
+            shape = MaterialTheme.shapes.medium) { Text(stringResource(R.string.backup_replace_action), color = colors.error) }
+        TextButton(onClick = cancel, modifier = Modifier.fillMaxWidth().height(52.dp), shape = MaterialTheme.shapes.medium) {
+            Text(stringResource(R.string.cancel), color = colors.onSurfaceVariant)
+        }
+    }
+}
+
+private fun backupFailureRes(code: String) = when (code) {
+    "CORRUPT_DATA", "INVALID_IMAGE" -> R.string.backup_invalid
+    "UNSUPPORTED_FORMAT" -> R.string.backup_unsupported
+    else -> failureTextRes(code)
 }

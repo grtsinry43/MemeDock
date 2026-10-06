@@ -4,60 +4,51 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grtsinry43.memedock.data.library.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 
-data class TrashState(val items: List<LibraryItem> = emptyList(), val collections: List<LibraryCollection> = emptyList(),
-    val tags: List<LibraryTag> = emptyList(), val loading: Boolean = true, val loadingMore: Boolean = false,
-    val hasMore: Boolean = false, val busy: Boolean = false, val error: String? = null)
+/** Deleted collections and tags; deleted stickers page through the shared grid model. */
+data class TrashState(val collections: List<LibraryCollection> = emptyList(), val tags: List<LibraryTag> = emptyList(),
+    val restoring: String? = null)
 
-class TrashViewModel(private val library: LibraryRepository, private val management: ManagementRepository) : ViewModel() {
+sealed interface TrashEvent {
+    data object Restored : TrashEvent
+    data class Failed(val reason: String) : TrashEvent
+}
+
+class TrashViewModel(private val management: ManagementRepository, changes: Flow<LibraryChange>) : ViewModel() {
     private val mutable = MutableStateFlow(TrashState())
     val state = mutable.asStateFlow()
-    private var cursor: PageCursor? = null
+    private val eventChannel = Channel<TrashEvent>(Channel.BUFFERED)
+    val events = eventChannel.receiveAsFlow()
     private var query: Job? = null
-    private var generation = 0
-    init { refresh(); viewModelScope.launch { library.changes.filter { it !is LibraryChange.Thumbnail }.collect { refresh() } } }
+
+    init { refresh(); viewModelScope.launch { changes.filter { it !is LibraryChange.Thumbnail }.collect { refresh() } } }
+
     fun refresh() {
-        generation++
-        val request = generation
-        query?.cancel(); cursor?.close(); cursor = null
-        mutable.update { it.copy(loading = true, loadingMore = false, hasMore = false, error = null) }
+        query?.cancel()
         query = viewModelScope.launch {
             try {
                 val collections = management.collections(true)
                 val tags = management.tags(true)
-                val page = library.page("", deleted = true)
-                if (request != generation) { page.next?.close(); return@launch }
-                cursor = page.next
-                mutable.update { it.copy(items = page.items, collections = collections, tags = tags, loading = false, hasMore = page.next != null) }
+                mutable.update { it.copy(collections = collections, tags = tags) }
             } catch (cancel: CancellationException) { throw cancel }
-            catch (failure: Exception) { mutable.update { it.copy(loading = false, error = (failure as? LibraryFailure)?.reason ?: "INTERNAL") } }
+            // The sticker grid reports library failures; these lists simply stay as they were.
+            catch (_: Exception) {}
         }
     }
-    fun more() {
-        val next = cursor ?: return
-        if (mutable.value.loading || mutable.value.loadingMore) return
-        val request = generation
-        mutable.update { it.copy(loadingMore = true, error = null) }
-        query = viewModelScope.launch {
-            try {
-                val page = library.page("", next, deleted = true)
-                if (request != generation) { page.next?.close(); return@launch }
-                next.close(); cursor = page.next
-                mutable.update { it.copy(items = (it.items + page.items).distinctBy { value -> value.id }, loadingMore = false, hasMore = page.next != null) }
-            } catch (cancel: CancellationException) { throw cancel }
-            catch (failure: Exception) { mutable.update { it.copy(loadingMore = false, error = (failure as? LibraryFailure)?.reason ?: "INTERNAL") } }
-        }
-    }
-    fun restore(action: suspend () -> Unit) {
-        if (mutable.value.busy) return
-        mutable.update { it.copy(busy = true, error = null) }
+
+    fun restore(value: LibraryCollection) = restore(value.id) { management.restoreCollection(value) }
+    fun restore(value: LibraryTag) = restore(value.id) { management.restoreTag(value) }
+
+    private fun restore(id: String, action: suspend () -> Unit) {
+        if (mutable.value.restoring != null) return
+        mutable.update { it.copy(restoring = id) }
         viewModelScope.launch {
-            try { action(); refresh() }
+            try { action(); eventChannel.send(TrashEvent.Restored) }
             catch (cancel: CancellationException) { throw cancel }
-            catch (failure: Exception) { mutable.update { it.copy(error = (failure as? LibraryFailure)?.reason ?: "INTERNAL") } }
-            finally { mutable.update { it.copy(busy = false) } }
+            catch (failure: Exception) { eventChannel.send(TrashEvent.Failed((failure as? LibraryFailure)?.reason ?: "INTERNAL")) }
+            finally { mutable.update { it.copy(restoring = null) } }
         }
     }
-    override fun onCleared() { cursor?.close(); super.onCleared() }
 }

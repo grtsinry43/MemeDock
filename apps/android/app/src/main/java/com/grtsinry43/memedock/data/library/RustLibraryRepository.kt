@@ -100,14 +100,20 @@ class RustLibraryRepository(private val session: LibrarySession) : LibraryReposi
         com.grtsinry43.memedock.bridge.generated.ThumbnailStatus.READY -> ThumbnailState.Ready
         com.grtsinry43.memedock.bridge.generated.ThumbnailStatus.FAILED -> ThumbnailState.Failed
     }
-    override suspend fun page(text: String, cursor: PageCursor?, collectionId: String?, starred: Boolean?, deleted: Boolean): LibraryPage {
+    override suspend fun page(text: String, cursor: PageCursor?, collectionId: String?, starred: Boolean?, deleted: Boolean,
+        tagIds: List<String>, sort: LibrarySort?): LibraryPage {
         var acquired: Cursor? = null
+        val order = when (sort) {
+            LibrarySort.Added -> StickerSort.RECENT
+            LibrarySort.LastUsed -> StickerSort.LAST_USED
+            null -> if (collectionId == null) StickerSort.RECENT else StickerSort.COLLECTION_ORDER
+        }
         try {
         val result = withContext(Dispatchers.IO) {
         translate {
             val library = session.library()
-            val task = library.listStickers(StickerQuery(newRequestId(), text, collectionId, emptyList(), starred,
-                deleted, if (collectionId == null) StickerSort.RECENT else StickerSort.COLLECTION_ORDER, 60u, (cursor as? Cursor)?.native))
+            val task = library.listStickers(StickerQuery(newRequestId(), text, collectionId, tagIds, starred,
+                deleted, order, 60u, (cursor as? Cursor)?.native))
             task.use {
                 try {
                     val page = it.awaitResult()

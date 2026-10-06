@@ -1,6 +1,8 @@
 package com.grtsinry43.memedock.data.library
 
 enum class ThumbnailState { Missing, Generating, Ready, Failed }
+/** Explicit page order. Never-used stickers trail [LastUsed], newest created first. */
+enum class LibrarySort { Added, LastUsed }
 data class LibraryCollection(val id: String, val name: String, val generation: Long = 0, val revision: Long = 0, val deletedAt: Long? = null)
 data class LibraryTag(val id: String, val name: String, val generation: Long = 0, val revision: Long = 0, val deletedAt: Long? = null)
 data class LibraryStatistics(val originalCount: Long, val savedOriginalBytes: Long)

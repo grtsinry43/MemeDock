@@ -1,71 +1,113 @@
 package com.grtsinry43.memedock.feature.trash
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.*
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.app.AppContainer
 import com.grtsinry43.memedock.data.library.LibraryItem
-import com.grtsinry43.memedock.ui.components.MemeDockIcons
-import com.grtsinry43.memedock.ui.failureText
+import com.grtsinry43.memedock.feature.library.LibraryViewModel
+import com.grtsinry43.memedock.feature.library.StickerGrid
+import com.grtsinry43.memedock.feature.library.StickerGridActions
+import com.grtsinry43.memedock.ui.components.*
+import com.grtsinry43.memedock.ui.failureTextRes
+import com.grtsinry43.memedock.ui.theme.MemeDockLayout
+import dev.chrisbanes.haze.rememberHazeState
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Deleted collections and tags restore in place; a deleted sticker opens its detail page, which restores it. */
 @Composable
 fun TrashRoute(container: AppContainer, back: () -> Unit, open: (LibraryItem) -> Unit) {
-    val factory = remember(container) { object : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            modelClass.cast(TrashViewModel(container.library, container.library))!!
-    } }
-    val model: TrashViewModel = viewModel(factory = factory)
+    val stickers: LibraryViewModel = viewModel(key = "library:trash", factory = factory {
+        LibraryViewModel(container.library, deleted = true)
+    })
+    val model: TrashViewModel = viewModel(factory = factory { TrashViewModel(container.library, container.library.changes) })
+    val items by stickers.state.collectAsStateWithLifecycle()
     val state by model.state.collectAsStateWithLifecycle()
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        TopAppBar(title = { Text(stringResource(R.string.trash)) },
-            navigationIcon = { IconButton(onClick = back) { Icon(MemeDockIcons.Back, stringResource(R.string.back_to_library)) } })
-        if (state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        state.error?.let {
-            Text(failureText(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
-            TextButton(onClick = model::refresh) { Text(stringResource(R.string.retry)) }
+    val messages = LocalMemeDockMessages.current
+    val resources = LocalContext.current.resources
+    LaunchedEffect(model) {
+        model.events.collect { event ->
+            messages.showMemeDockMessage(when (event) {
+                TrashEvent.Restored -> MemeDockMessage(resources.getString(R.string.restored), MemeDockMessageType.Success)
+                is TrashEvent.Failed -> MemeDockMessage(resources.getString(failureTextRes(event.reason)), MemeDockMessageType.Error)
+            })
         }
-        LazyColumn {
-            if (!state.loading && state.items.isEmpty() && state.collections.isEmpty() && state.tags.isEmpty())
-                item { Text(stringResource(R.string.trash_empty), Modifier.padding(24.dp)) }
-            if (state.items.isNotEmpty()) item { TrashHeading(stringResource(R.string.deleted_stickers)) }
-            items(state.items, key = { "sticker:" + it.id }) { item ->
-                Surface(onClick = { open(item) }) {
-                    ListItem(headlineContent = { Text(item.title) }, supportingContent = { Text(item.originalName) },
-                        leadingContent = { Icon(MemeDockIcons.Image, null) },
-                        trailingContent = { Text(stringResource(R.string.expand), style = MaterialTheme.typography.labelLarge) })
+    }
+    val grid = rememberLazyGridState()
+    val glass = rememberHazeState()
+    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + MemeDockLayout.TopBarHeight
+    val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val title = stringResource(R.string.trash)
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        StickerGrid(
+            items, container.imageLoader,
+            StickerGridActions(stickers::ensureThumbnail, open, null, stickers::loadMore, stickers::retry),
+            grid, Modifier.glassSource(glass), PaddingValues(top = top + 8.dp, bottom = bottom),
+            header = {
+                item(key = "trash-title", span = { GridItemSpan(maxLineSpan) }, contentType = "title") {
+                    Text(title, style = MaterialTheme.typography.headlineLarge,
+                        modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 12.dp, bottom = 8.dp).semantics { heading() })
                 }
-            }
-            if (state.hasMore) item { TextButton(onClick = model::more, enabled = !state.loadingMore, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(if (state.error != null) R.string.retry else R.string.expand))
-            } }
-            if (state.collections.isNotEmpty()) item { TrashHeading(stringResource(R.string.deleted_collections)) }
-            items(state.collections, key = { "collection:" + it.id }) { value ->
-                ListItem(headlineContent = { Text(value.name) }, leadingContent = { Icon(MemeDockIcons.Folder, null) },
-                    trailingContent = { TextButton(onClick = { model.restore { container.library.restoreCollection(value) } },
-                        enabled = !state.busy) { Text(stringResource(R.string.restore)) } })
-            }
-            if (state.tags.isNotEmpty()) item { TrashHeading(stringResource(R.string.deleted_tags)) }
-            items(state.tags, key = { "tag:" + it.id }) { value ->
-                ListItem(headlineContent = { Text(value.name) }, trailingContent = {
-                    TextButton(onClick = { model.restore { container.library.restoreTag(value) } },
-                        enabled = !state.busy) { Text(stringResource(R.string.restore)) }
+                if (state.collections.isNotEmpty()) item(key = "trash-collections", span = { GridItemSpan(maxLineSpan) }) {
+                    RestoreGroup(stringResource(R.string.tab_collections), MemeDockIcons.Folder,
+                        state.collections.map { RestoreEntry(it.id, it.name) { model.restore(it) } }, state.restoring)
+                }
+                if (state.tags.isNotEmpty()) item(key = "trash-tags", span = { GridItemSpan(maxLineSpan) }) {
+                    RestoreGroup(stringResource(R.string.tags_title), MemeDockIcons.Label,
+                        state.tags.map { RestoreEntry(it.id, it.name) { model.restore(it) } }, state.restoring)
+                }
+                if (items.items.isNotEmpty()) item(key = "trash-stickers", span = { GridItemSpan(maxLineSpan) }) {
+                    Column(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(stringResource(R.string.tab_stickers), style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.semantics { heading() })
+                        Text(stringResource(R.string.trash_stickers_hint), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            },
+            empty = {
+                if (state.collections.isEmpty() && state.tags.isEmpty()) MemeDockEmptyState(stringResource(R.string.trash_empty),
+                    stringResource(R.string.trash_empty_hint), icon = MemeDockIcons.Delete)
+            },
+        )
+        val scrolled by remember { derivedStateOf { grid.canScrollBackward } }
+        val titled by remember { derivedStateOf { grid.firstVisibleItemIndex > 0 } }
+        MemeDockTopBar(if (titled) title else "", glass, back = back, scrolled = scrolled)
+    }
+}
+
+private class RestoreEntry(val id: String, val name: String, val restore: () -> Unit)
+
+@Composable
+private fun RestoreGroup(title: String, icon: ImageVector, entries: List<RestoreEntry>, restoring: String?) {
+    MemeDockGroup(Modifier.padding(top = 8.dp, bottom = 8.dp), title = title, horizontalPadding = 0.dp) {
+        entries.forEach { entry ->
+            row {
+                MemeDockRow(entry.name, icon = icon, trailing = {
+                    if (restoring == entry.id) CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(20.dp), strokeWidth = 2.dp)
+                    else TextButton(onClick = entry.restore, enabled = restoring == null,
+                        modifier = Modifier.testTag("restore:${entry.id}")) { Text(stringResource(R.string.restore)) }
                 })
             }
         }
     }
 }
-@Composable
-private fun TrashHeading(text: String) {
-    Text(text, Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+
+private inline fun <reified M : ViewModel> factory(crossinline create: () -> M) = object : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T = modelClass.cast(create())!!
 }
