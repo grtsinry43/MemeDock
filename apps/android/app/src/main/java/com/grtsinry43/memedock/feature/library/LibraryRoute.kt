@@ -50,11 +50,15 @@ fun HomeLibraryRoute(container: AppContainer, contentPadding: PaddingValues, ope
         ImportPhase.Review -> imports.ready.takeIf { it > 0 }?.let(ImportNotice::Waiting)
         ImportPhase.Finished -> null
     }
-    val more = rememberStickerActions(container, openTrash)
-    HomeLibraryScreen(state, container.imageLoader, gridActions(model, open, more), model::search, model::select,
+    val batchModel = rememberBatchActions(container, "home", state.search to state.filter)
+    val selection by batchModel.state.collectAsStateWithLifecycle()
+    var batchSheet by remember { mutableStateOf(false) }
+    val more = rememberStickerActions(container, openTrash, batchModel::start)
+    HomeLibraryScreen(state, container.imageLoader, gridActions(model, open, more, batchModel, selection) { batchSheet = true }, model::search, model::select,
         add = { if (notice is ImportNotice.Waiting) container.imports.show() else choosingSource = true },
         notice = notice, showImports = container.imports::show, stopImports = container.imports::cancel,
         contentPadding = contentPadding)
+    BatchActionsSheet(batchSheet, { batchSheet = false }, batchModel, container.library)
     ImportSourceSheet(choosingSource, { choosingSource = false },
         { choosingSource = false; photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         { choosingSource = false; files.launch(arrayOf("image/*")) })
@@ -97,8 +101,12 @@ fun GroupLibraryRoute(container: AppContainer, group: StickerGroup, name: String
     }
     LaunchedEffect(model) { model.failures.collect { fail(it) } }
     BackHandler(enabled = reordering) { reorderRequested = false }
-    val more = rememberStickerActions(container, openTrash)
-    GroupLibraryScreen(groupState, state, container.imageLoader, gridActions(model, open, more), GroupPageActions(
+    val batchModel = rememberBatchActions(container, key, state.search to state.filter)
+    val selection by batchModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(selection.selecting) { if (selection.selecting) reorderRequested = false }
+    var batchSheet by remember { mutableStateOf(false) }
+    val more = rememberStickerActions(container, openTrash, batchModel::start)
+    GroupLibraryScreen(groupState, state, container.imageLoader, gridActions(model, open, more, batchModel, selection) { batchSheet = true }, GroupPageActions(
         back = back,
         more = { menu = true },
         rename = groupModel::rename,
@@ -113,7 +121,8 @@ fun GroupLibraryRoute(container: AppContainer, group: StickerGroup, name: String
                 stringResource(R.string.tag_empty_hint), icon = MemeDockIcons.Label)
         }
     }
-    GroupMenuSheet(menu, groupState.name, group, canReorder = group is StickerGroup.Collection && state.items.size > 1,
+    BatchActionsSheet(batchSheet, { batchSheet = false }, batchModel, container.library, collection = groupModel.currentCollection())
+    GroupMenuSheet(menu, groupState.name, group, canReorder = !selection.selecting && group is StickerGroup.Collection && state.items.size > 1,
         dismiss = { menu = false }, rename = groupModel::startRename, reorder = { reorderRequested = true },
         delete = groupModel::delete)
 }
@@ -141,12 +150,15 @@ private fun GroupMenuSheet(visible: Boolean, name: String, group: StickerGroup, 
 
 private val ImportDone = ImportState.Unresolved + setOf(ImportItemStatus.Created, ImportItemStatus.Reused)
 
-private fun gridActions(model: LibraryViewModel, open: (LibraryItem) -> Unit, more: (LibraryItem) -> Unit) =
-    StickerGridActions(model::ensureThumbnail, open, more, model::loadMore, model::retry)
+private fun gridActions(model: LibraryViewModel, open: (LibraryItem) -> Unit, more: (LibraryItem) -> Unit,
+    batch: BatchActionsViewModel, selection: BatchSelectionState, organize: () -> Unit) =
+    StickerGridActions(model::ensureThumbnail, { if (selection.selecting) batch.toggle(it) else open(it) },
+        { if (selection.selecting) batch.toggle(it) else more(it) }, model::loadMore, model::retry,
+        selection, { batch.start() }, batch::exit, organize)
 
 /** Hosts the long-press sheet and its follow-ups; returns the callback that opens it for an item. */
 @Composable
-private fun rememberStickerActions(container: AppContainer, openTrash: () -> Unit): (LibraryItem) -> Unit {
+internal fun rememberStickerActions(container: AppContainer, openTrash: () -> Unit, select: (LibraryItem) -> Unit = {}): (LibraryItem) -> Unit {
     val model: StickerActionsViewModel = viewModel(key = "sticker-actions", factory = factory {
         StickerActionsViewModel(container.library, container.library)
     })
@@ -186,11 +198,12 @@ private fun rememberStickerActions(container: AppContainer, openTrash: () -> Uni
         star = model::toggleStar,
         organize = model::organize,
         delete = model::delete,
+        select = select,
     )
     StickerRelationsSheet(state.organizing, container.library, state.busy, state.organizeError, model::closeOrganize, model::saveRelations)
     return { item -> target = item }
 }
 
-private inline fun <reified M : ViewModel> factory(crossinline create: () -> M) = object : ViewModelProvider.Factory {
+internal inline fun <reified M : ViewModel> factory(crossinline create: () -> M) = object : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T = modelClass.cast(create())!!
 }

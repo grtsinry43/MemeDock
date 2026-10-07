@@ -7,6 +7,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import coil3.ImageLoader
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,10 +46,13 @@ class OrganizeActions(
     val commit: (String) -> Unit,
     val move: (from: Int, to: Int) -> Unit,
     val finishReorder: () -> Unit,
+    val viewAll: () -> Unit,
 )
 
 @Composable
-fun OrganizeScreen(state: OrganizeState, reordering: Boolean, actions: OrganizeActions, contentPadding: PaddingValues) {
+fun OrganizeScreen(state: OrganizeState, reordering: Boolean, actions: OrganizeActions, contentPadding: PaddingValues, loader: ImageLoader,
+    thumbnail: suspend (String) -> String, allCollections: Boolean = false, back: () -> Unit = {}) {
+    if (allCollections && !reordering) { CollectionsScreen(state, actions, loader, thumbnail, back); return }
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding()
             .verticalScroll(rememberScrollState())
@@ -77,7 +83,7 @@ fun OrganizeScreen(state: OrganizeState, reordering: Boolean, actions: OrganizeA
             }
             else -> {
                 if (reordering) ReorderCollections(state.collections, actions.move)
-                else Collections(state, actions)
+                else Collections(state, actions, loader, thumbnail)
                 Spacer(Modifier.height(MemeDockLayout.SectionGap))
                 Tags(state, actions)
             }
@@ -86,32 +92,21 @@ fun OrganizeScreen(state: OrganizeState, reordering: Boolean, actions: OrganizeA
 }
 
 @Composable
-private fun Collections(state: OrganizeState, actions: OrganizeActions) {
-    val editing = state.editing
-    val error = state.editError?.let { failureText(it) }
-    val moreLabel = stringResource(R.string.more_actions)
-    MemeDockGroup(title = stringResource(R.string.tab_collections), footer = stringResource(R.string.organize_collections_footer)) {
-        state.collections.forEach { collection ->
-            row {
-                key(collection.id) {
-                    if ((editing as? OrganizeItem.Collection)?.value?.id == collection.id) {
-                        MemeDockInlineEdit(collection.name, stringResource(R.string.name), actions.commit, { actions.edit(null) },
-                            Modifier.padding(horizontal = MemeDockLayout.PagePadding, vertical = 4.dp),
-                            busy = state.busy, error = error)
-                    } else {
-                        MemeDockRow(collection.name, Modifier.testTag("collection:${collection.id}"), icon = MemeDockIcons.Folder,
-                            onClick = { actions.openCollection(collection) },
-                            onLongClick = { actions.more(OrganizeItem.Collection(collection)) }, onLongClickLabel = moreLabel)
-                    }
-                }
-            }
-        }
-        row {
-            MemeDockInlineCreate(stringResource(R.string.new_collection), stringResource(R.string.name),
-                editing == OrganizeEdit.NewCollection, { actions.edit(OrganizeEdit.NewCollection) }, actions.commit,
-                { actions.edit(null) }, Modifier.testTag("organize-new-collection"), busy = state.busy, error = error)
+private fun Collections(state: OrganizeState, actions: OrganizeActions, loader: ImageLoader, thumbnail: suspend (String) -> String) {
+    Row(Modifier.fillMaxWidth().padding(start = MemeDockLayout.PagePadding, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(R.string.tab_collections), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        TextButton(onClick = actions.viewAll) { Text(stringResource(R.string.view_all_collections)) }
+    }
+    val summaries = remember(state.summaries) { state.summaries.associateBy { it.collection.id } }
+    LazyRow(contentPadding = PaddingValues(horizontal = MemeDockLayout.PagePadding), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(state.collections, key = { it.id }) { collection ->
+            val summary = summaries[collection.id] ?: return@items
+            CollectionCard(summary, loader, thumbnail, { actions.openCollection(collection) },
+                { actions.more(OrganizeItem.Collection(collection)) }, Modifier.width(152.dp))
         }
     }
+    TextButton(onClick = { actions.edit(OrganizeEdit.NewCollection) }, modifier = Modifier.padding(horizontal = 8.dp)) { Text(stringResource(R.string.new_collection)) }
+    CollectionEditor(state, actions)
 }
 
 @Composable

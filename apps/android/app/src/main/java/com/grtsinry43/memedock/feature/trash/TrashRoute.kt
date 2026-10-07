@@ -48,6 +48,10 @@ fun TrashRoute(container: AppContainer, back: () -> Unit, open: (LibraryItem) ->
             })
         }
     }
+    val batchModel = com.grtsinry43.memedock.feature.library.rememberBatchActions(container, "trash", items.search)
+    val selection by batchModel.state.collectAsStateWithLifecycle()
+    var batchSheet by remember { mutableStateOf(false) }
+    com.grtsinry43.memedock.feature.library.BatchActionsSheet(batchSheet, { batchSheet = false }, batchModel, container.library, trash = true)
     val grid = rememberLazyGridState()
     val glass = rememberHazeState()
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + MemeDockLayout.TopBarHeight
@@ -56,7 +60,8 @@ fun TrashRoute(container: AppContainer, back: () -> Unit, open: (LibraryItem) ->
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         StickerGrid(
             items, container.imageLoader,
-            StickerGridActions(stickers::ensureThumbnail, open, null, stickers::loadMore, stickers::retry),
+            StickerGridActions(stickers::ensureThumbnail, { if (selection.selecting) batchModel.toggle(it) else open(it) },
+                { batchModel.start(it) }, stickers::loadMore, stickers::retry, selection, { batchModel.start() }, batchModel::exit, { batchSheet = true }),
             grid, Modifier.glassSource(glass), PaddingValues(top = top + 8.dp, bottom = bottom),
             header = {
                 item(key = "trash-title", span = { GridItemSpan(maxLineSpan) }, contentType = "title") {
@@ -87,7 +92,11 @@ fun TrashRoute(container: AppContainer, back: () -> Unit, open: (LibraryItem) ->
         )
         val scrolled by remember { derivedStateOf { grid.canScrollBackward } }
         val titled by remember { derivedStateOf { grid.firstVisibleItemIndex > 0 } }
-        MemeDockTopBar(if (titled) title else "", glass, back = back, scrolled = scrolled)
+        MemeDockTopBar(if (titled) title else "", glass, back = back, scrolled = scrolled) {
+            com.grtsinry43.memedock.feature.library.SelectionModeButton(StickerGridActions(
+                stickers::ensureThumbnail, open, null, stickers::loadMore, stickers::retry,
+                selection, { batchModel.start() }, batchModel::exit))
+        }
     }
 }
 

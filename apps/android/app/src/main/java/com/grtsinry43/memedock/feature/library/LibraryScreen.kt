@@ -1,6 +1,10 @@
 package com.grtsinry43.memedock.feature.library
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -54,6 +58,10 @@ class StickerGridActions(
     val more: ((LibraryItem) -> Unit)?,
     val loadMore: () -> Unit,
     val retry: () -> Unit,
+    val selection: BatchSelectionState? = null,
+    val startSelection: (() -> Unit)? = null,
+    val exitSelection: (() -> Unit)? = null,
+    val organizeSelection: (() -> Unit)? = null,
 )
 
 /** Import work shown above the grid while it is in progress or waiting for the user. */
@@ -90,11 +98,10 @@ fun HomeLibraryScreen(
                     verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.tab_stickers), style = MaterialTheme.typography.headlineLarge,
                         modifier = Modifier.weight(1f).semantics { heading() })
-                    FilledTonalButton(onClick = add, contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
+                    SelectionModeButton(actions)
+                    FilledTonalIconButton(onClick = add, enabled = actions.selection?.busy != true,
                         modifier = Modifier.testTag("library-add")) {
-                        Icon(MemeDockIcons.Add, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.library_add))
+                        Icon(MemeDockIcons.Add, stringResource(R.string.library_add), Modifier.size(24.dp))
                     }
                 }
             }
@@ -203,8 +210,11 @@ fun GroupLibraryScreen(
         MemeDockTopBar(if (titled) group.name else "", glass, back = page.back, scrolled = scrolled) {
             if (reordering) TextButton(onClick = page.finishReorder, modifier = Modifier.testTag("group-reorder-done")) {
                 Text(stringResource(R.string.done))
-            } else IconButton(onClick = page.more, enabled = !group.busy, modifier = Modifier.testTag("group-more")) {
-                Icon(MemeDockIcons.More, stringResource(R.string.more_actions))
+            } else {
+                SelectionModeButton(actions)
+                IconButton(onClick = page.more, enabled = !group.busy && actions.selection?.busy != true, modifier = Modifier.testTag("group-more")) {
+                    Icon(MemeDockIcons.More, stringResource(R.string.more_actions))
+                }
             }
         }
     }
@@ -240,55 +250,67 @@ internal fun StickerGrid(
                 (eager || last >= grid.layoutInfo.totalItemsCount - 12)) actions.loadMore()
         }
     }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(104.dp),
-        state = grid,
-        modifier = modifier.fillMaxSize().testTag("library-grid"),
-        contentPadding = PaddingValues(
-            start = GridGutter, end = GridGutter,
-            top = contentPadding.calculateTopPadding(),
-            bottom = contentPadding.calculateBottomPadding() + 16.dp,
-        ),
-        horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapSmall),
-        verticalArrangement = Arrangement.spacedBy(MemeDockLayout.GapSmall),
-    ) {
-        header()
-        when {
-            state.loading -> items(12, key = { "skeleton:$it" }, contentType = { "skeleton" }) {
-                MemeDockSkeleton(Modifier.aspectRatio(1f))
-            }
-            state.error != null -> item(key = "error", span = { GridItemSpan(maxLineSpan) }) {
-                Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
-                    MemeDockEmptyState(stringResource(R.string.library_load_title), failureText(state.error),
-                        stringResource(R.string.retry), actions.retry, icon = MemeDockIcons.Alert)
+    val glass = rememberHazeState()
+    val selecting = actions.selection?.selecting == true
+    Box(modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(104.dp),
+            state = grid,
+            modifier = Modifier.fillMaxSize().glassSource(glass).testTag("library-grid"),
+            contentPadding = PaddingValues(
+                start = GridGutter, end = GridGutter,
+                top = contentPadding.calculateTopPadding(),
+                bottom = contentPadding.calculateBottomPadding() + if (selecting) 72.dp else 16.dp,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapSmall),
+            verticalArrangement = Arrangement.spacedBy(MemeDockLayout.GapSmall),
+        ) {
+            header()
+            when {
+                state.loading -> items(12, key = { "skeleton:$it" }, contentType = { "skeleton" }) {
+                    MemeDockSkeleton(Modifier.aspectRatio(1f))
                 }
-            }
-            state.items.isEmpty() -> item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
-                Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { empty() }
-            }
-            else -> {
-                items(reorder?.items ?: state.items, key = LibraryItem::id, contentType = { "sticker" }) { item ->
-                    LaunchedEffect(item.id, item.thumbnailPath, item.thumbnailState, state.thumbnailEpoch) { actions.thumbnail(item, false) }
-                    if (reorder == null) {
-                        LibraryTile(item, imageLoader, { actions.thumbnail(item, true) }, { actions.open(item) },
-                            actions.more?.let { more -> { more(item) } }, Modifier.animateItem())
-                    } else ReorderableItem(reorder.state, key = item.id) { dragging ->
-                        val scale by animateFloatAsState(if (dragging) 1.06f else 1f, label = "drag-scale")
-                        LibraryTile(item, imageLoader, { actions.thumbnail(item, true) }, null, null,
-                            Modifier.graphicsLayer { scaleX = scale; scaleY = scale }.longPressDraggableHandle(
-                                enabled = reorder.enabled,
-                                onDragStarted = { reorder.started(item) },
-                                onDragStopped = reorder.stopped,
-                            ))
+                state.error != null -> item(key = "error", span = { GridItemSpan(maxLineSpan) }) {
+                    Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
+                        MemeDockEmptyState(stringResource(R.string.library_load_title), failureText(state.error),
+                            stringResource(R.string.retry), actions.retry, icon = MemeDockIcons.Alert)
                     }
                 }
-                if (state.loadingMore || state.pageError != null) item(key = "footer", span = { GridItemSpan(maxLineSpan) }) {
-                    Box(Modifier.fillMaxWidth().heightIn(min = 56.dp), contentAlignment = Alignment.Center) {
-                        if (state.loadingMore) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                        else TextButton(onClick = actions.loadMore) { Text(stringResource(R.string.library_page_error)) }
+                state.items.isEmpty() -> item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                    Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { empty() }
+                }
+                else -> {
+                    items(reorder?.items ?: state.items, key = LibraryItem::id, contentType = { "sticker" }) { item ->
+                        LaunchedEffect(item.id, item.thumbnailPath, item.thumbnailState, state.thumbnailEpoch) { actions.thumbnail(item, false) }
+                        if (reorder == null) {
+                            LibraryTile(item, imageLoader, { actions.thumbnail(item, true) }, { actions.open(item) },
+                                actions.more?.let { more -> { more(item) } }, Modifier.animateItem(),
+                                selected = item.id in actions.selection?.selected.orEmpty(), selecting = actions.selection?.selecting == true)
+                        } else ReorderableItem(reorder.state, key = item.id) { dragging ->
+                            val scale by animateFloatAsState(if (dragging) 1.06f else 1f, label = "drag-scale")
+                            LibraryTile(item, imageLoader, { actions.thumbnail(item, true) }, null, null,
+                                Modifier.graphicsLayer { scaleX = scale; scaleY = scale }.longPressDraggableHandle(
+                                    enabled = reorder.enabled,
+                                    onDragStarted = { reorder.started(item) },
+                                    onDragStopped = reorder.stopped,
+                                ))
+                        }
+                    }
+                    if (state.loadingMore || state.pageError != null) item(key = "footer", span = { GridItemSpan(maxLineSpan) }) {
+                        Box(Modifier.fillMaxWidth().heightIn(min = 56.dp), contentAlignment = Alignment.Center) {
+                            if (state.loadingMore) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            else TextButton(onClick = actions.loadMore) { Text(stringResource(R.string.library_page_error)) }
+                        }
                     }
                 }
             }
+        }
+        AnimatedVisibility(selecting,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp)
+                .padding(bottom = contentPadding.calculateBottomPadding() + 12.dp),
+            enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut() + slideOutVertically { it / 2 }) {
+            actions.selection?.let { selection -> SelectionBar(selection, glass,
+                organize = { actions.organizeSelection?.invoke() }, exit = { actions.exitSelection?.invoke() }) }
         }
     }
 }

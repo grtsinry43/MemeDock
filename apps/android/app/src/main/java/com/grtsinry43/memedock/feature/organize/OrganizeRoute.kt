@@ -23,7 +23,7 @@ import com.grtsinry43.memedock.ui.failureTextRes
 
 @Composable
 fun OrganizeRoute(container: AppContainer, contentPadding: PaddingValues, openCollection: (LibraryCollection) -> Unit,
-    openTag: (LibraryTag) -> Unit, openTrash: () -> Unit) {
+    openTag: (LibraryTag) -> Unit, openTrash: () -> Unit, viewAll: () -> Unit = {}, allCollections: Boolean = false, back: () -> Unit = {}) {
     val factory = remember(container) { object : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             modelClass.cast(OrganizeViewModel(container.library, container.library.changes))!!
@@ -63,7 +63,8 @@ fun OrganizeRoute(container: AppContainer, contentPadding: PaddingValues, openCo
         commit = model::commit,
         move = model::moveCollection,
         finishReorder = { reorderRequested = false },
-    ), contentPadding)
+        viewAll = viewAll,
+    ), contentPadding, container.imageLoader, container.library::thumbnail, allCollections, back)
     OrganizeItemSheet(target, canReorder = state.collections.size > 1, dismiss = { target = null },
         rename = model::edit, reorder = { reorderRequested = true }, delete = model::delete)
 }

@@ -19,6 +19,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
@@ -34,7 +37,7 @@ import java.io.File
 /** Without [open] the tile takes no taps, leaving its gestures to [modifier] (for example a drag handle). */
 @Composable
 fun LibraryTile(item: LibraryItem, loader: ImageLoader, retry: () -> Unit, open: (() -> Unit)?, more: (() -> Unit)?,
-    modifier: Modifier = Modifier) {
+    modifier: Modifier = Modifier, selected: Boolean = false, selecting: Boolean = false) {
     var failed by remember(item.id, item.thumbnailPath) { mutableStateOf(false) }
     var attempt by remember(item.id) { mutableIntStateOf(0) }
     val context = LocalContext.current
@@ -46,7 +49,9 @@ fun LibraryTile(item: LibraryItem, loader: ImageLoader, retry: () -> Unit, open:
     Box(
         modifier.testTag("sticker:${item.id}").stickerTransition(item.id).aspectRatio(1f).clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .then(if (selecting) Modifier.semantics { this.selected = selected } else Modifier)
             .then(if (open == null) Modifier else Modifier.combinedClickable(
+                role = if (selecting) Role.Checkbox else Role.Button,
                 onLongClickLabel = more?.let { stringResource(R.string.more_actions) },
                 onLongClick = more?.let { { haptics.performHapticFeedback(HapticFeedbackType.LongPress); it() } },
                 onClick = open,
@@ -66,7 +71,14 @@ fun LibraryTile(item: LibraryItem, loader: ImageLoader, retry: () -> Unit, open:
             modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
                 .background(Color.Black.copy(alpha = .45f), MaterialTheme.shapes.extraSmall)
                 .padding(horizontal = 6.dp, vertical = 2.dp))
-        if (item.starred) Box(Modifier.align(Alignment.TopEnd).padding(6.dp).size(22.dp)
+        if (selecting) Icon(
+            MemeDockIcons.Check,
+            stringResource(if (selected) R.string.selected else R.string.not_selected),
+            Modifier.align(Alignment.TopEnd).padding(6.dp).size(26.dp)
+                .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainer, CircleShape).padding(4.dp),
+            tint = if (selected) MaterialTheme.colorScheme.onPrimary else Color.Transparent,
+        )
+        if (item.starred && !selecting) Box(Modifier.align(Alignment.TopEnd).padding(6.dp).size(22.dp)
             .background(MaterialTheme.colorScheme.surfaceContainerLowest, CircleShape), contentAlignment = Alignment.Center) {
             Icon(MemeDockIcons.StarFilled, stringResource(R.string.favorite), Modifier.size(15.dp), tint = MaterialTheme.colorScheme.tertiary)
         }

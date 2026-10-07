@@ -40,12 +40,12 @@ class StickerActionsViewModel(private val details: DetailRepository, private val
 
     fun organize(item: LibraryItem) = perform { mutable.update { it.copy(organizing = details.detail(item.id), organizeError = null) } }
 
-    fun saveRelations(collections: List<LibraryCollection>, tags: List<LibraryTag>) {
+    fun saveRelations(collection: LibraryCollection?, tags: List<LibraryTag>) {
         val detail = mutable.value.organizing ?: return
         if (mutable.value.busy) return
         mutable.update { it.copy(busy = true, organizeError = null) }
         viewModelScope.launch {
-            try { management.relations(detail, collections, tags); mutable.update { it.copy(organizing = null) } }
+            try { management.relations(detail, collection, tags); mutable.update { it.copy(organizing = null) } }
             catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) { mutable.update { it.copy(organizeError = failureCode(error)) } }
             finally { mutable.update { it.copy(busy = false) } }

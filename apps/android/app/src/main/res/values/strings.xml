@@ -4,7 +4,7 @@
     <string name="tab_stickers">表情</string>
     <string name="tab_organize">整理</string>
     <string name="tab_mine">我的</string>
-    <string name="tab_collections">收藏夹</string>
+    <string name="tab_collections">合集</string>
     <string name="back">返回</string>
     <!-- Common actions -->
     <string name="cancel">取消</string>
@@ -32,10 +32,10 @@
     <string name="filter_all">全部</string>
     <string name="more_actions">更多操作</string>
     <string name="starred_empty_hint">长按表情添加星标，常用表情会显示在此处</string>
-    <string name="collection_empty_hint">长按表情选择「整理」可添加到收藏夹</string>
+    <string name="collection_empty_hint">长按表情选择「整理」可添加到合集</string>
     <string name="sticker_deleted">已移至回收站</string>
     <string name="view">查看</string>
-    <string name="organize_hint">添加收藏夹与标签</string>
+    <string name="organize_hint">添加合集与标签</string>
     <string name="quick_animated_original">动图按原图发送，保留动效</string>
     <string name="share_first_frame">分享首帧</string>
     <string name="library_empty">暂无表情</string>
@@ -119,26 +119,26 @@
     <string name="import_restore_required">该表情已在回收站中</string>
     <string name="import_cancelled">已取消</string>
     <string name="import_retry_failed">重试失败项</string>
-    <string name="import_collection">加入收藏夹</string>
-    <string name="no_collection">不加入收藏夹</string>
+    <string name="import_collection">加入合集</string>
+    <string name="no_collection">不加入合集</string>
     <string name="error_batch_busy">当前有正在处理的导入任务，请完成后再试</string>
 
     <!-- Organizing -->
-    <string name="organize_load_failed">收藏夹和标签加载失败</string>
-    <string name="organize_collections_footer">长按收藏夹可重命名、排序或删除。删除收藏夹不会删除其中的表情。</string>
+    <string name="organize_load_failed">合集和标签加载失败</string>
+    <string name="organize_collections_footer">长按合集可重命名、排序或删除。删除合集不会删除其中的表情。</string>
     <string name="organize_reorder_hint">按住右侧手柄拖动调整顺序</string>
     <string name="organize_tags_footer">点击标签查看对应表情，长按可重命名或删除。</string>
     <string name="organize_tags_empty">暂无标签。长按表情选择「整理」可新建标签。</string>
-    <string name="collection_empty">收藏夹为空</string>
-    <string name="collection_deleted">收藏夹已移至回收站</string>
-    <string name="new_collection">新建收藏夹</string>
-    <string name="select_collections">加入收藏夹</string>
+    <string name="collection_empty">合集为空</string>
+    <string name="collection_deleted">合集已移至回收站</string>
+    <string name="new_collection">新建合集</string>
+    <string name="select_collections">加入合集</string>
     <string name="tags_title">标签</string>
     <string name="new_tag">新建标签</string>
     <string name="tag_empty">暂无相关表情</string>
     <string name="tag_empty_hint">长按表情选择「整理」可添加标签</string>
     <string name="tag_deleted">标签已移至回收站</string>
-    <string name="no_collections_hint">暂无收藏夹，可在「整理」页新建</string>
+    <string name="no_collections_hint">暂无合集，点下方新建一个</string>
     <string name="select_tags">选择标签</string>
     <string name="reorder_grid_hint">长按表情拖动调整顺序</string>
     <string name="reorder_loading">正在加载全部表情…</string>
@@ -146,14 +146,14 @@
     <!-- Trash -->
     <string name="trash">回收站</string>
     <string name="trash_empty">回收站为空</string>
-    <string name="trash_empty_hint">已删除的表情、收藏夹和标签会暂存在这里，可随时恢复</string>
+    <string name="trash_empty_hint">已删除的表情、合集和标签会暂存在这里，可随时恢复</string>
     <string name="trash_stickers_hint">点击表情进入详情页可进行恢复</string>
     <string name="restored">已恢复</string>
     <string name="restore_sticker_title">恢复表情</string>
     <string name="restore">恢复</string>
-    <string name="restore_hint">恢复后需要重新添加到收藏夹或标签</string>
+    <string name="restore_hint">恢复后需要重新添加到合集或标签</string>
     <string name="restore_previous">原所属分类</string>
-    <string name="restore_previous_hint">恢复后不会自动保留原有的收藏夹与标签关联</string>
+    <string name="restore_previous_hint">恢复后不会自动保留原有的合集与标签关联</string>
 
     <!-- Settings -->
     <string name="settings_library">资料库</string>
@@ -175,7 +175,7 @@
     <!-- Backup -->
     <string name="backup_title">备份与恢复</string>
     <string name="backup_heading">备份</string>
-    <string name="backup_description">导出表情、收藏夹、标签及回收站完整数据，便于备份或迁移到新设备</string>
+    <string name="backup_description">导出表情、合集、标签及回收站完整数据，便于备份或迁移到新设备</string>
     <string name="backup_create">创建备份</string>
     <string name="backup_creating">正在打包备份…</string>
     <string name="backup_selecting">选择保存位置</string>
@@ -193,7 +193,7 @@
     <string name="backup_replace">覆盖恢复</string>
     <string name="backup_replace_action">使用备份覆盖当前数据…</string>
     <string name="backup_replace_confirm">使用备份覆盖当前表情库？</string>
-    <string name="backup_replace_hint">当前表情库中的所有表情、收藏夹和标签将被备份完全覆盖。操作前会自动在本地保留一份安全快照。</string>
+    <string name="backup_replace_hint">当前表情库中的所有表情、合集和标签将被备份完全覆盖。操作前会自动在本地保留一份安全快照。</string>
     <string name="backup_restoring">正在恢复…</string>
     <string name="backup_restored">恢复成功</string>
     <string name="backup_invalid">备份文件不完整或已损坏</string>
@@ -216,4 +216,20 @@
     <string name="failure_input">输入内容无效，请检查后重试</string>
     <string name="failure_color_profile">图片颜色配置暂不支持转换，请直接发送原图</string>
     <string name="failure_save_target">未找到可用的保存路径</string>
+    <string name="select_items">选择</string>
+    <string name="selection_count">已选 %1$d 项</string>
+    <string name="batch_organize">批量整理</string>
+    <string name="assign_collection">归入合集</string>
+    <string name="clear_collection">取消归类</string>
+    <string name="remove_from_collection">移出此合集</string>
+    <string name="add_tags">添加标签</string>
+    <string name="remove_tags">移除标签</string>
+    <string name="batch_progress">已处理 %1$d / %2$d 张</string>
+    <string name="batch_result">已完成 %1$d 张，失败 %2$d 张，未处理 %3$d 张</string>
+    <string name="selected">已选中</string>
+    <string name="not_selected">未选中</string>
+    <string name="view_all_collections">查看全部</string>
+    <string name="collection_count">%1$d 张表情</string>
+    <string name="selection_prompt">选择表情</string>
+    <string name="finish_selection">结束选择</string>
 </resources>

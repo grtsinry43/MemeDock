@@ -25,6 +25,7 @@ fun StickerQuickSheet(
     star: (LibraryItem) -> Unit,
     organize: (LibraryItem) -> Unit,
     delete: (LibraryItem) -> Unit,
+    select: (LibraryItem) -> Unit = {},
 ) {
     val shown = rememberRetained(item) ?: return
     val flattens = shown.animated && choice != ExportChoice.Original
@@ -32,6 +33,7 @@ fun StickerQuickSheet(
     val format = stringResource(choice.titleResource())
     MemeDockSheet(item != null, onDismissRequest, title = shown.title) {
         fun act(action: () -> Unit) { action(); dismiss() }
+        MemeDockSheetAction(stringResource(R.string.select_items), MemeDockIcons.Check, { act { select(shown) } })
         MemeDockSheetAction(stringResource(R.string.share_sticker), MemeDockIcons.Share,
             { act { share(shown, sent, false) } },
             supporting = if (flattens) stringResource(R.string.quick_animated_original) else format)

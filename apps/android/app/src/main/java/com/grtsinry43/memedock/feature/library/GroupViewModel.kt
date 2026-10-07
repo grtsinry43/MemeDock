@@ -58,6 +58,8 @@ class GroupViewModel(
         }
     }
 
+    fun currentCollection(): LibraryCollection? = collection
+
     fun startRename() { if (!mutable.value.busy) mutable.update { it.copy(renaming = true, editError = null) } }
     fun cancelRename() { if (!mutable.value.busy) mutable.update { it.copy(renaming = false, editError = null) } }
 

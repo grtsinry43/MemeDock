@@ -138,7 +138,7 @@
     <string name="tag_empty">No stickers with this tag</string>
     <string name="tag_empty_hint">Touch and hold a sticker and select Organize to add tags</string>
     <string name="tag_deleted">Tag moved to Trash</string>
-    <string name="no_collections_hint">No collections yet. Create one in the Organize tab.</string>
+    <string name="no_collections_hint">No collections yet. Create one below.</string>
     <string name="select_tags">Select Tags</string>
     <string name="reorder_grid_hint">Touch and hold a sticker to drag and reorder</string>
     <string name="reorder_loading">Loading stickers…</string>
@@ -216,4 +216,20 @@
     <string name="failure_input">Invalid input. Please check and try again.</string>
     <string name="failure_color_profile">Color profile conversion unsupported. Please share as original.</string>
     <string name="failure_save_target">No valid destination selected</string>
+    <string name="select_items">Select</string>
+    <string name="selection_count">%1$d selected</string>
+    <string name="batch_organize">Organize selection</string>
+    <string name="assign_collection">Move to collection</string>
+    <string name="clear_collection">Uncategorize</string>
+    <string name="remove_from_collection">Remove from this collection</string>
+    <string name="add_tags">Add tags</string>
+    <string name="remove_tags">Remove tags</string>
+    <string name="batch_progress">Processed %1$d of %2$d</string>
+    <string name="batch_result">%1$d completed, %2$d failed, %3$d remaining</string>
+    <string name="selected">Selected</string>
+    <string name="not_selected">Not selected</string>
+    <string name="view_all_collections">View all</string>
+    <string name="collection_count">%1$d stickers</string>
+    <string name="selection_prompt">Select stickers</string>
+    <string name="finish_selection">Finish selection</string>
 </resources>

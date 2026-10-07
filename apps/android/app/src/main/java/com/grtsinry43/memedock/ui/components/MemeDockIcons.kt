@@ -7,6 +7,7 @@ import com.grtsinry43.memedock.R
 import com.composables.icons.materialsymbols.rounded.R as Symbols
 
 object MemeDockIcons {
+    val Select: ImageVector @Composable get() = ImageVector.vectorResource(Symbols.drawable.materialsymbols_ic_select_check_box_rounded)
     val Copy: ImageVector @Composable get() = ImageVector.vectorResource(Symbols.drawable.materialsymbols_ic_content_copy_rounded)
     val Download: ImageVector @Composable get() = ImageVector.vectorResource(Symbols.drawable.materialsymbols_ic_download_rounded)
     // Back, Check and Star are local copies: material-symbols 2.2.1 converts paths that open with a relative

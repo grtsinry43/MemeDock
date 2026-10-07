@@ -14,7 +14,7 @@ class DetailWorkflowTest {
         var released = 0
         var recorded = 0
         override suspend fun detail(id: String) = StickerDetails(id, "猫", "", "cat.png", "image/png", 40, 20, 100,
-            false, false, emptyList(), emptyList(), "/fixture/cat.png", null)
+            false, false, emptyList(), null, "/fixture/cat.png", null)
         override suspend fun exportOriginal(id: String) = object : OutputLease { override fun close() { released++ } }
         override suspend fun export(id: String, choice: com.grtsinry43.memedock.data.settings.ExportChoice, firstFrame: Boolean) = exportOriginal(id)
         override suspend fun prepareHandoff(lease: OutputLease) = ShareArtifact("artifact", "/fixture/share.png", "image/png", "cat.png", 100, false)

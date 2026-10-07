@@ -35,15 +35,16 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementRepository, busy: Boolean, error: String?,
-    close: () -> Unit, save: (List<LibraryCollection>, List<LibraryTag>) -> Unit) {
+    close: () -> Unit, save: (LibraryCollection?, List<LibraryTag>) -> Unit) {
     val target = rememberRetained(detail) ?: return
     val visible = detail != null
     var collections by remember(target.id) { mutableStateOf<List<LibraryCollection>?>(null) }
     var tags by remember(target.id) { mutableStateOf<List<LibraryTag>?>(null) }
-    var selectedCollections by remember(target) { mutableStateOf(target.collections.map { it.id }.toSet()) }
+    var selectedCollection by remember(target) { mutableStateOf(target.collection?.id) }
     var selectedTags by remember(target) { mutableStateOf(target.tags.map { it.id }.toSet()) }
     var loadError by remember(target.id) { mutableStateOf<String?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
+    var addingCollection by remember(target.id) { mutableStateOf(false) }
     var addingTag by remember(target.id) { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
     var createError by remember { mutableStateOf<String?>(null) }
@@ -56,7 +57,7 @@ fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementReposit
         catch (failure: Exception) { loadError = failureCode(failure) }
     }
     val loaded = collections != null && tags != null
-    val changed = loaded && (selectedCollections != target.collections.map { it.id }.toSet() ||
+    val changed = loaded && (selectedCollection != target.collection?.id ||
         selectedTags != target.tags.map { it.id }.toSet())
     val locked = busy || creating
     MemeDockSheet(
@@ -70,7 +71,7 @@ fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementReposit
                 locked -> false
                 !changed -> true
                 else -> {
-                    save(collections.orEmpty().filter { it.id in selectedCollections }, tags.orEmpty().filter { it.id in selectedTags })
+                    save(collections.orEmpty().firstOrNull { it.id == selectedCollection }, tags.orEmpty().filter { it.id in selectedTags })
                     false
                 }
             }
@@ -84,11 +85,11 @@ fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementReposit
                 available == null -> if (loadError == null) LoadingRows()
                 available.isEmpty() -> EmptyHint(stringResource(R.string.no_collections_hint))
                 else -> available.forEach { collection ->
-                    val checked = collection.id in selectedCollections
+                    val checked = collection.id == selectedCollection
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.RowHeight)
-                            .toggleable(checked, enabled = !locked, role = Role.Checkbox) {
-                                selectedCollections = if (it) selectedCollections + collection.id else selectedCollections - collection.id
+                            .toggleable(checked, enabled = !locked, role = Role.RadioButton) {
+                                selectedCollection = if (checked) null else collection.id
                             }
                             .padding(horizontal = 24.dp).testTag("relation-collection:${collection.id}"),
                         verticalAlignment = Alignment.CenterVertically,
@@ -101,6 +102,32 @@ fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementReposit
                     }
                 }
             }
+            if (available != null) MemeDockInlineCreate(
+                label = stringResource(R.string.new_collection),
+                placeholder = stringResource(R.string.name),
+                editing = addingCollection,
+                onStart = { if (!locked) { addingTag = false; createError = null; addingCollection = true } },
+                onCreate = { name ->
+                    if (!locked) {
+                        creating = true
+                        createError = null
+                        scope.launch {
+                            try {
+                                val collection = repository.createCollection(name)
+                                collections = (collections.orEmpty() + collection).distinctBy { it.id }
+                                selectedCollection = collection.id
+                                addingCollection = false
+                            } catch (cancel: CancellationException) { throw cancel }
+                            catch (failure: Exception) { createError = failureCode(failure) }
+                            finally { creating = false }
+                        }
+                    }
+                },
+                onCancel = { addingCollection = false; createError = null },
+                modifier = Modifier.testTag("relations-new-collection"),
+                busy = creating,
+                error = createError?.let { failureText(it) },
+            )
             SectionLabel(stringResource(R.string.select_tags), Modifier.padding(top = 16.dp))
             val labels = tags
             if (labels == null) { if (loadError == null) LoadingRows() }
@@ -111,7 +138,7 @@ fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementReposit
                         selectedTags = if (tag.id in selectedTags) selectedTags - tag.id else selectedTags + tag.id
                     }
                 }
-                if (!addingTag) AddTagChip(enabled = !locked) { createError = null; addingTag = true }
+                if (!addingTag) AddTagChip(enabled = !locked) { addingCollection = false; createError = null; addingTag = true }
             }
             if (labels != null && addingTag) MemeDockInlineEdit(
                 initial = "",
@@ -145,6 +172,7 @@ fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementReposit
         }
         Button(
             onClick = { if (!locked) sheet.dismiss() },
+            enabled = !locked,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 20.dp).height(52.dp)
                 .testTag("relations-done"),
             shape = MaterialTheme.shapes.medium,

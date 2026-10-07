@@ -25,6 +25,6 @@ fun Modifier.stickerTransition(id: String): Modifier {
     val scope = LocalStickerTransition.current ?: return this
     return with(scope.shared) {
         sharedElement(rememberSharedContentState("sticker:$id"), scope.visibility,
-            boundsTransform = { _, _ -> tween(MemeDockMotion.SharedImage) })
+            boundsTransform = { _, _ -> tween(MemeDockMotion.SharedImage, easing = MemeDockMotion.Rebound) })
     }
 }

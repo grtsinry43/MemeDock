@@ -26,6 +26,7 @@ import com.grtsinry43.memedock.data.settings.ExportChoice
 import com.grtsinry43.memedock.ui.components.*
 import com.grtsinry43.memedock.ui.failureText
 import com.grtsinry43.memedock.ui.theme.MemeDockLayout
+import com.grtsinry43.memedock.ui.navigation.detailElementTransition
 import dev.chrisbanes.haze.rememberHazeState
 
 enum class DetailField { Title, Note }
@@ -60,7 +61,7 @@ fun DetailScreen(
     val detail = state.detail
     val placeholder = remember(initialItem) { initialItem?.let {
         StickerDetails(it.id, it.title, "", it.originalName, it.mime, it.width, it.height, 0, it.animated,
-            false, emptyList(), emptyList(), null, null)
+            false, emptyList(), null, null, null)
     } }
     val shown = detail ?: placeholder
     val glass = rememberHazeState()
@@ -83,23 +84,27 @@ fun DetailScreen(
                         failureText(shown.originalError ?: "NOT_FOUND"), stringResource(R.string.retry), actions.retry,
                         icon = MemeDockIcons.Image)
                 }
-                when {
-                    state.error != null -> MemeDockEmptyState(stringResource(R.string.detail_load_title), failureText(state.error),
-                        stringResource(R.string.retry), actions.retry, icon = MemeDockIcons.Alert)
-                    detail == null -> LoadingDetail()
-                    else -> DetailBody(detail, state, editing, actions, hasThumbnail = initialItem?.thumbnailPath != null)
+                Column(Modifier.fillMaxWidth().detailElementTransition(fromTop = false),
+                    verticalArrangement = Arrangement.spacedBy(MemeDockLayout.SectionGap)) {
+                    when {
+                        state.error != null -> MemeDockEmptyState(stringResource(R.string.detail_load_title), failureText(state.error),
+                            stringResource(R.string.retry), actions.retry, icon = MemeDockIcons.Alert)
+                        detail == null -> LoadingDetail()
+                        else -> DetailBody(detail, state, editing, actions, hasThumbnail = initialItem?.thumbnailPath != null)
+                    }
                 }
             }
         }
-        if (detail != null && state.error == null) DetailBar(
-            detail, state, choice, outputsReady, actions,
-            Modifier.align(Alignment.BottomCenter).glass(glass, glassStyle())
+        if (shown != null && state.error == null) DetailBar(
+            shown, state, choice, outputsReady && detail != null, actions,
+            Modifier.align(Alignment.BottomCenter).detailElementTransition(fromTop = false).glass(glass, glassStyle())
                 .onSizeChanged { barHeight = with(density) { it.height.toDp() } },
         )
         val scrolled by remember { derivedStateOf { scroll.value > 0 } }
         // The page title appears once the sticker's own name has scrolled under the bar.
         val titled by remember { derivedStateOf { scroll.value > with(density) { 320.dp.roundToPx() } } }
-        MemeDockTopBar(if (titled) detail?.title.orEmpty() else "", glass, back = actions.back, scrolled = scrolled) {
+        MemeDockTopBar(if (titled) detail?.title.orEmpty() else "", glass,
+            modifier = Modifier.detailElementTransition(fromTop = true), back = actions.back, scrolled = scrolled) {
             if (detail != null && !detail.deleted) {
                 IconButton(onClick = actions.star, enabled = !state.managing, modifier = Modifier.testTag("detail-star")) {
                     Icon(if (detail.starred) MemeDockIcons.StarFilled else MemeDockIcons.Star, stringResource(if (detail.starred) R.string.unfavorite else R.string.favorite),
@@ -178,9 +183,9 @@ private fun DetailBody(detail: StickerDetails, state: DetailUiState, editing: De
 private fun Relations(detail: StickerDetails, enabled: Boolean, organize: () -> Unit) {
     FlowRow(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        detail.collections.forEach { RelationChip(it.name, MemeDockIcons.Folder, enabled, organize) }
+        detail.collection?.let { RelationChip(it.name, MemeDockIcons.Folder, enabled, organize) }
         detail.tags.forEach { RelationChip(it.name, MemeDockIcons.Label, enabled, organize) }
-        val empty = detail.collections.isEmpty() && detail.tags.isEmpty()
+        val empty = detail.collection == null && detail.tags.isEmpty()
         RelationChip(stringResource(if (empty) R.string.organize_hint else R.string.organize), MemeDockIcons.Add, enabled, organize,
             accent = true, modifier = Modifier.testTag("detail-organize"))
     }

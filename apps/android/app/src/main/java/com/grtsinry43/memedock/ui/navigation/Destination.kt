@@ -9,6 +9,7 @@ sealed interface Destination {
     data class Sticker(val id: String) : Destination
     data class Collection(val id: String, val name: String) : Destination
     data class Tag(val id: String, val name: String) : Destination
+    data object Collections : Destination
     data object Trash : Destination
     data object Backup : Destination
 }
@@ -23,6 +24,7 @@ val BackStackSaver = Saver<SnapshotStateList<Destination>, ArrayList<String>>(
                     is Destination.Sticker -> { add("sticker"); add(destination.id) }
                     is Destination.Collection -> { add("collection"); add(destination.id); add(destination.name) }
                     is Destination.Tag -> { add("tag"); add(destination.id); add(destination.name) }
+                    Destination.Collections -> add("collections")
                     Destination.Trash -> add("trash")
                     Destination.Backup -> add("backup")
                 }
@@ -38,6 +40,7 @@ val BackStackSaver = Saver<SnapshotStateList<Destination>, ArrayList<String>>(
                     "sticker" -> Destination.Sticker(values.next())
                     "collection" -> Destination.Collection(values.next(), values.next())
                     "tag" -> Destination.Tag(values.next(), values.next())
+                    "collections" -> Destination.Collections
                     "trash" -> Destination.Trash
                     "backup" -> Destination.Backup
                     else -> error("Unknown destination $tag")

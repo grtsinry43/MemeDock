@@ -18,7 +18,7 @@ class OutputWorkflowTest {
         var consent = false
         var block: CompletableDeferred<Unit>? = null
         override suspend fun detail(id: String) = StickerDetails(id, "猫", "", "cat.webp", "image/webp", 40, 20, 100,
-            true, false, emptyList(), emptyList(), "/fixture/cat.webp", null)
+            true, false, emptyList(), null, "/fixture/cat.webp", null)
         override suspend fun exportOriginal(id: String) = export(id, ExportChoice.Original, false)
         override suspend fun export(id: String, choice: ExportChoice, firstFrame: Boolean): OutputLease {
             this.choice = choice; consent = firstFrame; block?.await()

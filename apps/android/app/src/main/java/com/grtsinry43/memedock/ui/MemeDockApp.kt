@@ -7,7 +7,6 @@ import android.content.res.Resources
 import androidx.annotation.StringRes
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.SnackbarDuration
@@ -18,6 +17,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
@@ -47,6 +48,10 @@ import com.grtsinry43.memedock.feature.trash.TrashRoute
 import com.grtsinry43.memedock.ui.components.*
 import com.grtsinry43.memedock.ui.navigation.BackStackSaver
 import com.grtsinry43.memedock.ui.navigation.Destination
+import com.grtsinry43.memedock.ui.navigation.forwardPage
+import com.grtsinry43.memedock.ui.navigation.backwardPage
+import com.grtsinry43.memedock.ui.navigation.tabTransition
+import com.grtsinry43.memedock.ui.navigation.stickerPageTransitions
 import com.grtsinry43.memedock.ui.theme.*
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.delay
@@ -88,6 +93,7 @@ fun MemeDockApp(container: AppContainer) {
 
 @Composable
 private fun MemeDockContent(container: AppContainer, messages: SnackbarHostState) {
+    val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
     val restoring = remember(container) { container.backups.state.value.phase == BackupPhase.Restoring }
     val backStack = rememberSaveable(saver = BackStackSaver) {
         if (restoring) mutableStateListOf(Destination.Home, Destination.Backup) else mutableStateListOf(Destination.Home)
@@ -147,11 +153,11 @@ private fun MemeDockContent(container: AppContainer, messages: SnackbarHostState
                     onBack = ::pop,
                     entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
                     sharedTransitionScope = shared,
-                    transitionSpec = { enterPage() togetherWith fadeOut(tween(MemeDockMotion.Feedback)) },
-                    popTransitionSpec = { fadeIn(tween(MemeDockMotion.Feedback)) togetherWith exitPage() },
-                    predictivePopTransitionSpec = { _ -> fadeIn(tween(MemeDockMotion.Feedback)) togetherWith exitPage() },
+                    transitionSpec = { forwardPage(direction) },
+                    popTransitionSpec = { backwardPage(direction) },
+                    predictivePopTransitionSpec = { _ -> backwardPage(direction) },
                     entryProvider = { destination ->
-                        NavEntry(destination) {
+                        NavEntry(destination, metadata = if (destination is Destination.Sticker) stickerPageTransitions else emptyMap()) {
                             ProvideStickerTransition(shared) {
                                 when (destination) {
                                     Destination.Home -> HomeScreen(container, tab, { next ->
@@ -163,6 +169,8 @@ private fun MemeDockContent(container: AppContainer, messages: SnackbarHostState
                                         destination.name, ::pop, open, { push(Destination.Trash) }, groupDeleted)
                                     is Destination.Tag -> GroupLibraryRoute(container, StickerGroup.Tag(destination.id),
                                         destination.name, ::pop, open, { push(Destination.Trash) }, groupDeleted)
+                                    Destination.Collections -> OrganizeRoute(container, PaddingValues(), { push(Destination.Collection(it.id, it.name)) },
+                                        { push(Destination.Tag(it.id, it.name)) }, { push(Destination.Trash) }, allCollections = true, back = ::pop)
                                     Destination.Trash -> TrashRoute(container, ::pop, open)
                                     Destination.Backup -> BackupRoute(container.backups, ::pop)
                                 }
@@ -182,6 +190,7 @@ private fun MemeDockContent(container: AppContainer, messages: SnackbarHostState
 private fun HomeScreen(container: AppContainer, tab: HomeTab, select: (HomeTab) -> Unit,
     open: (LibraryItem) -> Unit, push: (Destination) -> Unit) {
     val tabs = rememberSaveableStateHolder()
+    val layoutDirection = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
     BackHandler(enabled = tab != HomeTab.Stickers) { select(HomeTab.Stickers) }
     val glass = rememberHazeState()
     // Tab content runs under the frosted bar; it pads its own scrollable content by this much.
@@ -189,21 +198,22 @@ private fun HomeScreen(container: AppContainer, tab: HomeTab, select: (HomeTab) 
         MemeDockLayout.BottomBarHeight + MemeDockLayout.Hairline)
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().glassSource(glass)) {
-            tabs.SaveableStateProvider(tab.name) {
-                when (tab) {
-                    HomeTab.Stickers -> HomeLibraryRoute(container, bar, open) { push(Destination.Trash) }
-                    HomeTab.Organize -> OrganizeRoute(container, bar, { push(Destination.Collection(it.id, it.name)) },
-                        { push(Destination.Tag(it.id, it.name)) }) { push(Destination.Trash) }
-                    HomeTab.Mine -> SettingsRoute(container, bar, { push(Destination.Trash) }, { push(Destination.Backup) })
+            AnimatedContent(targetState = tab, modifier = Modifier.fillMaxSize(),
+                transitionSpec = { tabTransition((if (targetState.ordinal > initialState.ordinal) 1 else -1) * layoutDirection) },
+                contentKey = { it }, label = "home-tabs") { shownTab ->
+                tabs.SaveableStateProvider(shownTab.name) {
+                    when (shownTab) {
+                        HomeTab.Stickers -> HomeLibraryRoute(container, bar, open) { push(Destination.Trash) }
+                        HomeTab.Organize -> OrganizeRoute(container, bar, { push(Destination.Collection(it.id, it.name)) },
+                            { push(Destination.Tag(it.id, it.name)) }, { push(Destination.Trash) }, viewAll = { push(Destination.Collections) })
+                        HomeTab.Mine -> SettingsRoute(container, bar, { push(Destination.Trash) }, { push(Destination.Backup) })
+                    }
                 }
             }
         }
         MemeDockBottomBar(tab, select, glass, Modifier.align(Alignment.BottomCenter))
     }
 }
-
-private fun enterPage() = fadeIn(tween(MemeDockMotion.Page)) + slideInVertically(tween(MemeDockMotion.Page)) { it / 24 }
-private fun exitPage() = fadeOut(tween(MemeDockMotion.Page)) + slideOutVertically(tween(MemeDockMotion.Page)) { it / 24 }
 
 @Composable
 private fun rememberDarkTheme(container: AppContainer): Boolean {

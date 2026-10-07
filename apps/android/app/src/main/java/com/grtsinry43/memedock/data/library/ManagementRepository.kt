@@ -1,8 +1,10 @@
 package com.grtsinry43.memedock.data.library
 
 interface ManagementRepository {
+    suspend fun collectionSummaries(): List<CollectionSummary>
+    suspend fun batch(items: List<LibraryItem>, action: BatchAction): BatchOperation
     suspend fun patchSticker(detail: StickerDetails, title: String? = null, note: String? = null, starred: Boolean? = null)
-    suspend fun relations(detail: StickerDetails, collections: List<LibraryCollection>?, tags: List<LibraryTag>?)
+    suspend fun relations(detail: StickerDetails, collection: LibraryCollection?, tags: List<LibraryTag>?, changeCollection: Boolean = true)
     suspend fun createCollection(name: String): LibraryCollection
     suspend fun renameCollection(value: LibraryCollection, name: String)
     suspend fun deleteCollection(value: LibraryCollection)

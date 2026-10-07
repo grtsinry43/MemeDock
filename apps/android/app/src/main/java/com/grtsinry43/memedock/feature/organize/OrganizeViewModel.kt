@@ -24,6 +24,7 @@ sealed interface OrganizeItem : OrganizeEdit {
 
 data class OrganizeState(
     val collections: List<LibraryCollection> = emptyList(),
+    val summaries: List<CollectionSummary> = emptyList(),
     val tags: List<LibraryTag> = emptyList(),
     val loading: Boolean = true,
     val error: String? = null,
@@ -47,7 +48,7 @@ class OrganizeViewModel(private val repository: ManagementRepository, changes: F
 
     init {
         refresh()
-        viewModelScope.launch { changes.filter { it !is LibraryChange.Thumbnail }.collect { refresh() } }
+        viewModelScope.launch { changes.collect { refresh() } }
     }
 
     fun refresh() {
@@ -55,9 +56,10 @@ class OrganizeViewModel(private val repository: ManagementRepository, changes: F
         job = viewModelScope.launch {
             mutable.update { it.copy(error = null) }
             try {
-                val collections = repository.collections(false)
+                val summaries = repository.collectionSummaries()
+                val collections = summaries.map { it.collection }
                 val tags = repository.tags()
-                mutable.update { it.copy(collections = collections, tags = tags, loading = false) }
+                mutable.update { it.copy(collections = collections, summaries = summaries, tags = tags, loading = false) }
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) {
                 // A page already on screen stays; only a first load turns into an error state.

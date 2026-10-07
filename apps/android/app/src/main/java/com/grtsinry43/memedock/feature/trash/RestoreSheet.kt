@@ -42,12 +42,12 @@ fun RestoreSheet(visible: Boolean, id: String, repository: ManagementRepository,
         when {
             history == null && loadError == null -> MemeDockSkeleton(
                 Modifier.padding(horizontal = 24.dp, vertical = 8.dp).fillMaxWidth(.6f).height(20.dp), MaterialTheme.shapes.extraSmall)
-            history != null && (history.collections.isNotEmpty() || history.tags.isNotEmpty()) -> {
+            history != null && (history.collection != null || history.tags.isNotEmpty()) -> {
                 Text(stringResource(R.string.restore_previous), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
                 FlowRow(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    history.collections.forEach { PlaceChip(it.name, MemeDockIcons.Folder) }
+                    history.collection?.let { PlaceChip(it.name, MemeDockIcons.Folder) }
                     history.tags.forEach { PlaceChip(it.name, MemeDockIcons.Label) }
                 }
             }

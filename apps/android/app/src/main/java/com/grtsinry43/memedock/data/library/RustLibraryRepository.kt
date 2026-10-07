@@ -27,7 +27,7 @@ class RustLibraryRepository(private val session: LibrarySession) : LibraryReposi
                     StickerDetails(id, value.sticker.title, value.sticker.note, value.sticker.originalName,
                         value.asset.mime, value.asset.width.toInt(), value.asset.height.toInt(), value.asset.byteSize,
                         value.asset.animated, value.sticker.lifecycle.deletedAt != null, value.tags.map { it.model() },
-                        value.collections.map { it.model() }, preview, value.originalError?.name,
+                        value.collection?.model(), preview, value.originalError?.name,
                         value.sticker.starred, value.sticker.lifecycle.generation, value.sticker.lifecycle.revision)
                 } catch (cancel: CancellationException) { task.cancel(); throw cancel }
             }
@@ -198,6 +198,36 @@ class RustLibraryRepository(private val session: LibrarySession) : LibraryReposi
     private suspend fun <T> translate(action: suspend () -> T): T = try { action() }
         catch (error: BridgeException.Failure) { throw LibraryFailure(error.code.name, error) }
 
+
+    override suspend fun collectionSummaries(): List<CollectionSummary> = withContext(Dispatchers.IO) { translate {
+        session.library().collectionSummaries().use { task ->
+            try { task.awaitResult().map { CollectionSummary(it.collection.model(), it.count.toLong(), it.cover, it.thumbnailPath) } }
+            catch (cancel: CancellationException) { task.cancel(); throw cancel }
+        }
+    } }
+
+    override suspend fun batch(items: List<LibraryItem>, action: BatchAction): BatchOperation = withContext(Dispatchers.IO) { translate {
+        val nativeAction = when (action) {
+            is BatchAction.Assign -> com.grtsinry43.memedock.bridge.generated.BatchAction.Assign(action.collection.reference())
+            is BatchAction.ClearCollection -> com.grtsinry43.memedock.bridge.generated.BatchAction.ClearCollection(action.expected?.reference())
+            is BatchAction.AddTags -> com.grtsinry43.memedock.bridge.generated.BatchAction.AddTags(action.tags.map { it.reference() })
+            is BatchAction.RemoveTags -> com.grtsinry43.memedock.bridge.generated.BatchAction.RemoveTags(action.tags.map { it.reference() })
+            is BatchAction.Star -> com.grtsinry43.memedock.bridge.generated.BatchAction.Star(action.value)
+            BatchAction.Delete -> com.grtsinry43.memedock.bridge.generated.BatchAction.Delete
+            BatchAction.Restore -> com.grtsinry43.memedock.bridge.generated.BatchAction.Restore
+        }
+        val native = session.library().batch(items.map { com.grtsinry43.memedock.bridge.generated.BatchTarget(EntityReference(it.id, it.generation), if (it.deleted) it.revision else null) }, nativeAction)
+        object : BatchOperation {
+            override suspend fun awaitResult(): BatchReport = withContext(Dispatchers.IO) { translate {
+                try { native.awaitResult().model() }
+                catch (cancel: CancellationException) { native.cancel(); throw cancel }
+            } }
+            override fun cancel() { native.cancel() }
+            override fun snapshot() = native.snapshot().model()
+            override fun close() { native.close() }
+        }
+    } }
+
     override suspend fun collections(): List<LibraryCollection> = collections(false)
     override suspend fun collections(deleted: Boolean): List<LibraryCollection> = withContext(Dispatchers.IO) { translate {
         session.library().collections(deleted).use { task ->
@@ -215,8 +245,8 @@ class RustLibraryRepository(private val session: LibrarySession) : LibraryReposi
             try { task.awaitResult(); Unit } catch (cancel: CancellationException) { task.cancel(); throw cancel }
         }
     } }
-    override suspend fun relations(detail: StickerDetails, collections: List<LibraryCollection>?, tags: List<LibraryTag>?): Unit = withContext(Dispatchers.IO) { translate {
-        session.library().setStickerRelations(detail.reference(), collections?.map { it.reference() }, tags?.map { it.reference() }).use { task ->
+    override suspend fun relations(detail: StickerDetails, collection: LibraryCollection?, tags: List<LibraryTag>?, changeCollection: Boolean): Unit = withContext(Dispatchers.IO) { translate {
+        session.library().setStickerOrganization(detail.reference(), changeCollection, collection?.reference(), tags?.map { it.reference() }).use { task ->
             try { task.awaitResult() } catch (cancel: CancellationException) { task.cancel(); throw cancel }
         }
     } }
@@ -287,7 +317,7 @@ class RustLibraryRepository(private val session: LibrarySession) : LibraryReposi
     } }
     override suspend fun suggestions(id: String): RestoreSuggestions = withContext(Dispatchers.IO) { translate {
         session.library().restoreSuggestions(id).use { task ->
-            try { task.awaitResult().let { RestoreSuggestions(it.collections.map { c -> c.model() }, it.tags.map { t -> t.model() }) } } catch (cancel: CancellationException) { task.cancel(); throw cancel }
+            try { task.awaitResult().let { RestoreSuggestions(it.collection?.model(), it.tags.map { t -> t.model() }) } } catch (cancel: CancellationException) { task.cancel(); throw cancel }
         }
     } }
 
@@ -300,3 +330,12 @@ class RustLibraryRepository(private val session: LibrarySession) : LibraryReposi
         }
     } }
 }
+
+private fun com.grtsinry43.memedock.bridge.generated.BatchReport.model() = BatchReport(items.map {
+    BatchItemResult(it.id, when (it.outcome) {
+        com.grtsinry43.memedock.bridge.generated.BatchOutcome.PENDING -> BatchOutcome.Pending
+        com.grtsinry43.memedock.bridge.generated.BatchOutcome.APPLIED -> BatchOutcome.Applied
+        com.grtsinry43.memedock.bridge.generated.BatchOutcome.UNCHANGED -> BatchOutcome.Unchanged
+        com.grtsinry43.memedock.bridge.generated.BatchOutcome.FAILED -> BatchOutcome.Failed
+    }, it.error?.name)
+}, stopped)
