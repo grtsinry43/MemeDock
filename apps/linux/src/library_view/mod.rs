@@ -13,7 +13,6 @@ use libadwaita::prelude::*;
 use memedock_core::events::{ChangeKind, Notification};
 use memedock_core::tasks::Priority;
 use memedock_core::{CoreError, Library, QueryCursor, QueryRequest, RequestId};
-use memedock_domain::asset::ImageFormat;
 use memedock_domain::export::ExportPreset;
 use memedock_domain::identity::{CollectionId, StickerId, TagId};
 use memedock_domain::version::{Generation, Revision};
@@ -45,9 +44,13 @@ struct Session {
     toasts: adw::ToastOverlay,
     navigation: adw::NavigationView,
     batch: gtk4::Button,
+    select: gtk4::Button,
+    collections: gtk4::Button,
     empty_add: gtk4::Button,
     empty_clear: gtk4::Button,
     selected_collection: Rc<Cell<Option<CollectionId>>>,
+    selection: Rc<RefCell<crate::batch::Selection>>,
+    collection_generations: std::collections::BTreeMap<CollectionId, Generation>,
     playback: Rc<RefCell<Option<crate::playback::Playback>>>,
     detail_refresh: detail::DetailRefresh,
     detail_sync: detail::DetailRefresh,
@@ -58,6 +61,8 @@ struct Session {
     focused: Rc<Cell<u32>>,
     query_task: Option<glib::JoinHandle<()>>,
     debounce_task: Option<glib::JoinHandle<()>>,
+    drag: Rc<RefCell<crate::drag::State>>,
+    keyboard_use: bool,
 }
 
 struct Stop {
@@ -78,6 +83,7 @@ impl Drop for Stop {
         state.playback.borrow_mut().take();
         state.detail_refresh.borrow_mut().take();
         state.detail_sync.borrow_mut().take();
+        crate::drag::shutdown(&state.drag);
     }
 }
 
@@ -87,7 +93,7 @@ pub fn attach(
     library: Library,
     imports: Rc<RefCell<crate::import::Batch>>,
     clipboard: Rc<RefCell<Hold>>,
-) -> glib::JoinHandle<()> {
+) -> (glib::JoinHandle<()>, Rc<crate::import::Controls>) {
     install_style();
     let alive = Rc::new(Cell::new(true));
     let ui = build_ui();
@@ -111,9 +117,13 @@ pub fn attach(
         toasts: ui.toasts.clone(),
         navigation: ui.navigation.clone(),
         batch: ui.batch.clone(),
+        select: ui.select.clone(),
+        collections: ui.collections.clone(),
         empty_add: ui.empty_add.clone(),
         empty_clear: ui.empty_clear.clone(),
         selected_collection: Rc::new(Cell::new(None)),
+        selection: Rc::new(RefCell::new(crate::batch::Selection::default())),
+        collection_generations: std::collections::BTreeMap::new(),
         playback: Rc::new(RefCell::new(None)),
         detail_refresh: Rc::new(RefCell::new(None)),
         detail_sync: Rc::new(RefCell::new(None)),
@@ -124,12 +134,15 @@ pub fn attach(
         focused: Rc::new(Cell::new(gtk4::INVALID_LIST_POSITION)),
         query_task: None,
         debounce_task: None,
+        drag: Rc::new(RefCell::new(crate::drag::State::default())),
+        keyboard_use: false,
     }));
     populate_sidebar(&session, &[], &[]);
     wire_search(Rc::clone(&session));
     wire_sidebar(Rc::clone(&session));
     wire_items(&ui.factory, Rc::clone(&session));
     wire_menu(&ui.factory, Rc::clone(&session));
+    wire_drag(&ui.factory, Rc::clone(&session));
     wire_copy(toolbar, Rc::clone(&session));
     let back = gtk4::Button::from_icon_name("go-previous-symbolic");
     back.set_tooltip_text(Some(i18n::text(Key::Back)));
@@ -146,7 +159,7 @@ pub fn attach(
     wire_retry(Rc::clone(&session));
     let selected_collection = Rc::clone(&session.borrow().selected_collection);
     crate::import::wire_stop(&ui.progress, Rc::clone(&imports));
-    crate::import::bind(
+    let importer = crate::import::bind(
         header,
         &ui.overlay,
         &ui.veil,
@@ -174,7 +187,7 @@ pub fn attach(
     });
 
     let session_for_events = Rc::clone(&session);
-    glib::spawn_future_local(async move {
+    let events = glib::spawn_future_local(async move {
         let _stop = Stop {
             alive,
             session: Rc::clone(&session_for_events),
@@ -220,7 +233,8 @@ pub fn attach(
                 }
             }
         }
-    })
+    });
+    (events, importer)
 }
 
 struct Built {
@@ -235,6 +249,8 @@ struct Built {
     toasts: adw::ToastOverlay,
     navigation: adw::NavigationView,
     batch: gtk4::Button,
+    select: gtk4::Button,
+    collections: gtk4::Button,
     empty_add: gtk4::Button,
     empty_clear: gtk4::Button,
     overlay: gtk4::Overlay,
@@ -251,7 +267,9 @@ fn build_ui() -> Built {
     let search = gtk4::SearchEntry::new();
     search.set_placeholder_text(Some(i18n::text(Key::LibrarySearch)));
     search.set_hexpand(true);
-    let batch = gtk4::Button::with_label(i18n::text(Key::Delete));
+    let batch = gtk4::Button::with_label(i18n::text(Key::BatchOrganize));
+    let select = gtk4::Button::with_label(i18n::text(Key::SelectItems));
+    let collections = gtk4::Button::with_label(i18n::text(Key::TabCollections));
     batch.set_visible(false);
     batch.set_valign(gtk4::Align::Center);
     let search_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -261,6 +279,8 @@ fn build_ui() -> Built {
     search_bar.set_margin_end(12);
     search_bar.append(&search);
     search_bar.append(&batch);
+    search_bar.append(&select);
+    search_bar.append(&collections);
 
     let loading = adw::StatusPage::new();
     loading.set_title(i18n::text(Key::ImportPreparing));
@@ -372,6 +392,8 @@ fn build_ui() -> Built {
         toasts,
         navigation,
         batch,
+        select,
+        collections,
         empty_add,
         empty_clear,
         overlay,
@@ -406,6 +428,18 @@ fn item_factory() -> gtk4::SignalListItemFactory {
         let overlay = gtk4::Overlay::new();
         overlay.set_child(Some(&picture));
         overlay.add_overlay(&badge);
+        let check = gtk4::Image::from_icon_name("object-select-symbolic");
+        check.set_halign(gtk4::Align::Start);
+        check.set_valign(gtk4::Align::Start);
+        check.add_css_class("sticker-badge");
+        check.set_visible(list_item.is_selected());
+        overlay.add_overlay(&check);
+        let weak_check = check.downgrade();
+        list_item.connect_selected_notify(move |item| {
+            if let Some(check) = weak_check.upgrade() {
+                check.set_visible(item.is_selected());
+            }
+        });
         overlay.add_css_class("sticker-tile");
         overlay.set_size_request(148, 148);
         list_item.set_child(Some(&overlay));
@@ -414,6 +448,44 @@ fn item_factory() -> gtk4::SignalListItemFactory {
 }
 
 fn wire_items(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session>>) {
+    let tracked = Rc::clone(&session);
+    factory.connect_setup(move |_, item| {
+        let Some(item) = item.downcast_ref::<gtk4::ListItem>() else {
+            return;
+        };
+        let Some(widget) = item.child() else {
+            return;
+        };
+        let click = gtk4::GestureClick::new();
+        click.set_button(1);
+        click.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        let weak_item = item.downgrade();
+        let weak = Rc::downgrade(&tracked);
+        click.connect_pressed(move |gesture, _, _, _| {
+            let Some(session) = weak.upgrade() else {
+                return;
+            };
+            if !session.borrow().selection.borrow().selecting {
+                return;
+            }
+            gesture.set_state(gtk4::EventSequenceState::Claimed);
+            if session.borrow().selection.borrow().busy {
+                return;
+            }
+            let Some(item) = weak_item.upgrade() else {
+                return;
+            };
+            if let Some(model) = session.borrow().grid.model() {
+                let index = item.position();
+                if model.is_selected(index) {
+                    model.unselect_item(index);
+                } else {
+                    model.select_item(index, false);
+                }
+            }
+        });
+        widget.add_controller(click);
+    });
     let session_for_bind = Rc::clone(&session);
     factory.connect_bind(move |_, item| {
         let Some(list_item) = item.downcast_ref::<gtk4::ListItem>() else {
@@ -467,6 +539,10 @@ fn wire_items(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session
         };
         object.set_generation(object.generation().saturating_add(1));
         object.clear_picture();
+        crate::drag::cancel(
+            &session_for_unbind.borrow().drag,
+            object.identity().parse().ok(),
+        );
         if let Some(overlay) = list_item.child()
             && let Some(picture) = find_descendant::<gtk4::Picture>(&overlay)
         {
@@ -522,7 +598,6 @@ fn wire_menu(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session>
                 animated: object.animated(),
                 starred: object.starred(),
                 deleted,
-                source: object.source_format(),
             };
             let host = host_of(&session_for_click);
             let Some(anchor) = gesture.widget() else {
@@ -547,15 +622,42 @@ fn wire_copy(toolbar: &adw::ToolbarView, session: Rc<RefCell<Session>>) {
     let Some(trigger) = gtk4::ShortcutTrigger::parse_string("<Control>c") else {
         return;
     };
+    let copy_session = Rc::clone(&session);
     let action = gtk4::CallbackAction::new(move |widget, _| {
         if text_focused(widget) {
             return glib::Propagation::Proceed;
         }
-        copy_focused(&session);
+        copy_focused(&copy_session);
         glib::Propagation::Stop
     });
     controller.add_shortcut(gtk4::Shortcut::new(Some(trigger), Some(action)));
     toolbar.add_controller(controller);
+    let keys = gtk4::EventControllerKey::new();
+    keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    let target = Rc::clone(&session);
+    keys.connect_key_pressed(move |_, key, _, modifiers| {
+        if key == gtk4::gdk::Key::Escape && target.borrow().selection.borrow().selecting {
+            clear_selection(&target);
+            return glib::Propagation::Stop;
+        }
+        target.borrow_mut().keyboard_use =
+            matches!(key, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter)
+                && !modifiers.intersects(
+                    ModifierType::CONTROL_MASK
+                        | ModifierType::ALT_MASK
+                        | ModifierType::SHIFT_MASK
+                        | ModifierType::SUPER_MASK,
+                );
+        // Let GridView resolve its focused position, then handle its activate signal.
+        glib::Propagation::Proceed
+    });
+    let target = Rc::clone(&session);
+    keys.connect_key_released(move |_, key, _, _| {
+        if matches!(key, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter) {
+            target.borrow_mut().keyboard_use = false;
+        }
+    });
+    session.borrow().grid.add_controller(keys);
 }
 
 fn text_focused(widget: &gtk4::Widget) -> bool {
@@ -569,6 +671,11 @@ fn text_focused(widget: &gtk4::Widget) -> bool {
 }
 
 fn copy_focused(session: &Rc<RefCell<Session>>) {
+    if session.borrow().filter == BrowseFilter::Trash
+        || session.borrow().selection.borrow().selecting
+    {
+        return;
+    }
     let host = host_of(session);
     let on_detail = {
         let state = session.borrow();
@@ -581,7 +688,7 @@ fn copy_focused(session: &Rc<RefCell<Session>>) {
     };
     let open = session.borrow().open_id.get();
     if on_detail && let Some(open) = open {
-        output_copy(&host, open.id, open.animated, open.source);
+        output_copy(&host, open.id, open.animated);
         return;
     }
     let Some(object) = focused_sticker(session) else {
@@ -590,41 +697,82 @@ fn copy_focused(session: &Rc<RefCell<Session>>) {
     let Ok(id) = object.identity().parse::<StickerId>() else {
         return;
     };
-    output_copy(&host, id, object.animated(), object.source_format());
+    output_copy(&host, id, object.animated());
 }
 
-fn output_copy(host: &Host, id: StickerId, animated: bool, source: ImageFormat) {
-    crate::output::spawn_copy(
-        host.library.clone(),
-        Rc::clone(&host.clipboard),
-        &host.navigation,
-        crate::output::Request {
-            id,
-            animated,
-            preset: host.preset.get(),
-            first_frame: false,
-            source,
-        },
-        crate::output::CopyKind::Image,
-        {
-            let toasts = host.toasts.clone();
-            move |message| {
-                if let Some(message) = message {
-                    toasts.add_toast(adw::Toast::new(message));
-                }
+fn output_copy(host: &Host, id: StickerId, animated: bool) {
+    actions::default_use(host, actions::OpenTarget { id, animated });
+}
+
+fn wire_drag(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session>>) {
+    factory.connect_setup(move |_, item| {
+        let Some(item) = item.downcast_ref::<gtk4::ListItem>() else {
+            return;
+        };
+        let Some(widget) = item.child() else {
+            return;
+        };
+        let weak_item = item.downgrade();
+        let weak_session = Rc::downgrade(&session);
+        let target = Rc::new(move || {
+            let session = weak_session.upgrade()?;
+            if !session.borrow().alive.get()
+                || session.borrow().filter == BrowseFilter::Trash
+                || session.borrow().selection.borrow().selecting
+            {
+                return None;
             }
-        },
-    );
+            let object = weak_item
+                .upgrade()?
+                .item()?
+                .downcast::<StickerObject>()
+                .ok()?;
+            object.identity().parse().ok()
+        });
+        let state = session.borrow();
+        let toasts = state.toasts.clone();
+        crate::drag::bind(
+            &widget,
+            Rc::clone(&state.drag),
+            state.library.clone(),
+            target,
+            Rc::new(move |message| {
+                toasts.add_toast(adw::Toast::new(message));
+            }),
+        );
+    });
 }
 
 fn focused_sticker(session: &Rc<RefCell<Session>>) -> Option<StickerObject> {
     let state = session.borrow();
     let model = state.grid.model()?;
+    let focus = state.grid.root().and_then(|root| root.focus());
+    let focused = |object: &StickerObject| {
+        let Some(row) = object
+            .picture()
+            .and_then(|picture| picture.parent())
+            .and_then(|overlay| overlay.parent())
+        else {
+            return false;
+        };
+        focus
+            .as_ref()
+            .is_some_and(|focus| focus == &row || focus.is_ancestor(&row))
+    };
     let position = state.focused.get();
     if position != gtk4::INVALID_LIST_POSITION
         && let Some(object) = model.item(position).and_then(|item| item.downcast().ok())
+        && focused(&object)
     {
         return Some(object);
+    }
+    // GTK focuses its recycled list-item wrapper, not necessarily our child overlay.
+    for position in 0..model.n_items() {
+        if let Some(object) = model.item(position).and_then(|item| item.downcast().ok())
+            && focused(&object)
+        {
+            return Some(object);
+        }
     }
     let selected = selected_stickers(&state.grid);
     if selected.len() == 1 {
@@ -647,6 +795,31 @@ fn host_of(session: &Rc<RefCell<Session>>) -> Host {
         detail_sync: Rc::clone(&state.detail_sync),
         menu: Rc::clone(&state.menu),
         show_trash: Rc::new(move || show_trash(&show)),
+        select: {
+            let weak = Rc::downgrade(session);
+            Rc::new(move |id| {
+                let Some(session) = weak.upgrade() else {
+                    return;
+                };
+                session.borrow().selection.borrow_mut().selecting = true;
+                let state = session.borrow();
+                for index in 0..state.store.n_items() {
+                    if state
+                        .store
+                        .item(index)
+                        .and_then(|v| v.downcast::<StickerObject>().ok())
+                        .is_some_and(|v| v.identity().parse::<StickerId>().ok() == Some(id))
+                    {
+                        if let Some(model) = state.grid.model() {
+                            model.select_item(index, false);
+                        }
+                        break;
+                    }
+                }
+                drop(state);
+                update_batch(&session);
+            })
+        },
     }
 }
 
@@ -700,6 +873,7 @@ fn wire_search(session: Rc<RefCell<Session>>) {
             if unchanged {
                 return;
             }
+            clear_selection(&task_session);
             task_session.borrow_mut().search = text;
             spawn_reload(task_session, false);
         });
@@ -726,6 +900,7 @@ fn wire_sidebar(session: Rc<RefCell<Session>>) {
             true
         };
         if changed {
+            clear_selection(&session);
             spawn_reload(Rc::clone(&session), false);
         }
     });
@@ -780,6 +955,24 @@ fn wire_open(
         else {
             return;
         };
+        if session_for_activate.borrow().selection.borrow().selecting {
+            return;
+        }
+        if session_for_activate.borrow().keyboard_use {
+            if session_for_activate.borrow().filter != BrowseFilter::Trash
+                && let Ok(id) = object.identity().parse()
+            {
+                let host = host_of(&session_for_activate);
+                actions::default_use(
+                    &host,
+                    actions::OpenTarget {
+                        id,
+                        animated: object.animated(),
+                    },
+                );
+            }
+            return;
+        }
         let (navigation, library, links) = {
             let state = session_for_activate.borrow();
             (
@@ -802,66 +995,192 @@ fn wire_batch(session: Rc<RefCell<Session>>) {
     let Some(model) = grid.model() else {
         return;
     };
-    let session_for_selection = Rc::clone(&session);
-    model.connect_selection_changed(move |_, _, _| update_batch(&session_for_selection));
-    let batch = session.borrow().batch.clone();
-    batch.connect_clicked(move |_| start_batch(Rc::clone(&session)));
+    let tracked = Rc::clone(&session);
+    model.connect_selection_changed(move |model, _, _| {
+        let state = tracked.borrow();
+        let mut selection = state.selection.borrow_mut();
+        if selection.syncing {
+            return;
+        }
+        for position in 0..state.store.n_items() {
+            let Some(object) = state
+                .store
+                .item(position)
+                .and_then(|v| v.downcast::<StickerObject>().ok())
+            else {
+                continue;
+            };
+            let Ok(id) = object.identity().parse::<StickerId>() else {
+                continue;
+            };
+            if model.is_selected(position) {
+                if let Ok(generation) = Generation::new(object.entity_generation()) {
+                    selection.items.insert(
+                        id,
+                        memedock_core::batch::BatchTarget {
+                            id,
+                            generation,
+                            deleted_revision: (state.filter == BrowseFilter::Trash)
+                                .then(|| Revision::new(object.entity_revision()).ok())
+                                .flatten(),
+                        },
+                    );
+                }
+            } else {
+                selection.items.remove(&id);
+            }
+        }
+        if selection.items.len() > 1 {
+            selection.selecting = true;
+        }
+        drop(selection);
+        drop(state);
+        update_batch(&tracked);
+    });
+    let select = session.borrow().select.clone();
+    let tracked = Rc::clone(&session);
+    select.connect_clicked(move |_| {
+        if tracked.borrow().selection.borrow().busy {
+            return;
+        }
+        if tracked.borrow().selection.borrow().selecting {
+            clear_selection(&tracked);
+        } else {
+            tracked.borrow().selection.borrow_mut().selecting = true;
+            update_batch(&tracked);
+        }
+    });
+    let button = session.borrow().batch.clone();
+    let tracked = Rc::clone(&session);
+    button.connect_clicked(move |_| start_batch(Rc::clone(&tracked)));
+    let button = session.borrow().collections.clone();
+    button.connect_clicked(move |_| {
+        let (navigation, library, toasts) = {
+            let s = session.borrow();
+            (s.navigation.clone(), s.library.clone(), s.toasts.clone())
+        };
+        let weak = Rc::downgrade(&session);
+        crate::collections::open(
+            &navigation,
+            library,
+            Rc::new(move |id| {
+                let Some(session) = weak.upgrade() else {
+                    return;
+                };
+                session.borrow_mut().filter = BrowseFilter::Collection(id);
+                remember_collection(&session.borrow());
+                clear_selection(&session);
+                session.borrow().navigation.pop();
+                spawn_reload(session, false);
+            }),
+            Rc::new(move |text| {
+                toasts.add_toast(adw::Toast::new(text));
+            }),
+        );
+    });
+}
+
+fn clear_selection(session: &Rc<RefCell<Session>>) {
+    let state = session.borrow();
+    if state.selection.borrow().busy {
+        return;
+    }
+    {
+        let mut selection = state.selection.borrow_mut();
+        selection.syncing = true;
+        selection.items.clear();
+        selection.selecting = false;
+    }
+    if let Some(model) = state.grid.model() {
+        model.unselect_all();
+    }
+    state.selection.borrow_mut().syncing = false;
+    drop(state);
+    update_batch(session);
 }
 
 fn update_batch(session: &Rc<RefCell<Session>>) {
     let state = session.borrow();
-    let count = selected_stickers(&state.grid).len();
-    state.batch.set_visible(count > 1);
+    let selection = state.selection.borrow();
     state
         .batch
-        .set_label(if state.filter == BrowseFilter::Trash {
-            i18n::text(Key::Restore)
-        } else {
-            i18n::text(Key::Delete)
-        });
+        .set_visible(selection.selecting && !selection.items.is_empty());
+    state.batch.set_label(&format!(
+        "{} · {}",
+        i18n::text(Key::BatchOrganize),
+        i18n::selection_count(selection.items.len())
+    ));
+    state.batch.set_sensitive(!selection.busy);
+    state.select.set_label(i18n::text(if selection.selecting {
+        Key::Done
+    } else {
+        Key::SelectItems
+    }));
+    state.select.set_sensitive(!selection.busy);
+    state.search_entry.set_sensitive(!selection.busy);
+    state.sidebar.set_sensitive(!selection.busy);
+    state.collections.set_sensitive(!selection.busy);
 }
 
 fn start_batch(session: Rc<RefCell<Session>>) {
-    let (grid, filter, navigation) = {
+    let (parent, library, targets, trash, expected) = {
         let state = session.borrow();
+        let mut selection = state.selection.borrow_mut();
+        if selection.busy || selection.items.is_empty() {
+            return;
+        }
+        let Some(parent) = state.navigation.visible_page() else {
+            return;
+        };
+        selection.busy = true;
+        let expected = match state.filter {
+            BrowseFilter::Collection(id) => state.collection_generations.get(&id).map(|g| (id, *g)),
+            _ => None,
+        };
         (
-            state.grid.clone(),
-            state.filter.clone(),
-            state.navigation.clone(),
+            parent,
+            state.library.clone(),
+            selection.items.values().copied().collect(),
+            state.filter == BrowseFilter::Trash,
+            expected,
         )
     };
-    let items = selected_stickers(&grid);
-    if items.len() < 2 {
-        return;
-    }
-    let restore = filter == BrowseFilter::Trash;
-    let heading = if restore {
-        i18n::text(Key::RestoreStickerTitle)
-    } else {
-        i18n::text(Key::Delete)
-    };
-    let body = if restore {
-        i18n::text(Key::RestoreHint)
-    } else {
-        i18n::text(Key::DeleteHint)
-    };
-    let accept = if restore {
-        i18n::text(Key::Restore)
-    } else {
-        i18n::text(Key::Delete)
-    };
-    let Some(parent) = navigation.visible_page() else {
-        return;
-    };
-    let session = Rc::clone(&session);
-    let items = items.clone();
-    detail::confirm(&parent, heading, body, accept, !restore, move || {
-        let session = Rc::clone(&session);
-        let items = items.clone();
-        glib::spawn_future_local(async move {
-            apply_batch(session, items, restore).await;
-        });
-    });
+    update_batch(&session);
+    let notify_session = Rc::downgrade(&session);
+    let finish_session = Rc::downgrade(&session);
+    crate::batch::show(
+        &parent,
+        library,
+        targets,
+        trash,
+        expected,
+        Rc::new(move |text| {
+            if let Some(session) = notify_session.upgrade() {
+                toast(&session, text);
+            }
+        }),
+        Rc::new(move |report| {
+            let Some(session) = finish_session.upgrade() else {
+                return;
+            };
+            {
+                let state = session.borrow();
+                let mut selection = state.selection.borrow_mut();
+                selection.busy = false;
+                for item in report.items {
+                    if matches!(
+                        item.outcome,
+                        memedock_core::batch::BatchOutcome::Applied
+                            | memedock_core::batch::BatchOutcome::Unchanged
+                    ) {
+                        selection.items.remove(&item.id);
+                    }
+                }
+            }
+            update_batch(&session);
+            spawn_reload(session, false);
+        }),
+    );
 }
 
 fn selected_stickers(grid: &gtk4::GridView) -> Vec<StickerObject> {
@@ -880,43 +1199,6 @@ fn selected_stickers(grid: &gtk4::GridView) -> Vec<StickerObject> {
         .collect()
 }
 
-async fn apply_batch(session: Rc<RefCell<Session>>, items: Vec<StickerObject>, restore: bool) {
-    let library = session.borrow().library.clone();
-    for object in items {
-        if !session.borrow().alive.get() {
-            return;
-        }
-        let Ok(id) = object.identity().parse::<StickerId>() else {
-            toast(&session, i18n::text(Key::FailureUnknown));
-            break;
-        };
-        let Ok(generation) = Generation::new(object.entity_generation()) else {
-            toast(&session, i18n::text(Key::FailureUnknown));
-            break;
-        };
-        let result = if restore {
-            let Ok(revision) = Revision::new(object.entity_revision()) else {
-                toast(&session, i18n::text(Key::FailureUnknown));
-                break;
-            };
-            match library.restore_sticker(id, generation, revision) {
-                Ok(task) => task.wait().await,
-                Err(error) => Err(error),
-            }
-        } else {
-            match library.delete_sticker(id, generation) {
-                Ok(task) => task.wait().await,
-                Err(error) => Err(error),
-            }
-        };
-        if let Err(error) = result {
-            toast(&session, i18n::core(error.code()));
-            break;
-        }
-    }
-    spawn_reload(session, false);
-}
-
 fn wire_retry(session: Rc<RefCell<Session>>) {
     let page = session.borrow().error_page.clone();
     let Some(button) = find_descendant::<gtk4::Button>(&page) else {
@@ -928,7 +1210,7 @@ fn wire_retry(session: Rc<RefCell<Session>>) {
 fn spawn_reload(session: Rc<RefCell<Session>>, include_sidebar: bool) {
     let epoch = {
         let mut state = session.borrow_mut();
-        if !state.alive.get() {
+        if !state.alive.get() || state.selection.borrow().busy {
             return;
         }
         state.generation = state.generation.wrapping_add(1);
@@ -941,7 +1223,9 @@ fn spawn_reload(session: Rc<RefCell<Session>>, include_sidebar: bool) {
     };
     {
         let state = session.borrow();
+        state.selection.borrow_mut().syncing = true;
         state.store.remove_all();
+        state.selection.borrow_mut().syncing = false;
         state.stack.set_visible_child_name("loading");
     }
     let task_session = Rc::clone(&session);
@@ -1003,6 +1287,10 @@ async fn refresh_sidebar(session: Rc<RefCell<Session>>, epoch: u64) {
             return;
         }
     };
+    session.borrow_mut().collection_generations = collections
+        .iter()
+        .map(|c| (c.id(), c.lifecycle().generation()))
+        .collect();
     let collection_rows: Vec<(CollectionId, String)> = collections
         .iter()
         .map(|collection| (collection.id(), collection.name().as_str().to_owned()))
@@ -1146,9 +1434,27 @@ fn apply_page(session: &Rc<RefCell<Session>>, page: memedock_core::QueryResponse
         browse::empty_copy(&state.filter, &state.search)
     };
     let store = session.borrow().store.clone();
+    session.borrow().selection.borrow_mut().syncing = true;
     for object in objects {
         store.append(&object);
     }
+    if let Some(model) = session.borrow().grid.model() {
+        for index in 0..store.n_items() {
+            if let Some(object) = store
+                .item(index)
+                .and_then(|v| v.downcast::<StickerObject>().ok())
+                && object
+                    .identity()
+                    .parse::<StickerId>()
+                    .ok()
+                    .is_some_and(|id| session.borrow().selection.borrow().items.contains_key(&id))
+            {
+                model.select_item(index, false);
+            }
+        }
+    }
+    session.borrow().selection.borrow_mut().syncing = false;
+    update_batch(session);
     let count = store.n_items();
     let state = session.borrow();
     if count == 0 {

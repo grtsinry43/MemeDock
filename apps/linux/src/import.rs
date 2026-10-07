@@ -218,7 +218,7 @@ pub fn bind(
     controls: Controls,
     collection: Rc<Cell<Option<CollectionId>>>,
     empty_add: &gtk4::Button,
-) {
+) -> Rc<Controls> {
     let controls = Rc::new(controls);
     let import_button = gtk4::Button::with_label(i18n::text(Key::LibraryAdd));
     let paste_button = gtk4::Button::with_label(i18n::text(Key::Paste));
@@ -295,6 +295,7 @@ pub fn bind(
         true
     });
     overlay.add_controller(drop_target);
+    controls
 }
 
 pub fn wire_stop(progress: &gtk4::Box, batch: Rc<RefCell<Batch>>) {

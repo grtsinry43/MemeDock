@@ -3,53 +3,41 @@ use gtk4::glib::object::IsA;
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
 use memedock_core::{ArtifactLease, Library};
-use memedock_domain::asset::ImageFormat;
 use memedock_domain::export::{AnimationPolicy, ExportOptions, ExportPreset};
 use memedock_domain::identity::StickerId;
 use memedock_domain::local::UsageAction;
 use std::cell::RefCell;
-use std::io::Write;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
-const CLIP_LOG: &str = "/tmp/memedock-clipboard.log";
-
-pub fn log_process(event: &str) {
-    clip_log(event);
-}
-
-fn clip_log(message: &str) {
-    let line = format!("[memedock-clip pid={}] {message}", std::process::id());
-    eprintln!("{line}");
-    let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(CLIP_LOG)
-    else {
-        return;
-    };
-    let _ = writeln!(file, "{line}");
-}
-
 pub struct Hold {
-    clipboard: Option<Arc<ArtifactLease>>,
+    pub clipboard: Rc<RefCell<crate::clipboard::State>>,
     shared: Option<Arc<ArtifactLease>>,
     busy: bool,
+    closing: bool,
+    task: Option<glib::JoinHandle<()>>,
 }
 
 impl Hold {
     pub fn new() -> Self {
         Self {
-            clipboard: None,
+            clipboard: Rc::new(RefCell::new(crate::clipboard::State::default())),
             shared: None,
             busy: false,
+            closing: false,
+            task: None,
         }
     }
 
     pub fn release(&mut self) {
-        self.clipboard.take();
+        self.clipboard.borrow_mut().release();
         self.shared.take();
+    }
+
+    pub fn begin_shutdown(&mut self) -> Option<glib::JoinHandle<()>> {
+        self.closing = true;
+        self.task.take()
     }
 }
 
@@ -65,7 +53,6 @@ pub struct Request {
     pub animated: bool,
     pub preset: ExportPreset,
     pub first_frame: bool,
-    pub source: ImageFormat,
 }
 
 pub fn resolve(
@@ -107,54 +94,28 @@ pub fn preset_hint(preset: ExportPreset) -> &'static str {
 pub fn spawn_copy(
     library: Library,
     hold: Rc<RefCell<Hold>>,
-    _anchor: &impl IsA<gtk4::Widget>,
+    anchor: &impl IsA<gtk4::Widget>,
     request: Request,
     kind: CopyKind,
     notify: impl Fn(Option<&str>) + 'static,
 ) -> bool {
-    if hold.borrow().busy {
-        clip_log("复制被跳过，上一次还在进行");
+    if hold.borrow().busy || hold.borrow().closing {
+        notify(Some(i18n::text(Key::FailureBusy)));
         return false;
     }
-    let mime = clipboard_mime(kind, request);
-    clip_log(&format!(
-        "复制开始 kind={} mime={mime}",
-        copy_kind_name(kind)
-    ));
+    let clipboard = anchor.upcast_ref::<gtk4::Widget>().clipboard();
+    let state = Rc::clone(&hold.borrow().clipboard);
+    crate::clipboard::watch(&state, &clipboard);
     hold.borrow_mut().busy = true;
-    glib::spawn_future_local(async move {
-        let finish = fill_clipboard(&library, request, kind).await;
-        hold.borrow_mut().busy = false;
-        match &finish {
-            Ok(_) => clip_log("复制流程结束：成功"),
-            Err(message) => clip_log(&format!("复制流程结束：{message}")),
-        }
+    let tracked = Rc::clone(&hold);
+    let task = glib::spawn_future_local(async move {
+        let finish = fill_clipboard(&library, &state, &clipboard, request, kind).await;
+        tracked.borrow_mut().busy = false;
+        tracked.borrow_mut().task = None;
         report(&notify, finish);
     });
+    hold.borrow_mut().task = Some(task);
     true
-}
-
-fn copy_kind_name(kind: CopyKind) -> &'static str {
-    match kind {
-        CopyKind::Image => "image",
-        CopyKind::File => "file",
-    }
-}
-
-fn clipboard_mime(kind: CopyKind, request: Request) -> &'static str {
-    match kind {
-        CopyKind::File => "text/uri-list",
-        CopyKind::Image => {
-            let (preset, _) = resolve(request.animated, request.preset, request.first_frame);
-            match preset {
-                ExportPreset::Original => request.source.mime(),
-                ExportPreset::SmallJpeg => ImageFormat::Jpeg.mime(),
-                ExportPreset::CompatiblePng | ExportPreset::WhiteBackground => {
-                    ImageFormat::Png.mime()
-                }
-            }
-        }
-    }
 }
 
 pub fn spawn_save(
@@ -164,7 +125,8 @@ pub fn spawn_save(
     request: Request,
     notify: impl Fn(Option<&str>) + 'static,
 ) -> bool {
-    if hold.borrow().busy {
+    if hold.borrow().busy || hold.borrow().closing {
+        notify(Some(i18n::text(Key::FailureBusy)));
         return false;
     }
     let Some(window) = parent_window(anchor) else {
@@ -172,11 +134,14 @@ pub fn spawn_save(
         return false;
     };
     hold.borrow_mut().busy = true;
-    glib::spawn_future_local(async move {
+    let tracked = Rc::clone(&hold);
+    let task = glib::spawn_future_local(async move {
         let finish = save_resolved(&library, &window, request).await;
-        hold.borrow_mut().busy = false;
+        tracked.borrow_mut().busy = false;
+        tracked.borrow_mut().task = None;
         report(&notify, finish);
     });
+    hold.borrow_mut().task = Some(task);
     true
 }
 
@@ -187,7 +152,8 @@ pub fn spawn_share(
     request: Request,
     notify: impl Fn(Option<&str>) + 'static,
 ) -> bool {
-    if hold.borrow().busy {
+    if hold.borrow().busy || hold.borrow().closing {
+        notify(Some(i18n::text(Key::FailureBusy)));
         return false;
     }
     let Some(window) = parent_window(anchor) else {
@@ -195,11 +161,14 @@ pub fn spawn_share(
         return false;
     };
     hold.borrow_mut().busy = true;
-    glib::spawn_future_local(async move {
-        let finish = launch_share(&library, &hold, &window, request).await;
-        hold.borrow_mut().busy = false;
+    let tracked = Rc::clone(&hold);
+    let task = glib::spawn_future_local(async move {
+        let finish = launch_share(&library, &tracked, &window, request).await;
+        tracked.borrow_mut().busy = false;
+        tracked.borrow_mut().task = None;
         report(&notify, finish);
     });
+    hold.borrow_mut().task = Some(task);
     true
 }
 
@@ -225,56 +194,30 @@ fn report(notify: &impl Fn(Option<&str>), finish: Result<Settled, &'static str>)
 
 async fn fill_clipboard(
     library: &Library,
+    state: &Rc<RefCell<crate::clipboard::State>>,
+    clipboard: &gtk4::gdk::Clipboard,
     request: Request,
     kind: CopyKind,
 ) -> Result<Settled, &'static str> {
-    clip_log("开始导出");
-    let exported = match kind {
+    let lease = match kind {
         CopyKind::File => export_original(library, request.id).await,
         CopyKind::Image => {
             let (preset, policy) = resolve(request.animated, request.preset, request.first_frame);
             export_resolved(library, request.id, preset, policy).await
         }
+    }?;
+    let representation = match kind {
+        CopyKind::File => crate::clipboard::Representation::File,
+        CopyKind::Image => crate::clipboard::Representation::Image,
     };
-    let lease = match exported {
-        Ok(lease) => lease,
-        Err(message) => {
-            clip_log(&format!("导出失败 {message}"));
-            return Err(message);
-        }
-    };
-    let metadata = lease.metadata().clone();
-    clip_log(&format!(
-        "导出完成 file={} mime={}",
-        metadata.file_name, metadata.mime
-    ));
-    let payload = match kind {
-        CopyKind::File => uri_list(&metadata.path),
-        CopyKind::Image => match read_file(&metadata.path).await {
-            Ok(bytes) => bytes,
-            Err(message) => {
-                clip_log(&format!("读取文件失败 {message}"));
-                return Err(message);
-            }
-        },
-    };
-    clip_log(&format!("载荷 {} 字节", payload.len()));
-    drop(lease);
-    let mime = clipboard_mime(kind, request).to_owned();
-    let handed = gio::spawn_blocking(move || give_to_desktop(&mime, &payload))
-        .await
-        .map_err(|_| i18n::text(Key::FailureUnknown))?;
-    handed?;
+    let prepared = crate::clipboard::prepare(lease, representation).await?;
+    crate::clipboard::install(state, clipboard, library, prepared).await?;
     let action = match kind {
         CopyKind::Image => UsageAction::CopyImage,
         CopyKind::File => UsageAction::CopyFile,
     };
     record(library, request.id, action).await?;
     Ok(Settled::Toast(i18n::text(Key::ImageCopied)))
-}
-
-fn uri_list(path: &Path) -> Vec<u8> {
-    format!("{}\r\n", gio::File::for_path(path).uri()).into_bytes()
 }
 
 async fn save_resolved(
@@ -331,7 +274,7 @@ async fn launch_share(
     }
 }
 
-async fn export_original(
+pub(crate) async fn export_original(
     library: &Library,
     id: StickerId,
 ) -> Result<Arc<ArtifactLease>, &'static str> {
@@ -357,7 +300,11 @@ async fn export_resolved(
     }
 }
 
-async fn record(library: &Library, id: StickerId, action: UsageAction) -> Result<(), &'static str> {
+pub(crate) async fn record(
+    library: &Library,
+    id: StickerId,
+    action: UsageAction,
+) -> Result<(), &'static str> {
     match library.record_use(id, action) {
         Ok(task) => task
             .wait()
@@ -368,52 +315,12 @@ async fn record(library: &Library, id: StickerId, action: UsageAction) -> Result
     }
 }
 
-async fn read_file(path: &Path) -> Result<Vec<u8>, &'static str> {
+pub(crate) async fn read_file(path: &Path) -> Result<Vec<u8>, &'static str> {
     let path = path.to_path_buf();
     gio::spawn_blocking(move || std::fs::read(path))
         .await
         .map_err(|_| i18n::text(Key::FailureUnknown))?
         .map_err(|_| i18n::text(Key::FailureIo))
-}
-
-fn give_to_desktop(mime: &str, bytes: &[u8]) -> Result<(), &'static str> {
-    let mut child = std::process::Command::new("wl-copy")
-        .arg("--type")
-        .arg(mime)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|error| {
-            clip_log(&format!("无法启动 wl-copy：{error}"));
-            i18n::text(Key::FailureUnknown)
-        })?;
-    let Some(mut stdin) = child.stdin.take() else {
-        clip_log("wl-copy 没有标准输入");
-        return Err(i18n::text(Key::FailureUnknown));
-    };
-    if let Err(error) = stdin.write_all(bytes) {
-        clip_log(&format!("写入 wl-copy 失败：{error}"));
-        return Err(i18n::text(Key::FailureIo));
-    }
-    drop(stdin);
-    match child.wait() {
-        Ok(status) if status.success() => {
-            clip_log(&format!(
-                "桌面剪贴板已接收 mime={mime} bytes={}",
-                bytes.len()
-            ));
-            Ok(())
-        }
-        Ok(status) => {
-            clip_log(&format!("wl-copy 退出：{status}"));
-            Err(i18n::text(Key::FailureUnknown))
-        }
-        Err(error) => {
-            clip_log(&format!("等待 wl-copy 失败：{error}"));
-            Err(i18n::text(Key::FailureUnknown))
-        }
-    }
 }
 
 #[cfg(test)]

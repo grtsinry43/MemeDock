@@ -5,7 +5,6 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use libadwaita as adw;
 use memedock_core::Library;
-use memedock_domain::asset::ImageFormat;
 use memedock_domain::change::{FieldPatch, StickerPatch};
 use memedock_domain::export::ExportPreset;
 use memedock_domain::identity::StickerId;
@@ -79,7 +78,22 @@ pub fn menu_rows(deleted: bool, starred: bool, flattens: bool) -> &'static [Menu
 pub struct OpenTarget {
     pub id: StickerId,
     pub animated: bool,
-    pub source: ImageFormat,
+}
+
+pub fn default_use(host: &Host, target: OpenTarget) {
+    output::spawn_copy(
+        host.library.clone(),
+        Rc::clone(&host.clipboard),
+        &host.navigation,
+        Request {
+            id: target.id,
+            animated: target.animated,
+            preset: host.preset.get(),
+            first_frame: false,
+        },
+        CopyKind::Image,
+        notify(host),
+    );
 }
 
 #[derive(Clone)]
@@ -90,7 +104,6 @@ pub struct Target {
     pub animated: bool,
     pub starred: bool,
     pub deleted: bool,
-    pub source: ImageFormat,
 }
 
 #[derive(Clone)]
@@ -104,6 +117,7 @@ pub struct Host {
     pub detail_sync: DetailRefresh,
     pub menu: Rc<RefCell<Option<gtk4::Popover>>>,
     pub show_trash: Rc<dyn Fn()>,
+    pub select: Rc<dyn Fn(StickerId)>,
 }
 
 pub fn popup(host: &Host, anchor: &gtk4::Widget, target: Target) {
@@ -118,6 +132,17 @@ pub fn popup(host: &Host, anchor: &gtk4::Widget, target: Target) {
     for row in menu_rows(target.deleted, target.starred, flattens) {
         column.append(&row_button(host, &popover, &target, *row, flattens));
     }
+    let select = gtk4::Button::with_label(i18n::text(Key::SelectItems));
+    let callback = Rc::clone(&host.select);
+    let id = target.id;
+    let weak = popover.downgrade();
+    select.connect_clicked(move |_| {
+        callback(id);
+        if let Some(popover) = weak.upgrade() {
+            popover.popdown();
+        }
+    });
+    column.append(&select);
     popover.set_child(Some(&column));
     let menu = Rc::clone(&host.menu);
     popover.connect_closed(move |popover| {
@@ -258,7 +283,6 @@ fn request(host: &Host, target: &Target, first_frame: bool) -> Request {
         animated: target.animated,
         preset: host.preset.get(),
         first_frame,
-        source: target.source,
     }
 }
 

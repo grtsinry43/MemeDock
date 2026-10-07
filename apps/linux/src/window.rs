@@ -3,7 +3,7 @@ use crate::import::{self, Batch};
 use crate::output::Hold;
 use crate::paths::{self, PathError};
 use gtk4::prelude::*;
-use gtk4::{glib, glib::Propagation};
+use gtk4::{gio, glib, glib::Propagation};
 use libadwaita as adw;
 use libadwaita::prelude::*;
 use memedock_core::{CoreError, Library, LibraryConfig};
@@ -22,6 +22,9 @@ struct WindowState {
     imports: Rc<RefCell<Batch>>,
     clipboard: Rc<RefCell<Hold>>,
     closing: bool,
+    window: glib::WeakRef<adw::ApplicationWindow>,
+    pending_files: Vec<gio::File>,
+    importer: Option<Rc<import::Controls>>,
 }
 
 enum OpenFailure {
@@ -38,13 +41,26 @@ impl OpenFailure {
     }
 }
 
-pub fn activate(app: &adw::Application) {
-    if let Some(window) = app.active_window() {
-        crate::output::log_process("激活已有窗口");
-        window.present();
+pub fn connect(app: &adw::Application) {
+    let current = Rc::new(RefCell::new(None));
+    let for_activate = Rc::clone(&current);
+    app.connect_activate(move |app| activate(app, &for_activate, &[]));
+    app.connect_open(move |app, files, _| activate(app, &current, files));
+}
+
+fn activate(
+    app: &adw::Application,
+    current: &Rc<RefCell<Option<Rc<RefCell<WindowState>>>>>,
+    files: &[gio::File],
+) {
+    let existing = current.borrow().clone();
+    if let Some(session) = existing {
+        if let Some(window) = session.borrow().window.upgrade() {
+            window.present();
+        }
+        accept_files(&session, files);
         return;
     }
-    crate::output::log_process("创建新窗口");
 
     let page = adw::StatusPage::new();
     let spinner = adw::Spinner::new();
@@ -72,6 +88,9 @@ pub fn activate(app: &adw::Application) {
         imports: Rc::new(RefCell::new(Batch::new())),
         clipboard: Rc::new(RefCell::new(Hold::new())),
         closing: false,
+        window: glib::WeakRef::new(),
+        pending_files: Vec::new(),
+        importer: None,
     }));
 
     let retry_session = Rc::clone(&session);
@@ -84,12 +103,18 @@ pub fn activate(app: &adw::Application) {
         .default_height(640)
         .content(&toolbar)
         .build();
+    session.borrow_mut().window.set(Some(&window));
+    current.borrow_mut().replace(Rc::clone(&session));
+    let for_destroy = Rc::clone(current);
+    window.connect_destroy(move |_| {
+        for_destroy.borrow_mut().take();
+    });
 
     let close_session = Rc::clone(&session);
     window.connect_close_request(move |window| {
         let mut state = close_session.borrow_mut();
         if state.closing {
-            return Propagation::Proceed;
+            return Propagation::Stop;
         }
         state.closing = true;
         let imports = Rc::clone(&state.imports);
@@ -114,14 +139,24 @@ pub fn activate(app: &adw::Application) {
         }
         let library = state.library.take();
         let clipboard = Rc::clone(&state.clipboard);
+        state.importer.take();
+        state.pending_files.clear();
         drop(state);
+        let output_task = clipboard.borrow_mut().begin_shutdown();
+        crate::clipboard::begin_shutdown(&clipboard.borrow().clipboard);
+        if let Some(task) = output_task {
+            task.abort();
+        }
         if let Some(library) = library {
             let window = window.clone();
             glib::spawn_future_local(async move {
-                let _ = gtk4::prelude::WidgetExt::display(&window)
-                    .clipboard()
-                    .store_future(glib::Priority::DEFAULT)
-                    .await;
+                let _ = glib::future_with_timeout(
+                    std::time::Duration::from_secs(2),
+                    gtk4::prelude::WidgetExt::display(&window)
+                        .clipboard()
+                        .store_future(glib::Priority::DEFAULT),
+                )
+                .await;
                 clipboard.borrow_mut().release();
                 import::discard_held(&library, inputs).await;
                 let _ = library.close().await;
@@ -135,7 +170,53 @@ pub fn activate(app: &adw::Application) {
     });
 
     window.present();
+    accept_files(&session, files);
     start_open(session);
+}
+
+fn accept_files(session: &Rc<RefCell<WindowState>>, files: &[gio::File]) {
+    if files.is_empty() {
+        return;
+    }
+    let (importer, window, error) = {
+        let mut state = session.borrow_mut();
+        let error = if state.closing {
+            Some(Key::FailureBusy)
+        } else if import::batch_too_large(files.len()) {
+            Some(Key::FailureBatch)
+        } else if state.importer.is_none() {
+            queue_files(&mut state.pending_files, files)
+                .err()
+                .map(|()| Key::FailureBatch)
+        } else {
+            None
+        };
+        (state.importer.clone(), state.window.upgrade(), error)
+    };
+    if let Some(error) = error {
+        if let Some(window) = window {
+            let dialog =
+                adw::AlertDialog::new(Some(i18n::text(Key::FailureInput)), Some(i18n::text(error)));
+            dialog.add_response("close", i18n::text(Key::Done));
+            dialog.present(Some(&window));
+        }
+    } else if let Some(importer) = importer {
+        import::begin_external(importer, files.to_vec(), None);
+    }
+}
+
+fn queue_files(pending: &mut Vec<gio::File>, files: &[gio::File]) -> Result<(), ()> {
+    let mut unique = pending.clone();
+    for file in files {
+        if !unique.iter().any(|existing| existing.equal(file)) {
+            unique.push(file.clone());
+        }
+        if import::batch_too_large(unique.len()) {
+            return Err(());
+        }
+    }
+    *pending = unique;
+    Ok(())
 }
 
 fn start_open(session: Rc<RefCell<WindowState>>) {
@@ -172,14 +253,14 @@ fn start_open(session: Rc<RefCell<WindowState>>) {
             }
             return;
         }
-        let mut state = session_for_open.borrow_mut();
-        state.open_task = None;
         match opened {
             Ok(library) => {
+                let mut state = session_for_open.borrow_mut();
+                state.open_task = None;
                 let header = state.header.clone();
                 let imports = Rc::clone(&state.imports);
                 let clipboard = Rc::clone(&state.clipboard);
-                let handle = crate::library_view::attach(
+                let (handle, importer) = crate::library_view::attach(
                     &state.toolbar,
                     &header,
                     library.clone(),
@@ -188,8 +269,18 @@ fn start_open(session: Rc<RefCell<WindowState>>) {
                 );
                 state.library = Some(library);
                 state.browse_task = Some(handle);
+                state.importer = Some(Rc::clone(&importer));
+                let files = std::mem::take(&mut state.pending_files);
+                drop(state);
+                if !files.is_empty() {
+                    import::begin_external(importer, files, None);
+                }
             }
-            Err(error) => show_failed(&state, error.message()),
+            Err(error) => {
+                let mut state = session_for_open.borrow_mut();
+                state.open_task = None;
+                show_failed(&state, error.message());
+            }
         }
     });
     session.borrow_mut().open_task = Some(task);
@@ -208,4 +299,21 @@ fn show_failed(state: &WindowState, message: &str) {
     state.page.set_description(Some(escaped.as_str()));
     state.page.set_icon_name(Some("dialog-error-symbolic"));
     state.page.set_child(Some(&state.retry));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn startup_requests_are_deduplicated_and_overflow_preserves_the_pending_batch() {
+        let first = gio::File::for_path("/tmp/one sticker.png");
+        let mut pending = vec![first.clone()];
+        assert!(queue_files(&mut pending, &[gio::File::for_path("/tmp/one sticker.png")]).is_ok());
+        assert_eq!(pending.len(), 1);
+        let overflow: Vec<_> = (0..200)
+            .map(|i| gio::File::for_path(format!("/tmp/{i}.png")))
+            .collect();
+        assert!(queue_files(&mut pending, &overflow).is_err());
+        assert_eq!(pending.len(), 1);
+    }
 }

@@ -77,6 +77,15 @@ pub fn language_from_tag(tag: &str) -> Language {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
+    Rename,
+    MoveUp,
+    MoveDown,
+    SelectItems,
+    BatchOrganize,
+    AssignCollection,
+    ClearCollection,
+    AddTags,
+    RemoveTags,
     Back,
     Cancel,
     Done,
@@ -334,12 +343,12 @@ fn pair(key: Key) -> (&'static str, &'static str) {
         Key::Retry => ("重试", "Retry"),
         Key::Name => ("名称", "Name"),
         Key::TabStickers => ("表情", "Stickers"),
-        Key::TabCollections => ("收藏夹", "Collections"),
+        Key::TabCollections => ("合集", "Collections"),
         Key::TagsTitle => ("标签", "Tags"),
         Key::Trash => ("回收站", "Trash"),
         Key::TrashEmpty => ("回收站为空", "Trash is empty"),
         Key::TrashEmptyHint => (
-            "已删除的表情、收藏夹和标签会暂存在这里，可随时恢复",
+            "已删除的表情、合集和标签会暂存在这里，可随时恢复",
             "Deleted stickers, collections, and tags are kept here and can be restored anytime",
         ),
         Key::LibraryAdd => ("添加", "Add"),
@@ -348,8 +357,17 @@ fn pair(key: Key) -> (&'static str, &'static str) {
         Key::FavoritesOnly => ("星标", "Starred"),
         Key::FilterRecent => ("最近使用", "Recent"),
         Key::FilterAll => ("全部", "All"),
+        Key::Rename => ("重命名", "Rename"),
+        Key::MoveUp => ("向前移动", "Move up"),
+        Key::MoveDown => ("向后移动", "Move down"),
+        Key::SelectItems => ("选择", "Select"),
+        Key::BatchOrganize => ("批量整理", "Organize selection"),
+        Key::AssignCollection => ("归入合集", "Move to collection"),
+        Key::ClearCollection => ("取消归类", "Uncategorize"),
+        Key::AddTags => ("添加标签", "Add tags"),
+        Key::RemoveTags => ("移除标签", "Remove tags"),
         Key::Organize => ("整理", "Organize"),
-        Key::OrganizeHint => ("添加收藏夹与标签", "Add collection & tag"),
+        Key::OrganizeHint => ("添加合集与标签", "Add collection & tag"),
         Key::LibraryEmpty => ("暂无表情", "No stickers yet"),
         Key::LibraryEmptyHint => (
             "支持从相册或本地文件导入表情",
@@ -435,18 +453,18 @@ fn pair(key: Key) -> (&'static str, &'static str) {
         Key::ImportRestoreRequired => ("该表情已在回收站中", "Item is currently in Trash"),
         Key::ImportCancelled => ("已取消", "Cancelled"),
         Key::ImportRetryFailed => ("重试失败项", "Retry failed items"),
-        Key::ImportCollection => ("加入收藏夹", "Add to Collection"),
-        Key::NoCollection => ("不加入收藏夹", "No collection"),
+        Key::ImportCollection => ("加入合集", "Add to Collection"),
+        Key::NoCollection => ("不加入合集", "No collection"),
         Key::ErrorBatchBusy => (
             "当前有正在处理的导入任务，请完成后再试",
             "An import task is already running. Please complete or cancel it first.",
         ),
-        Key::CollectionEmpty => ("收藏夹为空", "Collection is empty"),
+        Key::CollectionEmpty => ("合集为空", "Collection is empty"),
         Key::CollectionEmptyHint => (
-            "长按表情选择「整理」可添加到收藏夹",
+            "长按表情选择「整理」可添加到合集",
             "Touch and hold a sticker and select Organize to add it to a collection.",
         ),
-        Key::NewCollection => ("新建收藏夹", "New Collection"),
+        Key::NewCollection => ("新建合集", "New Collection"),
         Key::NewTag => ("新建标签", "New Tag"),
         Key::TagEmpty => ("暂无相关表情", "No stickers with this tag"),
         Key::TagEmptyHint => (
@@ -457,7 +475,7 @@ fn pair(key: Key) -> (&'static str, &'static str) {
         Key::RestoreStickerTitle => ("恢复表情", "Restore Sticker"),
         Key::Restore => ("恢复", "Restore"),
         Key::RestoreHint => (
-            "恢复后需要重新添加到收藏夹或标签",
+            "恢复后需要重新添加到合集或标签",
             "Collections and tags will need to be reassigned after restoring",
         ),
         Key::FailurePermission => (
@@ -506,6 +524,25 @@ fn pair(key: Key) -> (&'static str, &'static str) {
     }
 }
 
+pub fn selection_count(count: usize) -> String {
+    match language() {
+        Language::Zh => format!("已选 {count} 张"),
+        Language::En => format!("{count} selected"),
+    }
+}
+pub fn collection_count(count: u64) -> String {
+    match language() {
+        Language::Zh => format!("{count} 张表情"),
+        Language::En => format!("{count} stickers"),
+    }
+}
+pub fn batch_result(done: usize, failed: usize, remaining: usize) -> String {
+    match language() {
+        Language::Zh => format!("已完成 {done} 张，失败 {failed} 张，未处理 {remaining} 张"),
+        Language::En => format!("{done} completed, {failed} failed, {remaining} remaining"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Key, Language, file_size, language_from_env, language_from_tag, text_in};
@@ -531,10 +568,10 @@ mod tests {
     fn catalog_matches_the_android_strings() {
         assert_eq!(text_in(Language::Zh, Key::LibraryEmpty), "暂无表情");
         assert_eq!(text_in(Language::En, Key::LibraryEmpty), "No stickers yet");
-        assert_eq!(text_in(Language::Zh, Key::NoCollection), "不加入收藏夹");
+        assert_eq!(text_in(Language::Zh, Key::NoCollection), "不加入合集");
         assert_eq!(
             text_in(Language::Zh, Key::RestoreHint),
-            "恢复后需要重新添加到收藏夹或标签"
+            "恢复后需要重新添加到合集或标签"
         );
         assert_eq!(file_size(202), "202 B");
         assert_eq!(file_size(1024), "1 KB");

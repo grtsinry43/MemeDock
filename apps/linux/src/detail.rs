@@ -100,7 +100,6 @@ pub fn open(
     host.open_id.set(Some(actions::OpenTarget {
         id,
         animated: object.animated(),
-        source: object.source_format(),
     }));
     let page = adw::NavigationPage::new(&gtk4::Spinner::new(), i18n::text(Key::TabStickers));
     page.set_tag(Some("detail"));
@@ -286,7 +285,6 @@ fn present(
     action.set_halign(gtk4::Align::Start);
     column.append(&action);
     let motion = detail.asset.animated();
-    let source = detail.asset.format();
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_child(Some(&column));
     scroll.set_vexpand(true);
@@ -294,7 +292,7 @@ fn present(
     body.append(&scroll);
     let toasts = adw::ToastOverlay::new();
     if !removed {
-        body.append(&output_dock(&host, &toasts, sticker.id(), motion, source));
+        body.append(&output_dock(&host, &toasts, sticker.id(), motion));
     }
     toasts.set_child(Some(&body));
     toasts.set_vexpand(true);
@@ -600,7 +598,6 @@ fn present(
     let menu_host = host;
     let menu_model = Rc::clone(&model);
     let menu_animated = detail.asset.animated();
-    let menu_source = detail.asset.format();
     let menu_click = gtk4::GestureClick::new();
     menu_click.set_button(3);
     menu_click.connect_pressed(move |gesture, _, _, _| {
@@ -613,7 +610,6 @@ fn present(
             animated: menu_animated,
             starred: state.starred,
             deleted: state.deleted,
-            source: menu_source,
         };
         drop(state);
         let Some(anchor) = gesture.widget() else {
@@ -838,7 +834,7 @@ enum Edit {
     Relations {
         id: StickerId,
         generation: Generation,
-        collections: Vec<(CollectionId, Generation)>,
+        collection: Option<(CollectionId, Generation)>,
         tags: Vec<(TagId, Generation)>,
     },
 }
@@ -873,12 +869,11 @@ fn ensure_pump(model: Rc<RefCell<Model>>, library: Library, surface: Rc<Surface>
                     Some(Edit::Relations {
                         id: state.id,
                         generation: state.generation,
-                        collections: state
+                        collection: state
                             .collections
                             .iter()
-                            .filter(|item| item.checked)
-                            .map(|item| (item.id, item.generation))
-                            .collect(),
+                            .find(|item| item.checked)
+                            .map(|item| (item.id, item.generation)),
                         tags: state
                             .tags
                             .iter()
@@ -946,13 +941,13 @@ fn ensure_pump(model: Rc<RefCell<Model>>, library: Library, surface: Rc<Surface>
                 Edit::Relations {
                     id,
                     generation,
-                    collections,
+                    collection,
                     tags,
                 } => {
-                    let saved = match library.set_sticker_relations(
+                    let saved = match library.set_sticker_organization(
                         id,
                         generation,
-                        Some(collections),
+                        Some(collection),
                         Some(tags),
                     ) {
                         Ok(task) => task.wait().await,
@@ -1039,8 +1034,7 @@ fn reload_relations(
         if replace && model.borrow().epoch != epoch {
             return;
         }
-        let selected_collections: Vec<_> =
-            detail.collections.iter().map(|item| item.id()).collect();
+        let selected_collections: Vec<_> = detail.collection.iter().map(|item| item.id()).collect();
         let selected_tags: Vec<_> = detail.tags.iter().map(|item| item.id()).collect();
         let (title, note, starred, link_new) = {
             let mut state = model.borrow_mut();
@@ -1081,8 +1075,11 @@ fn reload_relations(
                         id: item.id(),
                         generation: item.lifecycle().generation(),
                         name: item.name().as_str().to_owned(),
-                        checked: kept.unwrap_or_else(|| selected_collections.contains(&item.id()))
-                            || pending,
+                        checked: if pending_collection.is_some() {
+                            pending
+                        } else {
+                            kept.unwrap_or_else(|| selected_collections.contains(&item.id()))
+                        },
                     }
                 })
                 .collect();
@@ -1140,11 +1137,27 @@ fn fill_relations(model: Rc<RefCell<Model>>, library: Library, surface: Rc<Surfa
     heading.set_halign(gtk4::Align::Start);
     relations.append(&heading);
     let collections = model.borrow().collections.clone();
+    let none = gtk4::CheckButton::with_label(i18n::text(Key::NoCollection));
+    none.set_active(!collections.iter().any(|item| item.checked));
+    let tracked = Rc::clone(&model);
+    let source = library.clone();
+    let view = Rc::clone(&surface);
+    none.connect_toggled(move |button| {
+        if !button.is_active() || tracked.borrow().filling {
+            return;
+        }
+        for row in &mut tracked.borrow_mut().collections {
+            row.checked = false;
+        }
+        queue_relations(Rc::clone(&tracked), source.clone(), Rc::clone(&view));
+    });
+    relations.append(&none);
     for item in collections {
         if item.checked {
             add_chip(&surface.chips, &item.name);
         }
         let button = gtk4::CheckButton::with_label(&item.name);
+        button.set_group(Some(&none));
         button.set_active(item.checked);
         let model_for_toggle = Rc::clone(&model);
         let library_for_toggle = library.clone();
@@ -1154,13 +1167,11 @@ fn fill_relations(model: Rc<RefCell<Model>>, library: Library, surface: Rc<Surfa
             if model_for_toggle.borrow().filling {
                 return;
             }
-            if let Some(row) = model_for_toggle
-                .borrow_mut()
-                .collections
-                .iter_mut()
-                .find(|row| row.id == id)
-            {
-                row.checked = button.is_active();
+            if !button.is_active() {
+                return;
+            }
+            for row in &mut model_for_toggle.borrow_mut().collections {
+                row.checked = row.id == id;
             }
             queue_relations(
                 Rc::clone(&model_for_toggle),
@@ -1369,8 +1380,7 @@ pub fn open_organize(
                 return;
             }
         };
-        let selected_collections: Vec<_> =
-            detail.collections.iter().map(|item| item.id()).collect();
+        let selected_collections: Vec<_> = detail.collection.iter().map(|item| item.id()).collect();
         let selected_tags: Vec<_> = detail.tags.iter().map(|item| item.id()).collect();
         let state = Rc::new(RefCell::new(Organize {
             library,
@@ -1446,8 +1456,28 @@ fn fill_organize(state: &Rc<RefCell<Organize>>, column: &gtk4::Box) {
     heading.set_halign(gtk4::Align::Start);
     column.append(&heading);
     let collections = state.borrow().collections.clone();
+    let none = gtk4::CheckButton::with_label(i18n::text(Key::NoCollection));
+    none.set_active(!collections.iter().any(|item| item.checked));
+    let tracked = Rc::clone(state);
+    none.connect_toggled(move |button| {
+        if !button.is_active() || tracked.borrow().filling {
+            return;
+        }
+        {
+            let mut state = tracked.borrow_mut();
+            for row in &mut state.collections {
+                row.checked = false;
+            }
+            state.dirty = true;
+        }
+        pump_organize(Rc::clone(&tracked));
+    });
+    column.append(&none);
     for item in collections {
-        column.append(&collection_check(state, item.name, item.id));
+        let button = collection_check(state, item.name, item.id);
+        button.set_group(Some(&none));
+        button.set_active(item.checked);
+        column.append(&button);
     }
     let create = gtk4::Button::with_label(i18n::text(Key::NewCollection));
     create.set_halign(gtk4::Align::Start);
@@ -1499,8 +1529,11 @@ fn collection_check(
         }
         {
             let mut organize = state.borrow_mut();
-            if let Some(row) = organize.collections.iter_mut().find(|row| row.id == id) {
-                row.checked = button.is_active();
+            if !button.is_active() {
+                return;
+            }
+            for row in &mut organize.collections {
+                row.checked = row.id == id;
             }
             organize.dirty = true;
         }
@@ -1557,9 +1590,8 @@ fn pump_organize(state: Rc<RefCell<Organize>>) {
                     organize
                         .collections
                         .iter()
-                        .filter(|row| row.checked)
-                        .map(|row| (row.id, row.generation))
-                        .collect::<Vec<_>>(),
+                        .find(|row| row.checked)
+                        .map(|row| (row.id, row.generation)),
                     organize
                         .tags
                         .iter()
@@ -1568,7 +1600,7 @@ fn pump_organize(state: Rc<RefCell<Organize>>) {
                         .collect::<Vec<_>>(),
                 )
             };
-            let saved = match library.set_sticker_relations(
+            let saved = match library.set_sticker_organization(
                 id,
                 generation,
                 Some(collections),
@@ -1580,7 +1612,7 @@ fn pump_organize(state: Rc<RefCell<Organize>>) {
             let mut organize = state.borrow_mut();
             organize.busy = false;
             match saved {
-                Ok(()) => {
+                Ok(_) => {
                     let again = organize.dirty;
                     let saved = Rc::clone(&organize.saved);
                     drop(organize);
@@ -1754,7 +1786,6 @@ type OutputSettled = Rc<dyn Fn(Option<&str>)>;
 struct OutputItem {
     id: StickerId,
     animated: bool,
-    source: ImageFormat,
 }
 
 #[derive(Clone)]
@@ -1771,7 +1802,6 @@ fn output_dock(
     toasts: &adw::ToastOverlay,
     id: StickerId,
     animated: bool,
-    source: ImageFormat,
 ) -> gtk4::Box {
     let dock = Dock {
         format: gtk4::Button::new(),
@@ -1850,11 +1880,7 @@ fn output_dock(
             toasts.add_toast(adw::Toast::new(message));
         }
     });
-    let item = OutputItem {
-        id,
-        animated,
-        source,
-    };
+    let item = OutputItem { id, animated };
     bind_copy(&dock, host, item, &preset, &settled);
     bind_save(&dock, host, item, &preset, &settled);
     bind_share(&dock, host, item, &preset, &settled, false);
@@ -1950,7 +1976,6 @@ fn bind_copy(
                 animated: item.animated,
                 preset: preset.get(),
                 first_frame: false,
-                source: item.source,
             },
             CopyKind::Image,
             move |message| settled(message),
@@ -1986,7 +2011,6 @@ fn bind_save(
                 animated: item.animated,
                 preset: preset.get(),
                 first_frame: false,
-                source: item.source,
             },
             move |message| settled(message),
         );
@@ -2026,7 +2050,6 @@ fn bind_share(
                 animated: item.animated,
                 preset: preset.get(),
                 first_frame,
-                source: item.source,
             },
             move |message| settled(message),
         );
