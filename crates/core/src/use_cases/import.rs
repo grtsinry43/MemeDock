@@ -307,7 +307,7 @@ async fn process(
         )
         .await?;
     }
-    if let Some(collection) = collection {
+    if let Some(collection) = collection.filter(|_| status == ImportStatus::Created) {
         let old = tx.collection_item(collection.id(), sticker.id()).await?;
         if !old
             .as_ref()
@@ -321,12 +321,10 @@ async fn process(
             tx.save_collection_item(&item).await?;
             tx.append_change(
                 OperationId::new(),
-                Operation::new(OperationKind::SetCollectionMembership {
-                    collection_id: collection.id(),
+                Operation::new(OperationKind::SetStickerCollection {
                     sticker_id: sticker.id(),
-                    collection_generation: collection.lifecycle().generation(),
                     sticker_generation: sticker.lifecycle().generation(),
-                    present: true,
+                    collection: Some((collection.id(), collection.lifecycle().generation())),
                 })?,
                 at,
             )

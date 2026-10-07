@@ -83,7 +83,7 @@ pub struct StickerDetail {
     pub sticker: Sticker,
     pub asset: Asset,
     pub tags: Vec<Tag>,
-    pub collections: Vec<memedock_domain::collection::Collection>,
+    pub collection: Option<memedock_domain::collection::Collection>,
     pub original_path: Option<std::path::PathBuf>,
     pub original_error: Option<ErrorCode>,
 }
@@ -120,7 +120,44 @@ fn resource_status(
         })
         .collect()
 }
+pub struct CollectionSummary {
+    pub collection: memedock_domain::collection::Collection,
+    pub count: u64,
+    pub cover: Option<StickerId>,
+    pub thumbnail_path: Option<std::path::PathBuf>,
+}
+
 impl Library {
+    pub fn collection_summaries(&self) -> Result<Task<Vec<CollectionSummary>>> {
+        self.submit(
+            Lane::Read,
+            Priority::Interactive,
+            move |services, control| async move {
+                control.check()?;
+                let rows = services.db.collection_summaries().await?;
+                let cache = services.derived.clone();
+                tokio::task::spawn_blocking(move || {
+                    rows.into_iter()
+                        .map(|row| {
+                            let thumbnail_path = row
+                                .cover
+                                .filter(|id| cache.ready(id.content_hash()).unwrap_or(false))
+                                .map(|id| cache.thumbnail_path(id.content_hash()));
+                            CollectionSummary {
+                                collection: row.collection,
+                                count: row.count,
+                                cover: row.cover,
+                                thumbnail_path,
+                            }
+                        })
+                        .collect()
+                })
+                .await
+                .map_err(CoreError::from)
+            },
+        )
+    }
+
     pub fn sticker_resources(&self, ids: Vec<StickerId>) -> Result<Task<Vec<StickerResource>>> {
         if ids.len() > 200 {
             return Err(CoreError::new(
@@ -201,7 +238,7 @@ impl Library {
                     CoreError::new(ErrorCode::CorruptData, "sticker asset missing")
                 })?;
                 let tags = services.db.sticker_tags(id).await?;
-                let collections = services.db.sticker_collections(id).await?;
+                let collection = services.db.sticker_collection(id).await?;
                 let blobs = services.blobs.clone();
                 let bytes = asset.byte_size().get();
                 let original =
@@ -227,7 +264,7 @@ impl Library {
                     sticker,
                     asset,
                     tags,
-                    collections,
+                    collection,
                     original_path,
                     original_error,
                 })

@@ -93,6 +93,22 @@ impl LibraryDatabase {
         if pragma(&connection, "PRAGMA user_version", "user_version").await? != SCHEMA_VERSION {
             return Err(StorageError::UnsupportedSchema);
         }
+        let columns = connection
+            .query_all_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA table_info(collection_items)".to_owned(),
+            ))
+            .await?;
+        let mut primary_key = Vec::new();
+        for column in columns {
+            let position: i64 = column.try_get("", "pk")?;
+            if position > 0 {
+                primary_key.push(column.try_get::<String>("", "name")?);
+            }
+        }
+        if primary_key != ["sticker_id"] {
+            return Err(StorageError::UnsupportedSchema);
+        }
         let row = library_metadata::Entity::find_by_id(1_i64)
             .one(&connection)
             .await?

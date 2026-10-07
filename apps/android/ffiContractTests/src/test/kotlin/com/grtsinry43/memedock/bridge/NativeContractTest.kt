@@ -70,7 +70,7 @@ class NativeContractTest {
                             id = library.importStaged(input, ImportOptions("cat.png", null, collection.id)).use { it.awaitResult().sticker.id }
                         }
                         val reference = EntityReference(id, 0)
-                        library.setStickerRelations(reference, null, listOf(EntityReference(tag.id, tag.lifecycle.generation))).use { it.awaitResult() }
+                        library.setStickerOrganization(reference, false, null, listOf(EntityReference(tag.id, tag.lifecycle.generation))).use { it.awaitResult() }
                         library.patchSticker(reference, StickerEdit("摸鱼猫", "明天再说", true)).use { it.awaitResult() }
                         assertEquals(id, library.listStickers(query().copy(text = "工作 明天", starred = true)).use { it.awaitResult().stickers.single().id })
                         library.patchSticker(reference, StickerEdit(null, "", null)).use { it.awaitResult() }
@@ -78,17 +78,32 @@ class NativeContractTest {
                         assertEquals("摸鱼猫", edited.sticker.title)
                         assertEquals("", edited.sticker.note)
                         assertTrue(edited.sticker.starred)
-                        assertEquals(collection.id, edited.collections.single().id)
+                        assertEquals(collection.id, edited.collection!!.id)
+                        val batchTarget = BatchTarget(reference, null)
+                        library.batch(listOf(batchTarget, batchTarget), BatchAction.Assign(EntityReference(collection.id, collection.lifecycle.generation))).use {
+                            val result = it.awaitResult()
+                            assertEquals(1, result.items.size)
+                            assertEquals(BatchOutcome.UNCHANGED, result.items.single().outcome)
+                        }
+                        val extraTag = library.createTag("生活").use { it.awaitResult() }
+                        library.batch(listOf(batchTarget), BatchAction.AddTags(listOf(EntityReference(extraTag.id, extraTag.lifecycle.generation)))).use {
+                            assertEquals(BatchOutcome.APPLIED, it.awaitResult().items.single().outcome)
+                        }
+                        assertEquals(setOf(tag.id, extraTag.id), library.stickerDetail(id).use { it.awaitResult().tags.map { tag -> tag.id }.toSet() })
+                        library.batch(listOf(batchTarget), BatchAction.RemoveTags(listOf(EntityReference(extraTag.id, extraTag.lifecycle.generation)))).use { it.awaitResult() }
+                        val summary = library.collectionSummaries().use { it.awaitResult().single() }
+                        assertEquals(1uL, summary.count)
+                        assertEquals(id, summary.cover)
                         library.deleteSticker(reference).use { it.awaitResult() }
                         assertTrue(library.listStickers(query()).use { it.awaitResult().stickers.isEmpty() })
                         assertEquals(id, library.listStickers(query().copy(deleted = true)).use { it.awaitResult().stickers.single().id })
                         val suggestions = library.restoreSuggestions(id).use { it.awaitResult() }
-                        assertEquals(collection.id, suggestions.collections.single().id)
+                        assertEquals(collection.id, suggestions.collection!!.id)
                         assertEquals(tag.id, suggestions.tags.single().id)
                         val restored = library.restoreSticker(reference, 0).use { it.awaitResult() }
                         assertEquals(1L, restored.lifecycle.generation)
                         val detail = library.stickerDetail(id).use { it.awaitResult() }
-                        assertTrue(detail.tags.isEmpty()); assertTrue(detail.collections.isEmpty())
+                        assertTrue(detail.tags.isEmpty()); assertTrue(detail.collection == null)
                         expectCode(ErrorCode.CONFLICT) { library.patchSticker(reference, StickerEdit("stale", null, null)).use { it.awaitResult() } }
                     } finally { library.shutdown() }
                 }

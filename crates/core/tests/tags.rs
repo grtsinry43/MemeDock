@@ -16,7 +16,7 @@ async fn concurrent_normalized_names_reuse_one_active_tag_and_deleted_names_stay
     let b = b.wait().await?;
     assert_eq!(a.id(), b.id());
     library
-        .set_sticker_relations(
+        .set_sticker_organization(
             sticker.id(),
             Generation::INITIAL,
             None,

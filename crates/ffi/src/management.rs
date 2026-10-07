@@ -19,7 +19,7 @@ pub struct StickerEdit {
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct RestoreSuggestions {
-    pub collections: Vec<CollectionMetadata>,
+    pub collection: Option<CollectionMetadata>,
     pub tags: Vec<TagMetadata>,
 }
 
@@ -121,18 +121,21 @@ impl LibraryHandle {
             patch,
         )?))
     }
-    pub fn set_sticker_relations(
+    pub fn set_sticker_organization(
         &self,
         target: EntityReference,
-        collections: Option<Vec<EntityReference>>,
+        change_collection: bool,
+        collection: Option<EntityReference>,
         tags: Option<Vec<EntityReference>>,
-    ) -> Result<Arc<MutationTask>> {
-        let collections = collections
-            .map(|refs| {
-                refs.into_iter()
-                    .map(|r| Ok((r.id.parse()?, Generation::new(r.generation)?)))
-                    .collect::<Result<Vec<_>>>()
-            })
+    ) -> Result<Arc<OrganizationMutationTask>> {
+        if !change_collection && collection.is_some() {
+            return Err(BridgeError::new(
+                ErrorCode::InvalidInput,
+                "unexpected collection",
+            ));
+        }
+        let collection = collection
+            .map(|r| Ok::<_, BridgeError>((r.id.parse()?, Generation::new(r.generation)?)))
             .transpose()?;
         let tags = tags
             .map(|refs| {
@@ -141,12 +144,14 @@ impl LibraryHandle {
                     .collect::<Result<Vec<_>>>()
             })
             .transpose()?;
-        Ok(MutationTask::new(self.inner.set_sticker_relations(
-            target.id.parse()?,
-            Generation::new(target.generation)?,
-            collections,
-            tags,
-        )?))
+        Ok(OrganizationMutationTask::new(
+            self.inner.set_sticker_organization(
+                target.id.parse()?,
+                Generation::new(target.generation)?,
+                change_collection.then_some(collection),
+                tags,
+            )?,
+        ))
     }
     pub fn create_collection(
         &self,

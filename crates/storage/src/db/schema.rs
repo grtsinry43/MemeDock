@@ -63,7 +63,7 @@ const STATEMENTS: &[&str] = &[
         present INTEGER NOT NULL CHECK(present IN (0,1)),
         sort_key TEXT COLLATE BINARY NOT NULL CHECK(length(sort_key)>0 AND length(sort_key)%2=0 AND sort_key NOT GLOB '*[^0-9a-f]*'),
         revision INTEGER NOT NULL CHECK(revision>=0), updated_at INTEGER NOT NULL,
-        PRIMARY KEY(collection_id,sticker_id)
+        PRIMARY KEY(sticker_id)
     ) STRICT",
     "CREATE TABLE sticker_tags (
         sticker_id TEXT NOT NULL REFERENCES stickers(id), tag_id TEXT NOT NULL REFERENCES tags(id),

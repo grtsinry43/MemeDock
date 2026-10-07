@@ -66,13 +66,13 @@ macro_rules! save {
     };
 }
 impl WriteTransaction {
-    pub async fn sticker_collections(&self, id: StickerId) -> Result<Vec<Collection>> {
+    pub async fn sticker_collection(&self, id: StickerId) -> Result<Option<Collection>> {
         use sea_orm::{DbBackend, Statement};
         entities::collection::Entity::find().from_raw_sql(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             "SELECT c.* FROM collections c JOIN collection_items ci ON ci.collection_id=c.id JOIN stickers s ON s.id=ci.sticker_id WHERE s.id=? AND ci.present=1 AND c.deleted_at IS NULL AND s.deleted_at IS NULL AND ci.collection_generation=c.generation AND ci.sticker_generation=s.generation ORDER BY c.sort_key,c.id",
             [id.to_string().into()]
-        )).all(&self.inner).await?.into_iter().map(|row| row.domain()).collect()
+        )).one(&self.inner).await?.map(|row| row.domain()).transpose()
     }
     pub async fn sticker_tags(&self, id: StickerId) -> Result<Vec<Tag>> {
         use sea_orm::{DbBackend, Statement};
@@ -130,15 +130,12 @@ impl WriteTransaction {
         &self,
         id: CollectionId,
     ) -> Result<Option<memedock_domain::ordering::SortKey>> {
-        use sea_orm::{ColumnTrait, QueryFilter, QueryOrder, QuerySelect};
-        entities::collection_item::Entity::find()
-            .filter(entities::collection_item::Column::CollectionId.eq(id.to_string()))
-            .order_by_desc(entities::collection_item::Column::SortKey)
-            .limit(1)
-            .one(&self.inner)
-            .await?
-            .map(|row| row.sort_key.parse().map_err(StorageError::from))
-            .transpose()
+        use sea_orm::{DbBackend, Statement};
+        entities::collection_item::Entity::find().from_raw_sql(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT ci.* FROM collection_items ci JOIN collections c ON c.id=ci.collection_id JOIN stickers s ON s.id=ci.sticker_id WHERE ci.collection_id=? AND ci.present=1 AND c.deleted_at IS NULL AND s.deleted_at IS NULL AND ci.collection_generation=c.generation AND ci.sticker_generation=s.generation ORDER BY ci.sort_key COLLATE BINARY DESC,ci.sticker_id DESC LIMIT 1",
+            [id.to_string().into()],
+        )).one(&self.inner).await?.map(|row| row.sort_key.parse().map_err(StorageError::from)).transpose()
     }
     /// Identical bytes reuse their original metadata. A conflicting description
     /// of the same immutable asset is rejected; created_at is first-writer owned.
@@ -189,7 +186,7 @@ impl WriteTransaction {
         save_collection_item,
         collection_item,
         CollectionItem,
-        |v: &CollectionItem| (v.collection_id().to_string(), v.sticker_id().to_string()),
+        |v: &CollectionItem| v.sticker_id().to_string(),
         true
     );
     save!(
@@ -260,7 +257,9 @@ impl WriteTransaction {
         collection: CollectionId,
         sticker: StickerId,
     ) -> Result<Option<CollectionItem>> {
-        entities::collection_item::Entity::find_by_id((collection.to_string(), sticker.to_string()))
+        use sea_orm::{ColumnTrait, QueryFilter};
+        entities::collection_item::Entity::find_by_id(sticker.to_string())
+            .filter(entities::collection_item::Column::CollectionId.eq(collection.to_string()))
             .one(&self.inner)
             .await?
             .map(|r| r.domain())

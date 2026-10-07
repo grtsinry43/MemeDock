@@ -54,19 +54,12 @@ pub(crate) fn merge(
     let incoming_collections: BTreeMap<_, _> =
         incoming.collections.iter().map(|v| (v.id(), v)).collect();
     let incoming_tags: BTreeMap<_, _> = incoming.tags.iter().map(|v| (v.id(), v)).collect();
-    let pairs: BTreeSet<_> = current
-        .collection_items
-        .iter()
-        .map(|v| (v.collection_id(), v.sticker_id()))
-        .collect();
+    // Existing stickers keep their local assignment, including explicit unassignment.
     for value in &incoming.collection_items {
         let endpoints = collections
             .get(&value.collection_id())
             .zip(stickers.get(&value.sticker_id()));
-        let new_endpoint = !old_collections.contains(&value.collection_id())
-            || !old_stickers.contains(&value.sticker_id());
-        if !pairs.contains(&(value.collection_id(), value.sticker_id()))
-            && new_endpoint
+        if !old_stickers.contains(&value.sticker_id())
             && endpoints.is_some_and(|(collection, sticker)| {
                 value.collection_generation() <= collection.lifecycle().generation()
                     && value.sticker_generation() <= sticker.lifecycle().generation()

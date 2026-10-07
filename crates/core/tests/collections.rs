@@ -70,10 +70,10 @@ async fn collided_order_is_repaired_atomically_without_resetting_known_revisions
     );
     assert_eq!(ordered[0].lifecycle().revision(), known);
     library
-        .set_sticker_relations(
+        .set_sticker_organization(
             sticker.id(),
             Generation::INITIAL,
-            Some(vec![(created.id(), Generation::INITIAL)]),
+            Some(Some((created.id(), Generation::INITIAL))),
             None,
         )?
         .wait()
@@ -119,10 +119,10 @@ async fn collection_and_member_order_use_real_anchors_and_reject_stale_targets()
     );
     for s in [&a, &b] {
         library
-            .set_sticker_relations(
+            .set_sticker_organization(
                 s.id(),
                 Generation::INITIAL,
-                Some(vec![(first.id(), Generation::INITIAL)]),
+                Some(Some((first.id(), Generation::INITIAL))),
                 None,
             )?
             .wait()
@@ -184,8 +184,8 @@ async fn collection_and_member_order_use_real_anchors_and_reject_stale_targets()
             .sticker_detail(a.id())?
             .wait()
             .await?
-            .collections
-            .is_empty()
+            .collection
+            .is_none()
     );
     library.close().await?;
     Ok(())

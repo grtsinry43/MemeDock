@@ -3,6 +3,7 @@
 //! and retain/cancel individual tasks and subscriptions as needed.
 mod archive;
 mod artifacts;
+pub mod batch;
 pub mod config;
 pub mod error;
 pub mod events;
@@ -25,6 +26,7 @@ pub use memedock_storage::queries::{StickerQuery, StickerSort};
 pub use use_cases::archive_restore::RestoreResult;
 pub use use_cases::import::{ImportInput, ImportOptions, ImportOutcome, ImportStatus};
 pub use use_cases::maintenance::VerifiedOriginal;
+pub use use_cases::query::CollectionSummary;
 pub use use_cases::query::SpaceStatistics;
 pub use use_cases::query::StickerResource;
 pub use use_cases::query::{QueryCursor, QueryRequest, QueryResponse, RequestId, StickerDetail};

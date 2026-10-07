@@ -133,12 +133,10 @@ async fn restore_does_not_reactivate_old_collection_or_tag_generations() -> Test
             tag_id: tag.id(),
             name: tag.name().clone(),
         },
-        OperationKind::SetCollectionMembership {
-            collection_id: collection.id(),
+        OperationKind::SetStickerCollection {
             sticker_id: sticker.id(),
-            collection_generation: Generation::INITIAL,
             sticker_generation: Generation::INITIAL,
-            present: true,
+            collection: Some((collection.id(), Generation::INITIAL)),
         },
         OperationKind::SetTagMembership {
             sticker_id: sticker.id(),
@@ -267,12 +265,10 @@ async fn restore_does_not_reactivate_old_collection_or_tag_generations() -> Test
     tx.save_collection_item(&item).await?;
     tx.save_sticker_tag(&relation).await?;
     for op in [
-        OperationKind::SetCollectionMembership {
-            collection_id: collection.id(),
+        OperationKind::SetStickerCollection {
             sticker_id: sticker.id(),
-            collection_generation: Generation::INITIAL,
             sticker_generation: sticker.lifecycle().generation(),
-            present: true,
+            collection: Some((collection.id(), Generation::INITIAL)),
         },
         OperationKind::SetTagMembership {
             sticker_id: sticker.id(),
@@ -392,12 +388,10 @@ async fn collection_and_last_used_pages_keep_binary_order_and_ties() -> TestResu
         tx.save_collection_item(&item).await?;
         tx.append_change(
             OperationId::new(),
-            Operation::new(OperationKind::SetCollectionMembership {
-                collection_id: collection.id(),
+            Operation::new(OperationKind::SetStickerCollection {
                 sticker_id: sticker.id(),
-                collection_generation: Generation::INITIAL,
                 sticker_generation: Generation::INITIAL,
-                present: true,
+                collection: Some((collection.id(), Generation::INITIAL)),
             })?,
             TimestampMs::new(100),
         )

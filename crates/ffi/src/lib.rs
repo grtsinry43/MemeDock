@@ -2,6 +2,7 @@
 //! platform lifecycle decisions belong to the production FFI layer.
 mod archive;
 mod artifacts;
+mod batch;
 mod config;
 mod cursor;
 mod dto;
@@ -15,6 +16,7 @@ mod tasks;
 
 pub use archive::*;
 pub use artifacts::*;
+pub use batch::*;
 pub use config::*;
 pub use cursor::*;
 pub use dto::*;

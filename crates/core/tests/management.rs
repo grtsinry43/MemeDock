@@ -24,10 +24,10 @@ async fn edits_relations_and_search_commit_together_and_survive_restart() -> Tes
         .wait()
         .await?;
     library
-        .set_sticker_relations(
+        .set_sticker_organization(
             s.id(),
             Generation::INITIAL,
-            Some(vec![(c.id(), Generation::INITIAL)]),
+            Some(Some((c.id(), Generation::INITIAL))),
             Some(vec![(t.id(), Generation::INITIAL)]),
         )?
         .wait()
@@ -57,10 +57,10 @@ async fn edits_relations_and_search_commit_together_and_survive_restart() -> Tes
     })?;
     assert_eq!(page.wait().await?.stickers.len(), 1);
     let error = library
-        .set_sticker_relations(
+        .set_sticker_organization(
             s.id(),
             Generation::INITIAL,
-            Some(vec![]),
+            Some(None),
             Some(vec![(TagId::new(), Generation::INITIAL)]),
         )?
         .wait()
@@ -73,8 +73,9 @@ async fn edits_relations_and_search_commit_together_and_survive_restart() -> Tes
             .sticker_detail(s.id())?
             .wait()
             .await?
-            .collections
-            .len(),
+            .collection
+            .iter()
+            .count(),
         1
     );
     library.close().await?;

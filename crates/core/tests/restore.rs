@@ -21,10 +21,10 @@ async fn recovery_requires_original_and_new_generation_never_revives_old_relatio
         .wait()
         .await?;
     library
-        .set_sticker_relations(
+        .set_sticker_organization(
             s.id(),
             Generation::INITIAL,
-            Some(vec![(c.id(), Generation::INITIAL)]),
+            Some(Some((c.id(), Generation::INITIAL))),
             Some(vec![(t.id(), Generation::INITIAL)]),
         )?
         .wait()
@@ -34,19 +34,26 @@ async fn recovery_requires_original_and_new_generation_never_revives_old_relatio
         .wait()
         .await?;
     let suggestions = library.restore_suggestions(s.id())?.wait().await?;
-    assert_eq!(suggestions.collections[0].id(), c.id());
+    assert_eq!(
+        suggestions
+            .collection
+            .as_ref()
+            .ok_or("collection expected")?
+            .id(),
+        c.id()
+    );
     let restored = library
         .restore_sticker(s.id(), Generation::INITIAL, Revision::LOCAL)?
         .wait()
         .await?;
     assert_eq!(restored.lifecycle().generation().get(), 1);
     let detail = library.sticker_detail(s.id())?.wait().await?;
-    assert!(detail.collections.is_empty() && detail.tags.is_empty());
+    assert!(detail.collection.is_none() && detail.tags.is_empty());
     library
-        .set_sticker_relations(
+        .set_sticker_organization(
             s.id(),
             Generation::new(1)?,
-            Some(vec![(c.id(), Generation::INITIAL)]),
+            Some(Some((c.id(), Generation::INITIAL))),
             Some(vec![(t.id(), Generation::INITIAL)]),
         )?
         .wait()
@@ -64,8 +71,8 @@ async fn recovery_requires_original_and_new_generation_never_revives_old_relatio
             .sticker_detail(s.id())?
             .wait()
             .await?
-            .collections
-            .is_empty()
+            .collection
+            .is_none()
     );
     library
         .delete_tag(t.id(), Generation::INITIAL)?

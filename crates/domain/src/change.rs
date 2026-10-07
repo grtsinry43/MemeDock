@@ -196,12 +196,10 @@ pub enum OperationKind {
         expected_deleted_revision: Revision,
         rebuild: Option<Name>,
     },
-    SetCollectionMembership {
-        collection_id: CollectionId,
+    SetStickerCollection {
         sticker_id: StickerId,
-        collection_generation: Generation,
         sticker_generation: Generation,
-        present: bool,
+        collection: Option<(CollectionId, Generation)>,
     },
     MoveCollectionItem {
         collection_id: CollectionId,

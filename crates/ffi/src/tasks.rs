@@ -143,7 +143,7 @@ task_handle!(
     memedock_core::RestoreSuggestions,
     crate::RestoreSuggestions,
     |value: memedock_core::RestoreSuggestions| Ok(crate::RestoreSuggestions {
-        collections: value.collections.into_iter().map(Into::into).collect(),
+        collection: value.collection.map(Into::into),
         tags: value.tags.into_iter().map(Into::into).collect(),
     })
 );
@@ -211,4 +211,14 @@ task_handle!(
         .into_os_string()
         .into_string()
         .map_err(|_| BridgeError::new(ErrorCode::InvalidInput, "checkpoint path is not UTF-8"))
+);
+task_handle!(OrganizationMutationTask, bool, bool, |value| Ok(value));
+task_handle!(
+    CollectionSummariesTask,
+    Vec<memedock_core::CollectionSummary>,
+    Vec<crate::CollectionSummary>,
+    |values: Vec<memedock_core::CollectionSummary>| values
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect()
 );

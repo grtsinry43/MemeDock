@@ -69,19 +69,19 @@ async fn real_archive_preserves_original_relations_deletion_and_restart() -> Tes
         .wait()
         .await?;
     library
-        .set_sticker_relations(
+        .set_sticker_organization(
             active.id(),
             Generation::INITIAL,
-            Some(vec![(collection.id(), Generation::INITIAL)]),
+            Some(Some((collection.id(), Generation::INITIAL))),
             Some(vec![(tag.id(), Generation::INITIAL)]),
         )?
         .wait()
         .await?;
     library
-        .set_sticker_relations(
+        .set_sticker_organization(
             deleted.id(),
             Generation::INITIAL,
-            Some(vec![(collection.id(), Generation::INITIAL)]),
+            Some(Some((collection.id(), Generation::INITIAL))),
             Some(vec![(tag.id(), Generation::INITIAL)]),
         )?
         .wait()
@@ -114,7 +114,14 @@ async fn real_archive_preserves_original_relations_deletion_and_restart() -> Tes
         restored.close().await?;
         let restored = Library::open(target_config.clone()).await?;
         let detail = restored.sticker_detail(active.id())?.wait().await?;
-        assert_eq!(detail.collections[0].id(), collection.id());
+        assert_eq!(
+            detail
+                .collection
+                .as_ref()
+                .ok_or("collection expected")?
+                .id(),
+            collection.id()
+        );
         assert_eq!(detail.tags[0].id(), tag.id());
         assert_eq!(
             std::fs::read(detail.original_path.ok_or("original missing")?)?,
@@ -130,7 +137,14 @@ async fn real_archive_preserves_original_relations_deletion_and_restart() -> Tes
                 .is_active()
         );
         let suggestions = restored.restore_suggestions(deleted.id())?.wait().await?;
-        assert_eq!(suggestions.collections[0].id(), collection.id());
+        assert_eq!(
+            suggestions
+                .collection
+                .as_ref()
+                .ok_or("collection expected")?
+                .id(),
+            collection.id()
+        );
         assert_eq!(suggestions.tags[0].id(), tag.id());
         restored
             .request_thumbnail(active.id(), memedock_core::tasks::Priority::Visible)?
@@ -162,10 +176,10 @@ async fn merge_preserves_edits_deletions_and_removed_relations_and_rejects_stale
         .wait()
         .await?;
     library
-        .set_sticker_relations(
+        .set_sticker_organization(
             first.id(),
             Generation::INITIAL,
-            Some(vec![(collection.id(), Generation::INITIAL)]),
+            Some(Some((collection.id(), Generation::INITIAL))),
             None,
         )?
         .wait()
@@ -184,7 +198,7 @@ async fn merge_preserves_edits_deletions_and_removed_relations_and_rejects_stale
         .wait()
         .await?;
     library
-        .set_sticker_relations(first.id(), Generation::INITIAL, Some(vec![]), None)?
+        .set_sticker_organization(first.id(), Generation::INITIAL, Some(None), None)?
         .wait()
         .await?;
     library
@@ -199,7 +213,7 @@ async fn merge_preserves_edits_deletions_and_removed_relations_and_rejects_stale
     library.discard_prepared_archive(prepared)?.wait().await?;
     let detail = library.sticker_detail(first.id())?.wait().await?;
     assert_eq!(detail.sticker.title(), "本地修改");
-    assert!(detail.collections.is_empty());
+    assert!(detail.collection.is_none());
     assert!(
         !library
             .sticker_detail(second.id())?

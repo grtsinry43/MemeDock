@@ -14,7 +14,7 @@ use memedock_domain::{
 
 #[derive(Clone, Debug)]
 pub struct RestoreSuggestions {
-    pub collections: Vec<Collection>,
+    pub collection: Option<Collection>,
     pub tags: Vec<Tag>,
 }
 
@@ -68,7 +68,7 @@ impl Library {
                     .await?
                     .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "sticker missing"))?;
                 Ok(RestoreSuggestions {
-                    collections: services.db.previous_sticker_collections(id).await?,
+                    collection: services.db.previous_sticker_collection(id).await?,
                     tags: services.db.previous_sticker_tags(id).await?,
                 })
             },

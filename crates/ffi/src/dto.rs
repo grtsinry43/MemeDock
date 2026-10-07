@@ -107,7 +107,7 @@ pub struct StickerDetail {
     pub sticker: StickerMetadata,
     pub asset: AssetMetadata,
     pub tags: Vec<TagMetadata>,
-    pub collections: Vec<CollectionMetadata>,
+    pub collection: Option<CollectionMetadata>,
     pub original_path: Option<String>,
     pub original_error: Option<ErrorCode>,
 }
@@ -118,7 +118,7 @@ impl TryFrom<memedock_core::StickerDetail> for StickerDetail {
             sticker: v.sticker.into(),
             asset: v.asset.into(),
             tags: v.tags.into_iter().map(Into::into).collect(),
-            collections: v.collections.into_iter().map(Into::into).collect(),
+            collection: v.collection.map(Into::into),
             original_path: v
                 .original_path
                 .map(|p| {

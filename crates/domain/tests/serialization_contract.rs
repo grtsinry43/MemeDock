@@ -288,12 +288,10 @@ fn all_operation_variants_roundtrip_without_untyped_payloads() -> TestResult {
             expected_deleted_revision: revision,
             rebuild: Some(name),
         },
-        OperationKind::SetCollectionMembership {
-            collection_id: cid,
+        OperationKind::SetStickerCollection {
             sticker_id: sid,
-            collection_generation: generation,
             sticker_generation: generation,
-            present: true,
+            collection: Some((cid, generation)),
         },
         OperationKind::MoveCollectionItem {
             collection_id: cid,

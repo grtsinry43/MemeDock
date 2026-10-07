@@ -9,7 +9,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+/// The single current (or inactive recovery) assignment for a sticker.
+/// Storage and archives key this record by sticker_id, never by an endpoint pair.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CollectionItem {
     collection_id: CollectionId,
     sticker_id: StickerId,

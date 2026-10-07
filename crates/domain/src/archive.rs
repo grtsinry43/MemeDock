@@ -68,11 +68,7 @@ impl ArchiveData {
         let stickers = unique(self.stickers.iter().map(|v| (v.id(), v)))?;
         let collections = unique(self.collections.iter().map(|v| (v.id(), v)))?;
         let tags = unique(self.tags.iter().map(|v| (v.id(), v)))?;
-        unique(
-            self.collection_items
-                .iter()
-                .map(|v| ((v.collection_id(), v.sticker_id()), v)),
-        )?;
+        unique(self.collection_items.iter().map(|v| (v.sticker_id(), v)))?;
         unique(
             self.sticker_tags
                 .iter()
