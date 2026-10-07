@@ -29,4 +29,4 @@ pub use use_cases::query::SpaceStatistics;
 pub use use_cases::query::StickerResource;
 pub use use_cases::query::{QueryCursor, QueryRequest, QueryResponse, RequestId, StickerDetail};
 pub use use_cases::restore::RestoreSuggestions;
-pub use use_cases::thumbnail::Thumbnail;
+pub use use_cases::thumbnail::{Preview, Thumbnail};

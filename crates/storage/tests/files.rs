@@ -90,13 +90,14 @@ fn failed_derived_encoding_preserves_ready_file_and_recovery_keeps_unknowns() ->
     let directory = tempfile::tempdir()?;
     let store = DerivedStore::open(directory.path())?;
     let hash = ContentHash::from_bytes([7; 32]);
-    let output = store.publish(hash, |file| {
+    let destination = store.thumbnail_path(hash);
+    let output = store.publish(&destination, |file| {
         file.write_all(b"verified cache")?;
         Ok(())
     })?;
     assert!(
         store
-            .publish(hash, |file| {
+            .publish(&destination, |file| {
                 file.write_all(b"partial")?;
                 Err(StorageError::Integrity("encoder failed"))
             })

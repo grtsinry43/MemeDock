@@ -34,7 +34,8 @@ pub(crate) fn generate(
     };
     control.check()?;
     let mut encoded_error = None;
-    let result = cache.publish(hash, |file| {
+    let destination = cache.thumbnail_path(hash);
+    let result = cache.publish(&destination, |file| {
         thumbnail
             .write_to(file, image::ImageFormat::Png)
             .map_err(|error| {

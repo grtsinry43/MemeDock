@@ -45,23 +45,30 @@ impl DerivedStore {
     pub fn thumbnail_path(&self, hash: ContentHash) -> PathBuf {
         self.root.join(format!("thumb-v1-256-{hash}.png"))
     }
-    pub fn ready(&self, hash: ContentHash) -> Result<bool> {
-        let metadata = match fs::symlink_metadata(self.thumbnail_path(hash)) {
-            Ok(metadata) => metadata,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-            Err(e) => return Err(e.into()),
-        };
-        if !metadata.is_file() || metadata.file_type().is_symlink() {
-            return Err(StorageError::Integrity("unsafe thumbnail file"));
-        }
-        Ok(metadata.len() > 0)
+    pub fn preview_path(&self, hash: ContentHash) -> PathBuf {
+        self.root.join(format!("preview-v1-1280-{hash}.png"))
     }
-    /// The encoder writes directly to a file. No whole encoded-image buffer.
+    pub fn ready(&self, hash: ContentHash) -> Result<bool> {
+        stored_file(&self.thumbnail_path(hash))
+    }
+    pub fn preview_ready(&self, hash: ContentHash) -> Result<bool> {
+        stored_file(&self.preview_path(hash))
+    }
+    /// The encoder writes directly to a file inside this store. No whole encoded-image buffer.
     pub fn publish(
         &self,
-        hash: ContentHash,
+        output: &Path,
         encode: impl FnOnce(&mut File) -> Result<()>,
     ) -> Result<PathBuf> {
+        let output = self.contained(output)?;
+        match fs::symlink_metadata(&output) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(StorageError::Integrity("unsafe derived file"));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
         directory(&self.root)?;
         let temp = self.root.join(format!("{}.part", uuid::Uuid::now_v7()));
         let result = (|| {
@@ -72,7 +79,6 @@ impl DerivedStore {
             encode(&mut file)?;
             file.flush()?;
             file.sync_all()?;
-            let output = self.thumbnail_path(hash);
             fs::rename(&temp, &output)?;
             sync_directory(&self.root)?;
             Ok(output)
@@ -95,4 +101,30 @@ impl DerivedStore {
         }
         result
     }
+
+    fn contained(&self, output: &Path) -> Result<PathBuf> {
+        let Some(name) = output.file_name().and_then(|name| name.to_str()) else {
+            return Err(StorageError::Integrity("unsafe derived path"));
+        };
+        if name.is_empty() || name.contains('/') || name.contains('\\') {
+            return Err(StorageError::Integrity("unsafe derived path"));
+        }
+        let full = self.root.join(name);
+        if output != full {
+            return Err(StorageError::Integrity("unsafe derived path"));
+        }
+        Ok(full)
+    }
+}
+
+fn stored_file(path: &Path) -> Result<bool> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e.into()),
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(StorageError::Integrity("unsafe derived file"));
+    }
+    Ok(metadata.len() > 0)
 }

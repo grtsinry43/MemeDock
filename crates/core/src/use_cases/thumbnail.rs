@@ -1,7 +1,7 @@
 use crate::{
     CoreError, ErrorCode, Library, Result,
     events::ChangeKind,
-    images::thumbnail,
+    images::{preview, thumbnail},
     runtime::Services,
     tasks::{Priority, Task, scheduler::Lane},
 };
@@ -15,31 +15,17 @@ use std::{path::PathBuf, sync::Arc};
 pub struct Thumbnail {
     pub path: PathBuf,
 }
+#[derive(Clone, Debug)]
+pub struct Preview {
+    pub path: PathBuf,
+}
 impl Library {
     pub fn request_thumbnail(&self, id: StickerId, priority: Priority) -> Result<Task<Thumbnail>> {
         self.submit(
             Lane::Thumbnail,
             priority,
             move |services, control| async move {
-                let lock = {
-                    let mut locks = services
-                        .thumbnail_locks
-                        .lock()
-                        .map_err(|_| CoreError::internal("thumbnail registry poisoned"))?;
-                    locks.retain(|_, value| value.strong_count() > 0);
-                    match locks.get(&id).and_then(std::sync::Weak::upgrade) {
-                        Some(lock) => lock,
-                        None => {
-                            let lock = Arc::new(tokio::sync::Semaphore::new(1));
-                            locks.insert(id, Arc::downgrade(&lock));
-                            lock
-                        }
-                    }
-                };
-                let _same_image = lock
-                    .acquire()
-                    .await
-                    .map_err(|_| CoreError::internal("thumbnail lock closed"))?;
+                let _same_image = image_lock(&services, id).await?;
                 control.check()?;
                 let asset = services
                     .db
@@ -97,6 +83,73 @@ impl Library {
             },
         )
     }
+
+    pub fn request_preview(&self, id: StickerId) -> Result<Task<Preview>> {
+        self.submit(
+            Lane::Thumbnail,
+            Priority::Visible,
+            move |services, control| async move {
+                let _same_image = image_lock(&services, id).await?;
+                control.check()?;
+                let asset = services
+                    .db
+                    .asset(id.content_hash())
+                    .await?
+                    .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "asset not found"))?;
+                let cache = services.derived.clone();
+                let hash = asset.hash();
+                let cached =
+                    tokio::task::spawn_blocking(move || preview::cached(&cache, hash)).await??;
+                if cached {
+                    return Ok(Preview {
+                        path: services.derived.preview_path(hash),
+                    });
+                }
+                let allowance = services.image_budget.acquire().await?;
+                let worker = services.clone();
+                let cancel = control.clone();
+                let path = tokio::task::spawn_blocking(move || {
+                    let _allowance = allowance;
+                    preview::generate(
+                        &worker.blobs,
+                        &worker.derived,
+                        hash,
+                        &worker.config.limits,
+                        &cancel,
+                    )
+                })
+                .await
+                .map_err(CoreError::from)
+                .and_then(|value| value)?;
+                control.begin_commit()?;
+                Ok(Preview { path })
+            },
+        )
+    }
+}
+
+async fn image_lock(
+    services: &Services,
+    id: StickerId,
+) -> Result<tokio::sync::OwnedSemaphorePermit> {
+    let lock = {
+        let mut locks = services
+            .thumbnail_locks
+            .lock()
+            .map_err(|_| CoreError::internal("thumbnail registry poisoned"))?;
+        locks.retain(|_, value| value.strong_count() > 0);
+        match locks.get(&id).and_then(std::sync::Weak::upgrade) {
+            Some(lock) => lock,
+            None => {
+                let lock = Arc::new(tokio::sync::Semaphore::new(1));
+                locks.insert(id, Arc::downgrade(&lock));
+                lock
+            }
+        }
+    };
+    lock.acquire_owned()
+        .await
+        .map_err(|_| CoreError::internal("thumbnail lock closed"))
 }
 enum Update {
     Generating,

@@ -1,0 +1,20 @@
+[package]
+name = "memedock-linux"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "memedock"
+path = "src/main.rs"
+
+[dependencies]
+memedock-core = { path = "../../crates/core" }
+memedock-domain = { path = "../../crates/domain" }
+gtk4.workspace = true
+libadwaita.workspace = true
+image.workspace = true
+
+[lints]
+workspace = true
