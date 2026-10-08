@@ -20,6 +20,9 @@ pub struct Hold {
 }
 
 impl Hold {
+    pub fn is_busy(&self) -> bool {
+        self.busy || self.closing
+    }
     pub fn new() -> Self {
         Self {
             clipboard: Rc::new(RefCell::new(crate::clipboard::State::default())),
@@ -229,7 +232,7 @@ async fn save_resolved(
     let lease = export_resolved(library, request.id, preset, policy).await?;
     let metadata = lease.metadata().clone();
     let dialog = gtk4::FileDialog::new();
-    dialog.set_title(i18n::text(Key::SaveAs));
+    i18n::bind(&dialog, "title", Key::SaveAs);
     dialog.set_initial_name(Some(&metadata.file_name));
     let chosen = match dialog.save_future(Some(window)).await {
         Ok(file) => file,

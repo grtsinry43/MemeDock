@@ -13,6 +13,7 @@ mod library;
 mod management;
 mod streams;
 mod tasks;
+mod telegram;
 
 pub use archive::*;
 pub use artifacts::*;
@@ -27,5 +28,6 @@ pub use library::*;
 pub use management::*;
 pub use streams::*;
 pub use tasks::*;
+pub use telegram::*;
 
 uniffi::setup_scaffolding!();

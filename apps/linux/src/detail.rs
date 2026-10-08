@@ -126,7 +126,7 @@ pub fn open(
             Ok(detail) => detail,
             Err(error) => {
                 let status = adw::StatusPage::new();
-                status.set_title(i18n::text(Key::DetailLoadTitle));
+                i18n::bind(&status, "title", Key::DetailLoadTitle);
                 status.set_description(Some(i18n::core(error.code())));
                 page_for_load.set_child(Some(&status));
                 return;
@@ -198,7 +198,7 @@ fn present(
     status.set_visible(false);
     column.append(&status);
     if detail.asset.format() == ImageFormat::Png && detail.asset.animated() {
-        status.set_text(i18n::text(Key::ApngFirstFrame));
+        i18n::bind(&status, "label", Key::ApngFirstFrame);
         status.set_visible(true);
     }
     let title_label = gtk4::Label::new(Some(sticker.title()));
@@ -209,11 +209,11 @@ fn present(
     title_label.set_xalign(0.0);
     let title_entry = gtk4::Entry::new();
     title_entry.set_text(sticker.title());
-    title_entry.set_placeholder_text(Some(i18n::text(Key::Name)));
+    i18n::bind(&title_entry, "placeholder-text", Key::Name);
     title_entry.set_hexpand(true);
     title_entry.set_visible(false);
     let play = gtk4::Button::from_icon_name("media-playback-pause-symbolic");
-    play.set_tooltip_text(Some(i18n::text(Key::PauseAnimation)));
+    i18n::bind(&play, "tooltip-text", Key::PauseAnimation);
     play.set_visible(false);
     let title_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     title_row.append(&title_label);
@@ -228,9 +228,9 @@ fn present(
     note_label.set_visible(!sticker.note().is_empty());
     let note_entry = gtk4::Entry::new();
     note_entry.set_text(sticker.note());
-    note_entry.set_placeholder_text(Some(i18n::text(Key::AddNote)));
+    i18n::bind(&note_entry, "placeholder-text", Key::AddNote);
     note_entry.set_visible(false);
-    let note_add = gtk4::Button::with_label(i18n::text(Key::AddNote));
+    let note_add = i18n::button(Key::AddNote);
     note_add.add_css_class("flat");
     note_add.add_css_class("note-add");
     note_add.set_halign(gtk4::Align::Start);
@@ -238,7 +238,7 @@ fn present(
     column.append(&note_label);
     column.append(&note_entry);
     column.append(&note_add);
-    let deleted_hint = gtk4::Label::new(Some(i18n::text(Key::RestoreHint)));
+    let deleted_hint = i18n::label(Key::RestoreHint);
     deleted_hint.set_wrap(true);
     deleted_hint.set_halign(gtk4::Align::Start);
     deleted_hint.set_xalign(0.0);
@@ -250,24 +250,24 @@ fn present(
     chips.set_row_spacing(8);
     chips.set_visible(!removed);
     column.append(&chips);
-    let organize = gtk4::Button::with_label(i18n::text(Key::OrganizeHint));
+    let organize = i18n::button(Key::OrganizeHint);
     organize.set_halign(gtk4::Align::Start);
     organize.set_visible(!removed);
     column.append(&organize);
     let editor = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
     let file_group = adw::PreferencesGroup::new();
-    file_group.set_title(i18n::text(Key::DetailFileTitle));
+    i18n::bind(&file_group, "title", Key::DetailFileTitle);
     let size_row = adw::ActionRow::new();
-    size_row.set_title(i18n::text(Key::DetailSize));
+    i18n::bind(&size_row, "title", Key::DetailSize);
     size_row.set_subtitle(&i18n::detail_dimensions(width, height));
     let bytes_row = adw::ActionRow::new();
-    bytes_row.set_title(i18n::text(Key::DetailBytes));
+    i18n::bind(&bytes_row, "title", Key::DetailBytes);
     bytes_row.set_subtitle(&i18n::file_size(bytes));
     let format_row = adw::ActionRow::new();
-    format_row.set_title(i18n::text(Key::DetailFormat));
+    i18n::bind(&format_row, "title", Key::DetailFormat);
     format_row.set_subtitle(&format_name);
     let name_row = adw::ActionRow::new();
-    name_row.set_title(i18n::text(Key::DetailOriginalName));
+    i18n::bind(&name_row, "title", Key::DetailOriginalName);
     name_row.set_subtitle(&original_name);
     file_group.add(&size_row);
     file_group.add(&bytes_row);
@@ -344,7 +344,7 @@ fn present(
             );
         }
     } else {
-        status.set_text(i18n::text(Key::FailureMissing));
+        i18n::bind(&status, "label", Key::FailureMissing);
         status.set_visible(true);
     }
 
@@ -489,7 +489,7 @@ fn present(
             links_for_play.playback.borrow_mut().take();
             playing_for_play.set(false);
             button.set_icon_name("media-playback-start-symbolic");
-            button.set_tooltip_text(Some(i18n::text(Key::PlayAnimation)));
+            i18n::bind(button, "tooltip-text", Key::PlayAnimation);
             return;
         }
         let Some((path, clip)) = media_for_play.borrow().clone() else {
@@ -497,7 +497,7 @@ fn present(
         };
         playing_for_play.set(true);
         button.set_icon_name("media-playback-pause-symbolic");
-        button.set_tooltip_text(Some(i18n::text(Key::PauseAnimation)));
+        i18n::bind(button, "tooltip-text", Key::PauseAnimation);
         start_playback(
             &links_for_play,
             path,
@@ -629,7 +629,7 @@ fn request_preview(library: Library, id: StickerId, picture: gtk4::Picture, stat
         match loaded {
             Ok(preview) => show_file(&picture, preview.path),
             Err(_) => {
-                status.set_text(i18n::text(Key::PreviewUnavailable));
+                i18n::bind(&status, "label", Key::PreviewUnavailable);
                 status.set_visible(true);
             }
         }
@@ -1133,7 +1133,7 @@ fn fill_relations(model: Rc<RefCell<Model>>, library: Library, surface: Rc<Surfa
     while let Some(child) = surface.chips.first_child() {
         surface.chips.remove(&child);
     }
-    let heading = gtk4::Label::new(Some(i18n::text(Key::ImportCollection)));
+    let heading = i18n::label(Key::ImportCollection);
     heading.set_halign(gtk4::Align::Start);
     relations.append(&heading);
     let collections = model.borrow().collections.clone();
@@ -1181,7 +1181,7 @@ fn fill_relations(model: Rc<RefCell<Model>>, library: Library, surface: Rc<Surfa
         });
         relations.append(&button);
     }
-    let create = gtk4::Button::with_label(i18n::text(Key::NewCollection));
+    let create = i18n::button(Key::NewCollection);
     create.set_halign(gtk4::Align::Start);
     let model_for_create = Rc::clone(&model);
     let library_for_create = library.clone();
@@ -1196,7 +1196,7 @@ fn fill_relations(model: Rc<RefCell<Model>>, library: Library, surface: Rc<Surfa
         );
     });
     relations.append(&create);
-    let tags_heading = gtk4::Label::new(Some(i18n::text(Key::TagsTitle)));
+    let tags_heading = i18n::label(Key::TagsTitle);
     tags_heading.set_halign(gtk4::Align::Start);
     relations.append(&tags_heading);
     let tags = model.borrow().tags.clone();
@@ -1230,7 +1230,7 @@ fn fill_relations(model: Rc<RefCell<Model>>, library: Library, surface: Rc<Surfa
         });
         relations.append(&button);
     }
-    let create_tag = gtk4::Button::with_label(i18n::text(Key::NewTag));
+    let create_tag = i18n::button(Key::NewTag);
     create_tag.set_halign(gtk4::Align::Start);
     let model_for_tag = Rc::clone(&model);
     let library_for_tag = library.clone();
@@ -1283,7 +1283,7 @@ fn ask_name(
     collection: bool,
 ) {
     let entry = gtk4::Entry::new();
-    entry.set_placeholder_text(Some(i18n::text(Key::Name)));
+    i18n::bind(&entry, "placeholder-text", Key::Name);
     let dialog = adw::AlertDialog::new(Some(heading), None);
     dialog.set_extra_child(Some(&entry));
     dialog.add_response("cancel", i18n::text(Key::Cancel));
@@ -1418,7 +1418,7 @@ pub fn open_organize(
         column.set_margin_end(16);
         fill_organize(&state, &column);
         let dialog = adw::Dialog::new();
-        dialog.set_title(i18n::text(Key::Organize));
+        i18n::bind(&dialog, "title", Key::Organize);
         dialog.set_content_width(420);
         dialog.set_child(Some(&column));
         dialog.present(Some(&parent));
@@ -1452,7 +1452,7 @@ fn fill_organize(state: &Rc<RefCell<Organize>>, column: &gtk4::Box) {
         column.remove(&child);
     }
     state.borrow_mut().filling = true;
-    let heading = gtk4::Label::new(Some(i18n::text(Key::ImportCollection)));
+    let heading = i18n::label(Key::ImportCollection);
     heading.set_halign(gtk4::Align::Start);
     column.append(&heading);
     let collections = state.borrow().collections.clone();
@@ -1479,7 +1479,7 @@ fn fill_organize(state: &Rc<RefCell<Organize>>, column: &gtk4::Box) {
         button.set_active(item.checked);
         column.append(&button);
     }
-    let create = gtk4::Button::with_label(i18n::text(Key::NewCollection));
+    let create = i18n::button(Key::NewCollection);
     create.set_halign(gtk4::Align::Start);
     let state_for_create = Rc::clone(state);
     let column_for_create = column.clone();
@@ -1491,14 +1491,14 @@ fn fill_organize(state: &Rc<RefCell<Organize>>, column: &gtk4::Box) {
         );
     });
     column.append(&create);
-    let tags_heading = gtk4::Label::new(Some(i18n::text(Key::TagsTitle)));
+    let tags_heading = i18n::label(Key::TagsTitle);
     tags_heading.set_halign(gtk4::Align::Start);
     column.append(&tags_heading);
     let tags = state.borrow().tags.clone();
     for item in tags {
         column.append(&tag_check(state, item.name, item.id));
     }
-    let create_tag = gtk4::Button::with_label(i18n::text(Key::NewTag));
+    let create_tag = i18n::button(Key::NewTag);
     create_tag.set_halign(gtk4::Align::Start);
     let state_for_tag = Rc::clone(state);
     let column_for_tag = column.clone();
@@ -1642,7 +1642,7 @@ fn ask_organize_name(state: Rc<RefCell<Organize>>, column: gtk4::Box, collection
         i18n::text(Key::NewTag)
     };
     let entry = gtk4::Entry::new();
-    entry.set_placeholder_text(Some(i18n::text(Key::Name)));
+    i18n::bind(&entry, "placeholder-text", Key::Name);
     let dialog = adw::AlertDialog::new(Some(heading), None);
     dialog.set_extra_child(Some(&entry));
     dialog.add_response("cancel", i18n::text(Key::Cancel));
@@ -1810,8 +1810,8 @@ fn output_dock(
         share: gtk4::Button::new(),
         first: gtk4::Button::new(),
     };
-    dock.copy.set_tooltip_text(Some(i18n::text(Key::CopyImage)));
-    dock.save.set_tooltip_text(Some(i18n::text(Key::SaveImage)));
+    i18n::bind(&dock.copy, "tooltip-text", Key::CopyImage);
+    i18n::bind(&dock.save, "tooltip-text", Key::SaveImage);
     dock.format
         .set_tooltip_text(Some(i18n::text(Key::ExportChoose)));
     dock.share.add_css_class("suggested-action");
@@ -1947,7 +1947,7 @@ fn set_dock_busy(dock: &Dock, busy: bool) {
         button.set_sensitive(!busy);
     }
     if busy {
-        dock.share.set_label(i18n::text(Key::SharePreparing));
+        i18n::bind(&dock.share, "label", Key::SharePreparing);
     }
 }
 

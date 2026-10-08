@@ -24,7 +24,7 @@ import com.grtsinry43.memedock.ui.theme.MemeDockLayout
 
 @Composable
 fun SettingsScreen(state: SettingsState, select: (ThemeMode) -> Unit, selectLanguage: (LanguageMode) -> Unit,
-    retry: () -> Unit, trash: () -> Unit, backup: () -> Unit, contentPadding: PaddingValues) {
+    retry: () -> Unit, trash: () -> Unit, backup: () -> Unit, contentPadding: PaddingValues, telegram: () -> Unit) {
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())
             .windowInsetsPadding(WindowInsets.statusBars)
@@ -63,6 +63,10 @@ fun SettingsScreen(state: SettingsState, select: (ThemeMode) -> Unit, selectLang
             row {
                 MemeDockRow(stringResource(R.string.backup_title), Modifier.testTag("settings-backup"), icon = MemeDockIcons.BackupRestore,
                     onClick = backup)
+            }
+            row {
+                MemeDockRow(stringResource(R.string.telegram_title), Modifier.testTag("settings-telegram"), icon = MemeDockIcons.Download,
+                    onClick = telegram)
             }
         }
         Spacer(Modifier.height(MemeDockLayout.SectionGap))

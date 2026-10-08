@@ -11,6 +11,7 @@ mod images;
 mod library;
 mod registry;
 mod runtime;
+pub mod sources;
 pub mod tasks;
 mod use_cases;
 mod writes;

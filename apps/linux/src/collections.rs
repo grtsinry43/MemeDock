@@ -18,7 +18,7 @@ pub fn open(
 ) {
     let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     let header = adw::HeaderBar::new();
-    let create = gtk4::Button::with_label(i18n::text(Key::NewCollection));
+    let create = i18n::button(Key::NewCollection);
     header.pack_end(&create);
     content.append(&header);
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
@@ -76,7 +76,7 @@ pub fn open(
         menu.set_icon_name("view-more-symbolic");
         let popup = gtk4::Popover::new();
         let buttons = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-        let rename = gtk4::Button::with_label(i18n::text(Key::Rename));
+        let rename = i18n::button(Key::Rename);
         let parent = card.downgrade();
         let owner = source.clone();
         let feedback = Rc::clone(&message);
@@ -96,7 +96,7 @@ pub fn open(
             }
         });
         buttons.append(&rename);
-        let delete = gtk4::Button::with_label(i18n::text(Key::Delete));
+        let delete = i18n::button(Key::Delete);
         delete.add_css_class("destructive-action");
         let parent = card.downgrade();
         let owner = source.clone();
@@ -139,7 +139,7 @@ pub fn open(
         });
         buttons.append(&delete);
         for (key, direction) in [(Key::MoveUp, -1i64), (Key::MoveDown, 1)] {
-            let button = gtk4::Button::with_label(i18n::text(key));
+            let button = i18n::button(key);
             let weak = weak_store.clone();
             let owner = source.clone();
             let feedback = Rc::clone(&message);
@@ -342,7 +342,7 @@ fn ask_name(
         None,
     );
     let entry = gtk4::Entry::new();
-    entry.set_placeholder_text(Some(i18n::text(Key::Name)));
+    i18n::bind(&entry, "placeholder-text", Key::Name);
     if let Some(value) = &target {
         entry.set_text(value.name().as_str());
     }

@@ -62,6 +62,22 @@ macro_rules! task_handle {
     };
 }
 task_handle!(
+    TelegramPackTask,
+    Arc<memedock_core::sources::telegram::TelegramPack>,
+    Arc<crate::TelegramPackHandle>,
+    |value| Ok(crate::TelegramPackHandle::new(value))
+);
+task_handle!(
+    TelegramPreviewTask,
+    memedock_core::Preview,
+    String,
+    |value: memedock_core::Preview| value
+        .path
+        .into_os_string()
+        .into_string()
+        .map_err(|_| BridgeError::new(ErrorCode::InvalidInput, "preview path is not UTF-8"))
+);
+task_handle!(
     StickerPageTask,
     memedock_core::QueryResponse,
     crate::StickerPage,

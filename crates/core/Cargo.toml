@@ -15,9 +15,15 @@ zip.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+reqwest.workspace = true
+webpki-root-certs.workspace = true
+flate2.workspace = true
+rlottie.workspace = true
+ffmpeg-next.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+webp-animation.workspace = true
 
 [lints]
 workspace = true

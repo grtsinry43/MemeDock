@@ -1,8 +1,10 @@
 mod actions;
+mod backup;
 mod batch;
 mod browse;
 mod clipboard;
 mod collections;
+mod credentials;
 mod detail;
 mod drag;
 mod i18n;
@@ -11,6 +13,9 @@ mod library_view;
 mod output;
 mod paths;
 mod playback;
+mod preferences;
+mod settings;
+mod telegram;
 mod window;
 
 use gtk4::prelude::*;

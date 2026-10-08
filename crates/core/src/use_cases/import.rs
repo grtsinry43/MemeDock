@@ -24,7 +24,7 @@ use std::{
 
 pub struct ImportInput {
     pub(crate) pending: PendingStaging,
-    library_id: LibraryId,
+    pub(crate) library_id: LibraryId,
 }
 impl ImportInput {
     pub fn path(&self) -> &Path {
@@ -98,7 +98,7 @@ impl Library {
             Lane::Import,
             Priority::Interactive,
             move |services, control| async move {
-                let outcome = process(services, control, input, options).await?;
+                let outcome = process(services, control, input, options, None).await?;
                 if outcome.status != ImportStatus::RestoreRequired {
                     // Retain the real Task until completion; dropping it would cancel
                     // the thumbnail. Busy leaves Missing for a later visible request.
@@ -170,6 +170,7 @@ impl Library {
                         library_id: identity,
                     },
                     options,
+                    None,
                 )
                 .await?;
                 if outcome.status != ImportStatus::RestoreRequired
@@ -185,11 +186,12 @@ impl Library {
         )
     }
 }
-async fn process(
+pub(crate) async fn process(
     services: Arc<Services>,
     control: Arc<TaskControl>,
     input: ImportInput,
     options: ImportOptions,
+    source: Option<crate::sources::telegram::SourceCommit>,
 ) -> Result<ImportOutcome> {
     control.stage("validating_image");
     let allowance = services.image_budget.acquire().await?;
@@ -252,15 +254,35 @@ async fn process(
     control.check()?;
     let mut tx = services.db.begin_write().await?;
     let existing = tx.sticker(validated.sticker_id()).await?;
+    if let Some(source) = &source
+        && tx
+            .source_item(&source.item)
+            .await?
+            .is_some_and(|old| old.sticker != validated.sticker_id())
+    {
+        return Err(CoreError::new(
+            ErrorCode::Conflict,
+            "source item maps to different immutable bytes",
+        ));
+    }
     if let Some(sticker) = &existing
         && sticker.classify_import(&validated)? == ImportDisposition::RestoreRequired
     {
+        if let Some(source) = &source {
+            control.begin_commit()?;
+            tx.save_source_item(&memedock_domain::source::SourceItem {
+                id: source.item.clone(),
+                sticker: validated.sticker_id(),
+            })
+            .await?;
+            tx.commit().await?;
+        }
         return Ok(ImportOutcome {
             sticker: sticker.clone(),
             status: ImportStatus::RestoreRequired,
         });
     }
-    let collection = match options.collection {
+    let mut collection = match options.collection {
         Some(id) => {
             let collection = tx.collection(id).await?.ok_or_else(|| {
                 CoreError::new(ErrorCode::NotFound, "target collection not found")
@@ -281,6 +303,12 @@ async fn process(
     } else {
         ImportStatus::Created
     };
+    if status == ImportStatus::Created
+        && let Some(source) = &source
+    {
+        collection =
+            Some(crate::sources::telegram::source_collection(&mut tx, source, at, &control).await?);
+    }
     let title = options.title.unwrap_or_else(|| {
         Path::new(&options.original_name)
             .file_stem()
@@ -337,7 +365,17 @@ async fn process(
         .unwrap_or_else(|| LocalAsset::new(validated.hash()));
     local.verified(at);
     tx.save_local_asset(&local).await?;
+    if let Some(source) = &source {
+        tx.save_source_item(&memedock_domain::source::SourceItem {
+            id: source.item.clone(),
+            sticker: sticker.id(),
+        })
+        .await?;
+    }
     tx.commit().await?;
+    if source.is_some() && status == ImportStatus::Created {
+        services.events.publish(ChangeKind::CollectionsChanged)?;
+    }
     services
         .events
         .publish(ChangeKind::StickerChanged(sticker.id()))?;

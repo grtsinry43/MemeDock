@@ -14,6 +14,7 @@ pub mod lifecycle;
 pub mod local;
 pub mod ordering;
 pub mod relation;
+pub mod source;
 pub mod sticker;
 pub mod sync;
 pub mod tag;

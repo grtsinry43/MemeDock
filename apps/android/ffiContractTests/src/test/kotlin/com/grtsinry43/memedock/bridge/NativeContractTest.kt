@@ -9,6 +9,32 @@ import java.nio.file.Files
 import java.io.File
 
 class NativeContractTest {
+    @Test fun telegramInputsFailAcrossBindingsWithoutLeakingCredentials() = runBlocking {
+        withTimeout(30_000) {
+            val root = Files.createTempDirectory("memedock-telegram-contract-").toFile()
+            val config = LibraryConfiguration(File(root, "data").path, File(root, "cache").path,
+                File(root, "share").path, defaultResourceConfiguration())
+            try {
+                openLibrary(config).use { library ->
+                    try {
+                        expectCode(ErrorCode.INVALID_INPUT) {
+                            library.telegramPack("bad", "https://example.com/addstickers/test").close()
+                        }
+                        library.telegramPack("invalid-secret-token", "test_pack").use { task ->
+                            try {
+                                task.awaitResult().close()
+                                fail("Expected invalid token")
+                            } catch (error: BridgeException.Failure) {
+                                assertEquals(ErrorCode.INVALID_INPUT, error.code)
+                                assertFalse(error.detail.contains("invalid-secret-token"))
+                            }
+                        }
+                        assertTrue(library.collections(false).use { it.awaitResult() }.isEmpty())
+                    } finally { library.shutdown() }
+                }
+            } finally { assertTrue(root.deleteRecursively()) }
+        }
+    }
     @Test fun derivedPresetsAndDurableClipboardTokensCrossGeneratedBindings() = runBlocking {
         withTimeout(30_000) {
             val root = Files.createTempDirectory("memedock-export-contract-").toFile()

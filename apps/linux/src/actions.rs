@@ -132,7 +132,7 @@ pub fn popup(host: &Host, anchor: &gtk4::Widget, target: Target) {
     for row in menu_rows(target.deleted, target.starred, flattens) {
         column.append(&row_button(host, &popover, &target, *row, flattens));
     }
-    let select = gtk4::Button::with_label(i18n::text(Key::SelectItems));
+    let select = i18n::button(Key::SelectItems);
     let callback = Rc::clone(&host.select);
     let id = target.id;
     let weak = popover.downgrade();
@@ -182,7 +182,7 @@ fn row_button(
         let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         let title = gtk4::Label::new(Some(label(row)));
         title.set_halign(gtk4::Align::Start);
-        let hint = gtk4::Label::new(Some(i18n::text(Key::QuickAnimatedOriginal)));
+        let hint = i18n::label(Key::QuickAnimatedOriginal);
         hint.set_halign(gtk4::Align::Start);
         hint.set_wrap(true);
         hint.add_css_class("caption");

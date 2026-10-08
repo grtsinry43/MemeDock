@@ -1,5 +1,6 @@
 mod collections;
 mod local;
+mod sources;
 mod stickers;
 mod tags;
 pub use collections::CollectionSummary;

@@ -24,7 +24,20 @@ use sticker::StickerObject;
 
 const SEARCH_DELAY: Duration = Duration::from_millis(250);
 
+macro_rules! tracked_connect {
+    ($session:expr, $object:expr, $method:ident, $callback:expr) => {{
+        let owner = Rc::clone(&$session);
+        let object = $object.clone();
+        let handler = object.$method($callback);
+        owner
+            .borrow_mut()
+            .connections
+            .push((object.upcast::<glib::Object>().downgrade(), handler));
+    }};
+}
+
 struct Session {
+    connections: Vec<(glib::WeakRef<glib::Object>, glib::SignalHandlerId)>,
     library: Library,
     alive: Rc<Cell<bool>>,
     filter: BrowseFilter,
@@ -74,6 +87,11 @@ impl Drop for Stop {
     fn drop(&mut self) {
         self.alive.set(false);
         let mut state = self.session.borrow_mut();
+        for (object, handler) in state.connections.drain(..) {
+            if let Some(object) = object.upgrade() {
+                object.disconnect(handler);
+            }
+        }
         if let Some(task) = state.query_task.take() {
             task.abort();
         }
@@ -98,6 +116,7 @@ pub fn attach(
     let alive = Rc::new(Cell::new(true));
     let ui = build_ui();
     let session = Rc::new(RefCell::new(Session {
+        connections: Vec::new(),
         library,
         alive: Rc::clone(&alive),
         filter: BrowseFilter::Recent,
@@ -145,10 +164,10 @@ pub fn attach(
     wire_drag(&ui.factory, Rc::clone(&session));
     wire_copy(toolbar, Rc::clone(&session));
     let back = gtk4::Button::from_icon_name("go-previous-symbolic");
-    back.set_tooltip_text(Some(i18n::text(Key::Back)));
+    i18n::bind(&back, "tooltip-text", Key::Back);
     back.set_visible(false);
     header.pack_start(&back);
-    let header_title = gtk4::Label::new(Some(i18n::text(Key::TabStickers)));
+    let header_title = i18n::label(Key::TabStickers);
     header_title.add_css_class("title");
     header.set_title_widget(Some(&header_title));
     let star = gtk4::Button::new();
@@ -157,6 +176,35 @@ pub fn attach(
     wire_open(Rc::clone(&session), back, header_title, chrome);
     wire_batch(Rc::clone(&session));
     wire_retry(Rc::clone(&session));
+    let actions = gio::SimpleActionGroup::new();
+    let trash = gio::SimpleAction::new("trash", None);
+    let weak_session = Rc::downgrade(&session);
+    trash.connect_activate(move |_, _| {
+        if let Some(session) = weak_session.upgrade() {
+            let sidebar = session.borrow().sidebar.clone();
+            let index = session
+                .borrow()
+                .filters
+                .iter()
+                .position(|f| *f == BrowseFilter::Trash);
+            if let Some(index) = index {
+                sidebar.set_selected(u32::try_from(index).unwrap_or(0));
+            }
+        }
+    });
+    actions.add_action(&trash);
+    toolbar.insert_action_group("library", Some(&actions));
+    let weak_session = Rc::downgrade(&session);
+    i18n::on_language(toolbar, move || {
+        if let Some(session) = weak_session.upgrade() {
+            let epoch = session.borrow().generation;
+            let source = Rc::clone(&session);
+            glib::spawn_future_local(async move {
+                refresh_sidebar(source, epoch).await;
+            });
+            update_batch(&session);
+        }
+    });
     let selected_collection = Rc::clone(&session.borrow().selected_collection);
     crate::import::wire_stop(&ui.progress, Rc::clone(&imports));
     let importer = crate::import::bind(
@@ -166,9 +214,9 @@ pub fn attach(
         crate::import::Controls {
             batch: imports,
             library: session.borrow().library.clone(),
-            toasts: ui.toasts.clone(),
+            toasts: ui.toasts.downgrade(),
             alive: Rc::clone(&alive),
-            parent: ui.overlay.clone().upcast(),
+            parent: ui.overlay.clone().upcast::<gtk4::Widget>().downgrade(),
             progress: ui.progress.clone(),
             progress_label: ui.progress_label.clone(),
         },
@@ -187,11 +235,12 @@ pub fn attach(
     });
 
     let session_for_events = Rc::clone(&session);
+    let stop = Stop {
+        alive,
+        session: Rc::clone(&session_for_events),
+    };
     let events = glib::spawn_future_local(async move {
-        let _stop = Stop {
-            alive,
-            session: Rc::clone(&session_for_events),
-        };
+        let _stop = stop;
         let library = session_for_events.borrow().library.clone();
         let mut subscription = match library.subscribe() {
             Ok(subscription) => subscription,
@@ -263,13 +312,14 @@ fn build_ui() -> Built {
     let sidebar = adw::Sidebar::new();
     sidebar.set_size_request(220, -1);
     let sidebar_page = adw::NavigationPage::new(&sidebar, i18n::text(Key::TabStickers));
+    i18n::bind(&sidebar_page, "title", Key::TabStickers);
 
     let search = gtk4::SearchEntry::new();
-    search.set_placeholder_text(Some(i18n::text(Key::LibrarySearch)));
+    i18n::bind(&search, "placeholder-text", Key::LibrarySearch);
     search.set_hexpand(true);
-    let batch = gtk4::Button::with_label(i18n::text(Key::BatchOrganize));
-    let select = gtk4::Button::with_label(i18n::text(Key::SelectItems));
-    let collections = gtk4::Button::with_label(i18n::text(Key::TabCollections));
+    let batch = i18n::button(Key::BatchOrganize);
+    let select = i18n::button(Key::SelectItems);
+    let collections = i18n::button(Key::TabCollections);
     batch.set_visible(false);
     batch.set_valign(gtk4::Align::Center);
     let search_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -283,7 +333,7 @@ fn build_ui() -> Built {
     search_bar.append(&collections);
 
     let loading = adw::StatusPage::new();
-    loading.set_title(i18n::text(Key::ImportPreparing));
+    i18n::bind(&loading, "title", Key::ImportPreparing);
     let spinner = adw::Spinner::new();
     spinner.set_size_request(32, 32);
     spinner.set_halign(gtk4::Align::Center);
@@ -291,19 +341,19 @@ fn build_ui() -> Built {
 
     let empty_page = adw::StatusPage::new();
     empty_page.set_icon_name(Some("image-x-generic-symbolic"));
-    empty_page.set_title(i18n::text(Key::LibraryEmpty));
-    empty_page.set_description(Some(i18n::text(Key::LibraryEmptyHint)));
-    let empty_add = gtk4::Button::with_label(i18n::text(Key::ImportPhotos));
+    i18n::bind(&empty_page, "title", Key::LibraryEmpty);
+    i18n::bind(&empty_page, "description", Key::LibraryEmptyHint);
+    let empty_add = i18n::button(Key::ImportPhotos);
     empty_add.add_css_class("suggested-action");
     empty_add.set_halign(gtk4::Align::Center);
-    let empty_clear = gtk4::Button::with_label(i18n::text(Key::ClearSearch));
+    let empty_clear = i18n::button(Key::ClearSearch);
     empty_clear.set_halign(gtk4::Align::Center);
     empty_page.set_child(Some(&empty_add));
 
     let error_page = adw::StatusPage::new();
     error_page.set_icon_name(Some("dialog-error-symbolic"));
-    error_page.set_title(i18n::text(Key::LibraryLoadTitle));
-    let retry = gtk4::Button::with_label(i18n::text(Key::Retry));
+    i18n::bind(&error_page, "title", Key::LibraryLoadTitle);
+    let retry = i18n::button(Key::Retry);
     retry.add_css_class("suggested-action");
     retry.set_halign(gtk4::Align::Center);
     retry.set_widget_name("library-retry");
@@ -337,7 +387,7 @@ fn build_ui() -> Built {
     let progress_label = gtk4::Label::new(None);
     progress_label.set_hexpand(true);
     progress_label.set_halign(gtk4::Align::Start);
-    let stop_import = gtk4::Button::with_label(i18n::text(Key::ImportCancelRemaining));
+    let stop_import = i18n::button(Key::ImportCancelRemaining);
     let progress = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     progress.set_visible(false);
     progress.set_margin_start(12);
@@ -351,9 +401,11 @@ fn build_ui() -> Built {
     content.append(&progress);
     content.append(&toasts);
     let browser_page = adw::NavigationPage::new(&content, i18n::text(Key::TabStickers));
+    i18n::bind(&browser_page, "title", Key::TabStickers);
     let navigation = adw::NavigationView::new();
     navigation.add(&browser_page);
     let content_page = adw::NavigationPage::new(&navigation, i18n::text(Key::TabStickers));
+    i18n::bind(&content_page, "title", Key::TabStickers);
 
     let split = adw::NavigationSplitView::new();
     split.set_sidebar(Some(&sidebar_page));
@@ -362,7 +414,7 @@ fn build_ui() -> Built {
     split.set_hexpand(true);
     split.set_sidebar_width_fraction(0.28);
 
-    let veil_label = gtk4::Label::new(Some(i18n::text(Key::DropToImport)));
+    let veil_label = i18n::label(Key::DropToImport);
     veil_label.set_halign(gtk4::Align::Center);
     veil_label.set_valign(gtk4::Align::Center);
     let veil = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -420,7 +472,7 @@ fn item_factory() -> gtk4::SignalListItemFactory {
         let picture = gtk4::Picture::new();
         picture.set_content_fit(gtk4::ContentFit::ScaleDown);
         picture.set_can_shrink(true);
-        let badge = gtk4::Label::new(Some(i18n::text(Key::AnimatedImage)));
+        let badge = i18n::label(Key::AnimatedImage);
         badge.add_css_class("sticker-badge");
         badge.set_halign(gtk4::Align::End);
         badge.set_valign(gtk4::Align::Start);
@@ -449,7 +501,7 @@ fn item_factory() -> gtk4::SignalListItemFactory {
 
 fn wire_items(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session>>) {
     let tracked = Rc::clone(&session);
-    factory.connect_setup(move |_, item| {
+    tracked_connect!(session, factory, connect_setup, move |_, item| {
         let Some(item) = item.downcast_ref::<gtk4::ListItem>() else {
             return;
         };
@@ -487,7 +539,7 @@ fn wire_items(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session
         widget.add_controller(click);
     });
     let session_for_bind = Rc::clone(&session);
-    factory.connect_bind(move |_, item| {
+    tracked_connect!(session, factory, connect_bind, move |_, item| {
         let Some(list_item) = item.downcast_ref::<gtk4::ListItem>() else {
             return;
         };
@@ -527,7 +579,7 @@ fn wire_items(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session
         }
     });
     let session_for_unbind = Rc::clone(&session);
-    factory.connect_unbind(move |_, item| {
+    tracked_connect!(session, factory, connect_unbind, move |_, item| {
         let Some(list_item) = item.downcast_ref::<gtk4::ListItem>() else {
             return;
         };
@@ -559,7 +611,7 @@ fn wire_items(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session
 }
 
 fn wire_menu(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session>>) {
-    factory.connect_setup(move |_, item| {
+    tracked_connect!(session, factory, connect_setup, move |_, item| {
         let Some(list_item) = item.downcast_ref::<gtk4::ListItem>() else {
             return;
         };
@@ -573,7 +625,7 @@ fn wire_menu(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session>
         click.set_button(3);
         let session_for_click = Rc::clone(&session);
         let list_item_for_click = list_item.clone();
-        click.connect_pressed(move |gesture, _, _, _| {
+        tracked_connect!(session, click, connect_pressed, move |gesture, _, _, _| {
             let _ = gesture.set_state(gtk4::EventSequenceState::Claimed);
             let Some(object) = list_item_for_click
                 .item()
@@ -635,24 +687,29 @@ fn wire_copy(toolbar: &adw::ToolbarView, session: Rc<RefCell<Session>>) {
     let keys = gtk4::EventControllerKey::new();
     keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
     let target = Rc::clone(&session);
-    keys.connect_key_pressed(move |_, key, _, modifiers| {
-        if key == gtk4::gdk::Key::Escape && target.borrow().selection.borrow().selecting {
-            clear_selection(&target);
-            return glib::Propagation::Stop;
+    tracked_connect!(
+        session,
+        keys,
+        connect_key_pressed,
+        move |_, key, _, modifiers| {
+            if key == gtk4::gdk::Key::Escape && target.borrow().selection.borrow().selecting {
+                clear_selection(&target);
+                return glib::Propagation::Stop;
+            }
+            target.borrow_mut().keyboard_use =
+                matches!(key, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter)
+                    && !modifiers.intersects(
+                        ModifierType::CONTROL_MASK
+                            | ModifierType::ALT_MASK
+                            | ModifierType::SHIFT_MASK
+                            | ModifierType::SUPER_MASK,
+                    );
+            // Let GridView resolve its focused position, then handle its activate signal.
+            glib::Propagation::Proceed
         }
-        target.borrow_mut().keyboard_use =
-            matches!(key, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter)
-                && !modifiers.intersects(
-                    ModifierType::CONTROL_MASK
-                        | ModifierType::ALT_MASK
-                        | ModifierType::SHIFT_MASK
-                        | ModifierType::SUPER_MASK,
-                );
-        // Let GridView resolve its focused position, then handle its activate signal.
-        glib::Propagation::Proceed
-    });
+    );
     let target = Rc::clone(&session);
-    keys.connect_key_released(move |_, key, _, _| {
+    tracked_connect!(session, keys, connect_key_released, move |_, key, _, _| {
         if matches!(key, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter) {
             target.borrow_mut().keyboard_use = false;
         }
@@ -705,7 +762,7 @@ fn output_copy(host: &Host, id: StickerId, animated: bool) {
 }
 
 fn wire_drag(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session>>) {
-    factory.connect_setup(move |_, item| {
+    tracked_connect!(session, factory, connect_setup, move |_, item| {
         let Some(item) = item.downcast_ref::<gtk4::ListItem>() else {
             return;
         };
@@ -842,18 +899,23 @@ fn wire_search(session: Rc<RefCell<Session>>) {
     let entry = session.borrow().search_entry.clone();
     let grid = session.borrow().grid.clone();
     let keys = gtk4::EventControllerKey::new();
-    keys.connect_key_pressed(move |_, key, _, state| {
-        if key == gtk4::gdk::Key::Down && state == ModifierType::empty() {
-            grid.grab_focus();
-            glib::Propagation::Stop
-        } else {
-            glib::Propagation::Proceed
+    tracked_connect!(
+        session,
+        keys,
+        connect_key_pressed,
+        move |_, key, _, state| {
+            if key == gtk4::gdk::Key::Down && state == ModifierType::empty() {
+                grid.grab_focus();
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
         }
-    });
+    );
     entry.add_controller(keys);
 
     let session_for_search = Rc::clone(&session);
-    entry.connect_search_changed(move |entry| {
+    tracked_connect!(session, entry, connect_search_changed, move |entry| {
         let text = entry.text().to_string();
         let session = Rc::clone(&session_for_search);
         if let Some(task) = session.borrow_mut().debounce_task.take() {
@@ -883,7 +945,7 @@ fn wire_search(session: Rc<RefCell<Session>>) {
 
 fn wire_sidebar(session: Rc<RefCell<Session>>) {
     let sidebar = session.borrow().sidebar.clone();
-    sidebar.connect_activated(move |_, index| {
+    tracked_connect!(session, sidebar, connect_activated, move |_, index| {
         let changed = {
             let mut state = session.borrow_mut();
             if state.rebuilding {
@@ -915,11 +977,11 @@ fn wire_open(
     let grid = session.borrow().grid.clone();
     let navigation = session.borrow().navigation.clone();
     let navigation_for_back = navigation.clone();
-    back.connect_clicked(move |_| {
+    tracked_connect!(session, back, connect_clicked, move |_| {
         navigation_for_back.pop();
     });
     let back_for_push = back.clone();
-    navigation.connect_pushed(move |navigation| {
+    tracked_connect!(session, navigation, connect_pushed, move |navigation| {
         let detail = navigation
             .visible_page()
             .and_then(|page| page.tag())
@@ -931,13 +993,13 @@ fn wire_open(
     let back_for_pop = back.clone();
     let title_for_pop = header_title.clone();
     let star_for_pop = chrome.star.clone();
-    navigation.connect_popped(move |_, page| {
+    tracked_connect!(session, navigation, connect_popped, move |_, page| {
         if page.tag().as_deref() != Some("detail") {
             return;
         }
         back_for_pop.set_visible(false);
         star_for_pop.set_visible(false);
-        title_for_pop.set_text(i18n::text(Key::TabStickers));
+        i18n::bind(&title_for_pop, "label", Key::TabStickers);
         let state = session_for_pop.borrow();
         state.playback.borrow_mut().take();
         state.detail_refresh.borrow_mut().take();
@@ -945,7 +1007,7 @@ fn wire_open(
         state.open_id.set(None);
     });
     let session_for_activate = Rc::clone(&session);
-    grid.connect_activate(move |grid, position| {
+    tracked_connect!(session, grid, connect_activate, move |grid, position| {
         let Some(model) = grid.model() else {
             return;
         };
@@ -996,50 +1058,55 @@ fn wire_batch(session: Rc<RefCell<Session>>) {
         return;
     };
     let tracked = Rc::clone(&session);
-    model.connect_selection_changed(move |model, _, _| {
-        let state = tracked.borrow();
-        let mut selection = state.selection.borrow_mut();
-        if selection.syncing {
-            return;
-        }
-        for position in 0..state.store.n_items() {
-            let Some(object) = state
-                .store
-                .item(position)
-                .and_then(|v| v.downcast::<StickerObject>().ok())
-            else {
-                continue;
-            };
-            let Ok(id) = object.identity().parse::<StickerId>() else {
-                continue;
-            };
-            if model.is_selected(position) {
-                if let Ok(generation) = Generation::new(object.entity_generation()) {
-                    selection.items.insert(
-                        id,
-                        memedock_core::batch::BatchTarget {
-                            id,
-                            generation,
-                            deleted_revision: (state.filter == BrowseFilter::Trash)
-                                .then(|| Revision::new(object.entity_revision()).ok())
-                                .flatten(),
-                        },
-                    );
-                }
-            } else {
-                selection.items.remove(&id);
+    tracked_connect!(
+        session,
+        model,
+        connect_selection_changed,
+        move |model, _, _| {
+            let state = tracked.borrow();
+            let mut selection = state.selection.borrow_mut();
+            if selection.syncing {
+                return;
             }
+            for position in 0..state.store.n_items() {
+                let Some(object) = state
+                    .store
+                    .item(position)
+                    .and_then(|v| v.downcast::<StickerObject>().ok())
+                else {
+                    continue;
+                };
+                let Ok(id) = object.identity().parse::<StickerId>() else {
+                    continue;
+                };
+                if model.is_selected(position) {
+                    if let Ok(generation) = Generation::new(object.entity_generation()) {
+                        selection.items.insert(
+                            id,
+                            memedock_core::batch::BatchTarget {
+                                id,
+                                generation,
+                                deleted_revision: (state.filter == BrowseFilter::Trash)
+                                    .then(|| Revision::new(object.entity_revision()).ok())
+                                    .flatten(),
+                            },
+                        );
+                    }
+                } else {
+                    selection.items.remove(&id);
+                }
+            }
+            if selection.items.len() > 1 {
+                selection.selecting = true;
+            }
+            drop(selection);
+            drop(state);
+            update_batch(&tracked);
         }
-        if selection.items.len() > 1 {
-            selection.selecting = true;
-        }
-        drop(selection);
-        drop(state);
-        update_batch(&tracked);
-    });
+    );
     let select = session.borrow().select.clone();
     let tracked = Rc::clone(&session);
-    select.connect_clicked(move |_| {
+    tracked_connect!(session, select, connect_clicked, move |_| {
         if tracked.borrow().selection.borrow().busy {
             return;
         }
@@ -1052,9 +1119,11 @@ fn wire_batch(session: Rc<RefCell<Session>>) {
     });
     let button = session.borrow().batch.clone();
     let tracked = Rc::clone(&session);
-    button.connect_clicked(move |_| start_batch(Rc::clone(&tracked)));
+    tracked_connect!(session, button, connect_clicked, move |_| start_batch(
+        Rc::clone(&tracked)
+    ));
     let button = session.borrow().collections.clone();
-    button.connect_clicked(move |_| {
+    tracked_connect!(session, button, connect_clicked, move |_| {
         let (navigation, library, toasts) = {
             let s = session.borrow();
             (s.navigation.clone(), s.library.clone(), s.toasts.clone())
@@ -1204,7 +1273,10 @@ fn wire_retry(session: Rc<RefCell<Session>>) {
     let Some(button) = find_descendant::<gtk4::Button>(&page) else {
         return;
     };
-    button.connect_clicked(move |_| spawn_reload(Rc::clone(&session), true));
+    tracked_connect!(session, button, connect_clicked, move |_| spawn_reload(
+        Rc::clone(&session),
+        true
+    ));
 }
 
 fn spawn_reload(session: Rc<RefCell<Session>>, include_sidebar: bool) {
@@ -1338,7 +1410,7 @@ fn populate_sidebar(
     sidebar.append(browse);
 
     let collection_section = adw::SidebarSection::new();
-    collection_section.set_title(Some(i18n::text(Key::TabCollections)));
+    i18n::bind(&collection_section, "title", Key::TabCollections);
     for (id, name) in collections {
         collection_section.append(adw::SidebarItem::new(name));
         filters.push(BrowseFilter::Collection(*id));
@@ -1346,7 +1418,7 @@ fn populate_sidebar(
     sidebar.append(collection_section);
 
     let tag_section = adw::SidebarSection::new();
-    tag_section.set_title(Some(i18n::text(Key::TagsTitle)));
+    i18n::bind(&tag_section, "title", Key::TagsTitle);
     for (id, name) in tags {
         tag_section.append(adw::SidebarItem::new(name));
         filters.push(BrowseFilter::Tag(*id));
@@ -1600,38 +1672,22 @@ fn still_current(session: &Rc<RefCell<Session>>, epoch: u64) -> bool {
 fn show_empty(state: &Session, copy: EmptyCopy) {
     let (title, hint, action) = match copy {
         EmptyCopy::Library => (
-            i18n::text(Key::LibraryEmpty),
-            i18n::text(Key::LibraryEmptyHint),
+            Key::LibraryEmpty,
+            Key::LibraryEmptyHint,
             Some(&state.empty_add),
         ),
-        EmptyCopy::Starred => (
-            i18n::text(Key::StarredEmpty),
-            i18n::text(Key::StarredEmptyHint),
-            None,
-        ),
-        EmptyCopy::Collection => (
-            i18n::text(Key::CollectionEmpty),
-            i18n::text(Key::CollectionEmptyHint),
-            None,
-        ),
-        EmptyCopy::Tag => (
-            i18n::text(Key::TagEmpty),
-            i18n::text(Key::TagEmptyHint),
-            None,
-        ),
-        EmptyCopy::Trash => (
-            i18n::text(Key::TrashEmpty),
-            i18n::text(Key::TrashEmptyHint),
-            None,
-        ),
+        EmptyCopy::Starred => (Key::StarredEmpty, Key::StarredEmptyHint, None),
+        EmptyCopy::Collection => (Key::CollectionEmpty, Key::CollectionEmptyHint, None),
+        EmptyCopy::Tag => (Key::TagEmpty, Key::TagEmptyHint, None),
+        EmptyCopy::Trash => (Key::TrashEmpty, Key::TrashEmptyHint, None),
         EmptyCopy::NoMatches => (
-            i18n::text(Key::LibraryNoMatches),
-            i18n::text(Key::LibraryNoMatchesHint),
+            Key::LibraryNoMatches,
+            Key::LibraryNoMatchesHint,
             Some(&state.empty_clear),
         ),
     };
-    state.empty_page.set_title(title);
-    state.empty_page.set_description(Some(hint));
+    i18n::bind(&state.empty_page, "title", title);
+    i18n::bind(&state.empty_page, "description", hint);
     state.empty_page.set_child(action);
 }
 

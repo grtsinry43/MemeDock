@@ -21,6 +21,8 @@ class AppContainer(context: Context) {
         com.grtsinry43.memedock.data.library.BackupRepository(session),
         com.grtsinry43.memedock.platform.backup.AndroidBackupGateway(context.contentResolver), scope)
     val library = RustLibraryRepository(session)
+    val telegram = com.grtsinry43.memedock.data.telegram.RustTelegramRepository(session)
+    val telegramTokens = com.grtsinry43.memedock.platform.credentials.AndroidTelegramTokenStore(context)
     val imports = ImportCoordinator(library, AndroidImportGateway(context.contentResolver), scope)
     val shares = AndroidShareGateway()
     val clipboard = com.grtsinry43.memedock.platform.clipboard.ClipboardCoordinator(library,

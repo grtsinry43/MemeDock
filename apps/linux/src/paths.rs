@@ -27,6 +27,15 @@ pub fn from_env() -> Result<LibraryPaths, PathError> {
     library_paths(data_home.as_deref(), cache_home.as_deref(), home.as_deref())
 }
 
+pub fn config_dir() -> Result<PathBuf, PathError> {
+    absolute_base(
+        std::env::var("XDG_CONFIG_HOME").ok().as_deref(),
+        std::env::var("HOME").ok().as_deref(),
+        ".config",
+    )
+    .map(|base| base.join("sticker-library"))
+}
+
 pub fn library_paths(
     data_home: Option<&str>,
     cache_home: Option<&str>,

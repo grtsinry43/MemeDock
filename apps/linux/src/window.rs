@@ -7,7 +7,7 @@ use gtk4::{gio, glib, glib::Propagation};
 use libadwaita as adw;
 use libadwaita::prelude::*;
 use memedock_core::{CoreError, Library, LibraryConfig};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 struct WindowState {
@@ -25,6 +25,10 @@ struct WindowState {
     window: glib::WeakRef<adw::ApplicationWindow>,
     pending_files: Vec<gio::File>,
     importer: Option<Rc<import::Controls>>,
+    preferences: Rc<RefCell<crate::preferences::Preferences>>,
+    preferences_loaded: bool,
+    maintenance: Rc<Cell<bool>>,
+    settings: Option<glib::WeakRef<adw::PreferencesDialog>>,
 }
 
 enum OpenFailure {
@@ -67,7 +71,7 @@ fn activate(
     spinner.set_halign(gtk4::Align::Center);
     spinner.set_valign(gtk4::Align::Center);
     spinner.set_size_request(32, 32);
-    let retry = gtk4::Button::with_label(i18n::text(Key::Retry));
+    let retry = i18n::button(Key::Retry);
     retry.add_css_class("suggested-action");
     retry.set_halign(gtk4::Align::Center);
 
@@ -91,6 +95,10 @@ fn activate(
         window: glib::WeakRef::new(),
         pending_files: Vec::new(),
         importer: None,
+        preferences: Rc::new(RefCell::new(crate::preferences::Preferences::default())),
+        preferences_loaded: false,
+        maintenance: Rc::new(Cell::new(false)),
+        settings: None,
     }));
 
     let retry_session = Rc::clone(&session);
@@ -113,6 +121,9 @@ fn activate(
     let close_session = Rc::clone(&session);
     window.connect_close_request(move |window| {
         let mut state = close_session.borrow_mut();
+        if state.maintenance.get() {
+            return Propagation::Stop;
+        }
         if state.closing {
             return Propagation::Stop;
         }
@@ -180,7 +191,7 @@ fn accept_files(session: &Rc<RefCell<WindowState>>, files: &[gio::File]) {
     }
     let (importer, window, error) = {
         let mut state = session.borrow_mut();
-        let error = if state.closing {
+        let error = if state.closing || state.maintenance.get() {
             Some(Key::FailureBusy)
         } else if import::batch_too_large(files.len()) {
             Some(Key::FailureBatch)
@@ -236,6 +247,33 @@ fn start_open(session: Rc<RefCell<WindowState>>) {
 
     let session_for_open = Rc::clone(&session);
     let task = glib::spawn_future_local(async move {
+        let load_preferences = !session_for_open.borrow().preferences_loaded;
+        if load_preferences {
+            session_for_open.borrow_mut().preferences_loaded = true;
+            let loaded = gtk4::gio::spawn_blocking(|| {
+                let path = paths::config_dir()
+                    .map_err(|_| std::io::Error::other("config directory unavailable"))?
+                    .join("settings.json");
+                crate::preferences::load(&path)
+            })
+            .await;
+            match loaded {
+                Ok(Ok(value)) => {
+                    *session_for_open.borrow().preferences.borrow_mut() = value;
+                    value.apply();
+                }
+                _ => {
+                    if let Some(window) = session_for_open.borrow().window.upgrade() {
+                        let dialog = adw::AlertDialog::new(
+                            Some(i18n::text(Key::Settings)),
+                            Some(i18n::text(Key::SettingsFailed)),
+                        );
+                        dialog.add_response("close", i18n::text(Key::Done));
+                        dialog.present(Some(&window));
+                    }
+                }
+            }
+        }
         let opened = match paths::from_env() {
             Ok(paths) => Library::open(LibraryConfig::new(
                 paths.data_dir,
@@ -272,6 +310,7 @@ fn start_open(session: Rc<RefCell<WindowState>>) {
                 state.importer = Some(Rc::clone(&importer));
                 let files = std::mem::take(&mut state.pending_files);
                 drop(state);
+                wire_settings(&session_for_open);
                 if !files.is_empty() {
                     import::begin_external(importer, files, None);
                 }
@@ -286,8 +325,74 @@ fn start_open(session: Rc<RefCell<WindowState>>) {
     session.borrow_mut().open_task = Some(task);
 }
 
+fn wire_settings(session: &Rc<RefCell<WindowState>>) {
+    let button = gtk4::Button::from_icon_name("preferences-system-symbolic");
+    i18n::bind(&button, "tooltip-text", Key::Settings);
+    session.borrow().header.pack_end(&button);
+    let weak = Rc::downgrade(session);
+    button.connect_clicked(move |_| {
+        let Some(session) = weak.upgrade() else {
+            return;
+        };
+        let state = session.borrow();
+        if let Some(dialog) = state.settings.as_ref().and_then(glib::WeakRef::upgrade) {
+            dialog.present(Some(&state.toolbar));
+            return;
+        }
+        let Some(library) = state.library.clone() else {
+            return;
+        };
+        let parent = state.toolbar.clone().upcast::<gtk4::Widget>();
+        let weak_busy = Rc::downgrade(&session);
+        let weak_reopen = Rc::downgrade(&session);
+        let toolbar = state.toolbar.downgrade();
+        let host = crate::settings::Host {
+            library,
+            parent,
+            preferences: Rc::clone(&state.preferences),
+            maintenance: Rc::clone(&state.maintenance),
+            busy: Rc::new(move || {
+                weak_busy.upgrade().is_none_or(|s| {
+                    let s = s.borrow();
+                    s.closing || s.imports.borrow().busy || s.clipboard.borrow().is_busy()
+                })
+            }),
+            reopen: Rc::new(move || {
+                if let Some(s) = weak_reopen.upgrade() {
+                    reopen(s);
+                }
+            }),
+            trash: Rc::new(move || {
+                if let Some(toolbar) = toolbar.upgrade() {
+                    let _ = toolbar.activate_action("library.trash", None);
+                }
+            }),
+        };
+        drop(state);
+        let dialog = crate::settings::present(host);
+        session.borrow_mut().settings = Some(dialog.downgrade());
+    });
+}
+fn reopen(session: Rc<RefCell<WindowState>>) {
+    let mut state = session.borrow_mut();
+    if let Some(dialog) = state.settings.take().and_then(|w| w.upgrade()) {
+        dialog.force_close();
+    }
+    if let Some(task) = state.browse_task.take() {
+        task.abort();
+    }
+    state.library.take();
+    state.importer.take();
+    state.toolbar.remove(&state.header);
+    state.header = adw::HeaderBar::new();
+    state.toolbar.add_top_bar(&state.header);
+    state.imports = Rc::new(RefCell::new(Batch::new()));
+    drop(state);
+    start_open(session);
+}
+
 fn show_opening(state: &WindowState) {
-    state.page.set_title(i18n::text(Key::ImportPreparing));
+    i18n::bind(&state.page, "title", Key::ImportPreparing);
     state.page.set_description(None);
     state.page.set_icon_name(None);
     state.page.set_child(Some(&state.spinner));
@@ -295,7 +400,7 @@ fn show_opening(state: &WindowState) {
 
 fn show_failed(state: &WindowState, message: &str) {
     let escaped = glib::markup_escape_text(message);
-    state.page.set_title(i18n::text(Key::FailureLibrary));
+    i18n::bind(&state.page, "title", Key::FailureLibrary);
     state.page.set_description(Some(escaped.as_str()));
     state.page.set_icon_name(Some("dialog-error-symbolic"));
     state.page.set_child(Some(&state.retry));

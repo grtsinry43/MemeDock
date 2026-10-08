@@ -13,7 +13,7 @@ class MemeDockRustPlugin : Plugin<Project> {
         val cargoNdkVersion = versions.findVersion("cargoNdk").get().requiredVersion
         val root = rootProject.layout.projectDirectory.dir("../..")
         val sourceInputs = fileTree(root) {
-            include("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/**", "crates/**/*.rs", "crates/**/Cargo.toml", "crates/ffi/*.toml", "tools/**/*.rs", "tools/**/Cargo.toml")
+            include("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/**", "crates/**/*.rs", "crates/**/Cargo.toml", "crates/ffi/*.toml", "tools/**/*.rs", "tools/**/Cargo.toml", "tools/native-media/**")
             exclude("**/target/**")
         }
         fun abis(release: Boolean): List<String> {

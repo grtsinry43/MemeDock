@@ -89,6 +89,14 @@ const STATEMENTS: &[&str] = &[
         sticker_id TEXT PRIMARY KEY REFERENCES stickers(id), last_used_at INTEGER NOT NULL,
         use_count INTEGER NOT NULL CHECK(use_count>=0)
     ) STRICT",
+    "CREATE TABLE telegram_packs (
+        name TEXT PRIMARY KEY CHECK(length(name) BETWEEN 1 AND 64),
+        collection_id TEXT NOT NULL REFERENCES collections(id)
+    ) STRICT",
+    "CREATE TABLE telegram_items (
+        unique_id TEXT PRIMARY KEY CHECK(length(unique_id) BETWEEN 1 AND 256),
+        sticker_id TEXT NOT NULL REFERENCES stickers(id)
+    ) STRICT",
     "CREATE TABLE local_changes (
         local_order INTEGER PRIMARY KEY AUTOINCREMENT CHECK(local_order>0), op_id TEXT UNIQUE NOT NULL CHECK(length(op_id)=36),
         schema_version INTEGER NOT NULL CHECK(schema_version=1),

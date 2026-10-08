@@ -5,6 +5,10 @@ pub type Result<T> = std::result::Result<T, CoreError>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ErrorCode {
+    Network,
+    Timeout,
+    Unauthorized,
+    RateLimited,
     InvalidInput,
     UnsupportedFormat,
     UnsupportedColorProfile,
@@ -28,6 +32,10 @@ pub enum ErrorCode {
 impl ErrorCode {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Network => "network",
+            Self::Timeout => "timeout",
+            Self::Unauthorized => "unauthorized",
+            Self::RateLimited => "rate_limited",
             Self::InvalidInput => "invalid_input",
             Self::UnsupportedFormat => "unsupported_format",
             Self::UnsupportedColorProfile => "unsupported_color_profile",

@@ -109,6 +109,11 @@ impl LibraryDatabase {
         if primary_key != ["sticker_id"] {
             return Err(StorageError::UnsupportedSchema);
         }
+        let sources = connection.query_one_raw(Statement::from_string(DbBackend::Sqlite,
+            "SELECT count(*) AS count FROM sqlite_schema WHERE type='table' AND name IN ('telegram_packs','telegram_items')".to_owned())).await?.ok_or(StorageError::Integrity("source tables missing"))?;
+        if sources.try_get::<i64>("", "count")? != 2 {
+            return Err(StorageError::UnsupportedSchema);
+        }
         let row = library_metadata::Entity::find_by_id(1_i64)
             .one(&connection)
             .await?

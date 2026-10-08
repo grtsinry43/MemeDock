@@ -4,6 +4,10 @@ pub type Result<T> = std::result::Result<T, BridgeError>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum ErrorCode {
+    Network,
+    Timeout,
+    Unauthorized,
+    RateLimited,
     InvalidInput,
     UnsupportedFormat,
     UnsupportedColorProfile,
@@ -28,6 +32,10 @@ impl From<memedock_core::ErrorCode> for ErrorCode {
     fn from(code: memedock_core::ErrorCode) -> Self {
         use memedock_core::ErrorCode as C;
         match code {
+            C::Network => Self::Network,
+            C::Timeout => Self::Timeout,
+            C::Unauthorized => Self::Unauthorized,
+            C::RateLimited => Self::RateLimited,
             C::InvalidInput => Self::InvalidInput,
             C::UnsupportedFormat => Self::UnsupportedFormat,
             C::UnsupportedColorProfile => Self::UnsupportedColorProfile,

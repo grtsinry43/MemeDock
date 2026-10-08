@@ -196,9 +196,9 @@ impl Default for Batch {
 pub struct Controls {
     pub batch: Rc<RefCell<Batch>>,
     pub library: Library,
-    pub toasts: adw::ToastOverlay,
+    pub toasts: glib::WeakRef<adw::ToastOverlay>,
     pub alive: Rc<Cell<bool>>,
-    pub parent: gtk4::Widget,
+    pub parent: glib::WeakRef<gtk4::Widget>,
     pub progress: gtk4::Box,
     pub progress_label: gtk4::Label,
 }
@@ -220,29 +220,35 @@ pub fn bind(
     empty_add: &gtk4::Button,
 ) -> Rc<Controls> {
     let controls = Rc::new(controls);
-    let import_button = gtk4::Button::with_label(i18n::text(Key::LibraryAdd));
-    let paste_button = gtk4::Button::with_label(i18n::text(Key::Paste));
-    paste_button.set_tooltip_text(Some(i18n::text(Key::PasteHint)));
+    let import_button = i18n::button(Key::LibraryAdd);
+    let paste_button = i18n::button(Key::Paste);
+    i18n::bind(&paste_button, "tooltip-text", Key::PasteHint);
     header.pack_end(&paste_button);
     header.pack_end(&import_button);
 
     let controls_for_import = Rc::clone(&controls);
     let collection_for_import = Rc::clone(&collection);
-    let overlay_for_import = overlay.clone();
+    let overlay_for_import = overlay.downgrade();
     import_button.connect_clicked(move |_| {
+        let Some(overlay) = overlay_for_import.upgrade() else {
+            return;
+        };
         begin_picker(
             Rc::clone(&controls_for_import),
-            &overlay_for_import,
+            &overlay,
             collection_for_import.get(),
         );
     });
     let controls_for_empty = Rc::clone(&controls);
     let collection_for_empty = Rc::clone(&collection);
-    let overlay_for_empty = overlay.clone();
+    let overlay_for_empty = overlay.downgrade();
     empty_add.connect_clicked(move |_| {
+        let Some(overlay) = overlay_for_empty.upgrade() else {
+            return;
+        };
         begin_picker(
             Rc::clone(&controls_for_empty),
-            &overlay_for_empty,
+            &overlay,
             collection_for_empty.get(),
         );
     });
@@ -310,7 +316,9 @@ pub fn wire_stop(progress: &gtk4::Box, batch: Rc<RefCell<Batch>>) {
 }
 
 fn toast(controls: &Controls, message: &str) {
-    controls.toasts.add_toast(adw::Toast::new(message));
+    if let Some(toasts) = controls.toasts.upgrade() {
+        toasts.add_toast(adw::Toast::new(message));
+    }
 }
 
 fn stopped(controls: &Controls) -> bool {
@@ -379,7 +387,10 @@ fn begin_clipboard(controls: Rc<Controls>, collection: Option<CollectionId>) {
         toast(&controls, i18n::text(Key::ErrorBatchBusy));
         return;
     }
-    let clipboard = controls.parent.clipboard();
+    let Some(parent) = controls.parent.upgrade() else {
+        return;
+    };
+    let clipboard = parent.clipboard();
     glib::spawn_future_local(async move {
         if controls.batch.borrow().shutting_down {
             return;
@@ -433,7 +444,7 @@ fn begin_picker(controls: Rc<Controls>, overlay: &gtk4::Overlay, collection: Opt
         return;
     };
     let dialog = gtk4::FileDialog::new();
-    dialog.set_title(i18n::text(Key::ImportPhotos));
+    i18n::bind(&dialog, "title", Key::ImportPhotos);
     dialog.set_accept_label(Some(i18n::text(Key::LibraryAdd)));
     let tracked = Rc::clone(&controls);
     let task = glib::spawn_future_local(async move {
@@ -569,7 +580,7 @@ fn open_review(controls: &Rc<Controls>, names: &[String]) -> ReviewUi {
             }
         });
     });
-    let hint = gtk4::Label::new(Some(i18n::text(Key::ImportReviewHint)));
+    let hint = i18n::label(Key::ImportReviewHint);
     hint.set_wrap(true);
     hint.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
     hint.set_xalign(0.0);
@@ -619,11 +630,11 @@ fn open_review(controls: &Rc<Controls>, names: &[String]) -> ReviewUi {
     note.set_visible(false);
     let collections = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     collections.set_hexpand(true);
-    let add = gtk4::Button::with_label(i18n::text(Key::ImportReadingFiles));
+    let add = i18n::button(Key::ImportReadingFiles);
     add.add_css_class("suggested-action");
     add.set_hexpand(true);
     add.set_sensitive(false);
-    let cancel = gtk4::Button::with_label(i18n::text(Key::ImportDiscard));
+    let cancel = i18n::button(Key::ImportDiscard);
     cancel.set_hexpand(true);
     let controls_for_add = Rc::clone(controls);
     add.connect_clicked(move |_| {
@@ -650,14 +661,16 @@ fn open_review(controls: &Rc<Controls>, names: &[String]) -> ReviewUi {
     column.append(&hint);
     column.append(&pictures);
     column.append(&note);
-    let heading = gtk4::Label::new(Some(i18n::text(Key::ImportCollection)));
+    let heading = i18n::label(Key::ImportCollection);
     heading.set_halign(gtk4::Align::Start);
     column.append(&heading);
     column.append(&collections);
     column.append(&add);
     column.append(&cancel);
     dialog.set_child(Some(&column));
-    dialog.present(Some(&controls.parent));
+    if let Some(parent) = controls.parent.upgrade() {
+        dialog.present(Some(&parent));
+    }
     controls.batch.borrow_mut().dialog = Some(dialog);
     ReviewUi {
         tiles,
@@ -1020,7 +1033,7 @@ fn present_problems(controls: Rc<Controls>) {
         row.append(&label);
         if counted == Counted::RestoreRequired {
             let controls_for_restore = Rc::clone(&controls);
-            let restore = gtk4::Button::with_label(i18n::text(Key::Restore));
+            let restore = i18n::button(Key::Restore);
             restore.connect_clicked(move |_| restore_item(Rc::clone(&controls_for_restore), index));
             row.append(&restore);
         }
@@ -1032,7 +1045,7 @@ fn present_problems(controls: Rc<Controls>) {
     });
     if retryable {
         let controls_for_retry = Rc::clone(&controls);
-        let retry = gtk4::Button::with_label(i18n::text(Key::ImportRetryFailed));
+        let retry = i18n::button(Key::ImportRetryFailed);
         retry.add_css_class("suggested-action");
         retry.connect_clicked(move |_| {
             if let Some(dialog) = controls_for_retry.batch.borrow_mut().problems.take() {
@@ -1047,13 +1060,15 @@ fn present_problems(controls: Rc<Controls>) {
         column.append(&retry);
     }
     let dialog_for_done = dialog.clone();
-    let done = gtk4::Button::with_label(i18n::text(Key::Done));
+    let done = i18n::button(Key::Done);
     done.connect_clicked(move |_| {
         dialog_for_done.close();
     });
     column.append(&done);
     dialog.set_child(Some(&column));
-    dialog.present(Some(&controls.parent));
+    if let Some(parent) = controls.parent.upgrade() {
+        dialog.present(Some(&parent));
+    }
     controls.batch.borrow_mut().problems = Some(dialog);
 }
 
@@ -1067,7 +1082,9 @@ fn restore_item(controls: Rc<Controls>, index: usize) {
     else {
         return;
     };
-    let parent = controls.parent.clone();
+    let Some(parent) = controls.parent.upgrade() else {
+        return;
+    };
     confirm(
         &parent,
         i18n::text(Key::RestoreStickerTitle),

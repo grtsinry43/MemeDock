@@ -75,6 +75,8 @@ abstract class RustAndroidBuildTask : DefaultTask() {
         exec.exec {
             workingDir(repository)
             environment("ANDROID_NDK_HOME", ndk.absolutePath)
+            environment("CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS", "-C link-arg=-Wl,-z,max-page-size=16384")
+            environment("CARGO_TARGET_X86_64_LINUX_ANDROID_RUSTFLAGS", "-C link-arg=-Wl,-z,max-page-size=16384")
             environment("CARGO", "cargo")
             commandLine(args)
         }.assertNormalExitValue()

@@ -48,6 +48,43 @@ impl DerivedStore {
     pub fn preview_path(&self, hash: ContentHash) -> PathBuf {
         self.root.join(format!("preview-v1-1280-{hash}.png"))
     }
+    pub fn source_preview_path(&self, hash: ContentHash) -> PathBuf {
+        self.root.join(format!("telegram-{hash}.png"))
+    }
+    pub fn source_preview_ready(&self, hash: ContentHash) -> Result<bool> {
+        stored_file(&self.source_preview_path(hash))
+    }
+    /// Only source previews participate in this bounded, disposable cache.
+    pub fn trim_source_previews(&self, max_bytes: u64) -> Result<()> {
+        let mut entries = Vec::new();
+        let mut bytes = 0u64;
+        for entry in fs::read_dir(&self.root)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let Some(hash) = name
+                .to_str()
+                .and_then(|v| v.strip_prefix("telegram-"))
+                .and_then(|v| v.strip_suffix(".png"))
+            else {
+                continue;
+            };
+            if hash.parse::<ContentHash>().is_err() || !entry.file_type()?.is_file() {
+                continue;
+            }
+            let metadata = entry.metadata()?;
+            bytes = bytes.saturating_add(metadata.len());
+            entries.push((metadata.modified()?, entry.path(), metadata.len()));
+        }
+        entries.sort_by_key(|entry| entry.0);
+        for (_, path, size) in entries {
+            if bytes <= max_bytes {
+                break;
+            }
+            fs::remove_file(path)?;
+            bytes = bytes.saturating_sub(size);
+        }
+        Ok(())
+    }
     pub fn ready(&self, hash: ContentHash) -> Result<bool> {
         stored_file(&self.thumbnail_path(hash))
     }

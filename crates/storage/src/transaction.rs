@@ -22,7 +22,7 @@ pub struct WriteTransaction {
     pub(crate) inner: DatabaseTransaction,
     business_changed: bool,
     logged: bool,
-    failed: bool,
+    pub(crate) failed: bool,
 }
 impl LibraryDatabase {
     pub async fn begin_write(&self) -> Result<WriteTransaction> {

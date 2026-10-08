@@ -67,6 +67,14 @@ impl TaskControl {
             Ok(())
         }
     }
+    pub(crate) async fn cancelled(&self) {
+        let mut progress = self.progress.subscribe();
+        while !self.is_cancelled() {
+            if progress.changed().await.is_err() {
+                return;
+            }
+        }
+    }
     pub(crate) fn running(&self) -> Result<()> {
         self.check()?;
         self.progress.send_if_modified(|s| {

@@ -8,8 +8,6 @@ pub enum Language {
 }
 
 /// Same three modes as the Android language setting. System follows the process locale.
-/// The settings page is the caller; it is not built yet.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LanguageMode {
     System,
@@ -23,7 +21,6 @@ const MODE_ENGLISH: u8 = 2;
 
 static MODE: AtomicU8 = AtomicU8::new(MODE_SYSTEM);
 
-#[allow(dead_code)]
 pub fn set_language_mode(mode: LanguageMode) {
     let value = match mode {
         LanguageMode::System => MODE_SYSTEM,
@@ -31,6 +28,90 @@ pub fn set_language_mode(mode: LanguageMode) {
         LanguageMode::English => MODE_ENGLISH,
     };
     MODE.store(value, Ordering::Relaxed);
+    refresh_bindings();
+}
+
+use gtk4::glib;
+use gtk4::prelude::*;
+use std::cell::RefCell;
+struct Binding {
+    object: glib::WeakRef<glib::Object>,
+    property: &'static str,
+    key: Key,
+    last: String,
+}
+struct Listener {
+    object: glib::WeakRef<glib::Object>,
+    update: Box<dyn Fn()>,
+}
+thread_local! {
+    static BINDINGS: RefCell<Vec<Binding>> = const { RefCell::new(Vec::new()) };
+    static LISTENERS: RefCell<Vec<Listener>> = const { RefCell::new(Vec::new()) };
+}
+pub fn bind(object: &impl IsA<glib::Object>, property: &'static str, key: Key) {
+    let object = object.upcast_ref::<glib::Object>();
+    object.set_property(property, text(key));
+    BINDINGS.with(|bindings| {
+        let mut bindings = bindings.borrow_mut();
+        bindings.retain(|b| {
+            b.object
+                .upgrade()
+                .is_some_and(|o| o != *object || b.property != property)
+        });
+        bindings.push(Binding {
+            object: object.downgrade(),
+            property,
+            key,
+            last: text(key).into(),
+        });
+    });
+}
+pub fn on_language(object: &impl IsA<glib::Object>, update: impl Fn() + 'static) {
+    LISTENERS.with(|listeners| {
+        listeners.borrow_mut().push(Listener {
+            object: object.upcast_ref::<glib::Object>().downgrade(),
+            update: Box::new(update),
+        })
+    });
+}
+fn refresh_bindings() {
+    let mut bindings = BINDINGS.with(|v| std::mem::take(&mut *v.borrow_mut()));
+    bindings.retain_mut(|binding| {
+        let Some(object) = binding.object.upgrade() else {
+            return false;
+        };
+        // A runtime value such as an album name takes ownership of this property.
+        if object
+            .property::<Option<String>>(binding.property)
+            .as_deref()
+            != Some(&binding.last)
+        {
+            return false;
+        }
+        binding.last = text(binding.key).into();
+        object.set_property(binding.property, &binding.last);
+        true
+    });
+    BINDINGS.with(|v| v.borrow_mut().extend(bindings));
+    let mut listeners = LISTENERS.with(|v| std::mem::take(&mut *v.borrow_mut()));
+    listeners.retain(|listener| {
+        if listener.object.upgrade().is_none() {
+            return false;
+        }
+        (listener.update)();
+        true
+    });
+    LISTENERS.with(|v| v.borrow_mut().extend(listeners));
+}
+pub fn button(key: Key) -> gtk4::Button {
+    let v = gtk4::Button::new();
+    bind(&v, "label", key);
+    v
+}
+pub fn label(key: Key) -> gtk4::Label {
+    let v = gtk4::Label::new(None);
+    bind(&v, "label", key);
+    v
 }
 
 pub fn language() -> Language {
@@ -77,6 +158,58 @@ pub fn language_from_tag(tag: &str) -> Language {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
+    Settings,
+    Appearance,
+    Language,
+    System,
+    Light,
+    Dark,
+    Chinese,
+    English,
+    Library,
+    OriginalCount,
+    OriginalBytes,
+    CacheBytes,
+    SettingsFailed,
+    Backup,
+    CreateBackup,
+    RestoreBackup,
+    BackupHint,
+    BackupPreview,
+    Merge,
+    Replace,
+    ReplaceHint,
+    BackupSaved,
+    BackupRestored,
+    Working,
+    Telegram,
+    Token,
+    TokenHint,
+    RememberToken,
+    ClearToken,
+    TokenFailed,
+    StickerPack,
+    ViewStickers,
+    ChooseStickers,
+    SelectNew,
+    ClearSelection,
+    ImportSelected,
+    ChangePack,
+    AlreadyImported,
+    InTrash,
+    DownloadAgain,
+    NoPreview,
+    ImportFailed,
+    ImportFinished,
+    ImportStopped,
+    NetworkFailed,
+    TokenInvalid,
+    RateLimited,
+    PackMissing,
+    LeaveImport,
+    LeaveImportHint,
+    FileTokenHint,
+    RestoreHintNew,
     Rename,
     MoveUp,
     MoveDown,
@@ -223,7 +356,10 @@ pub fn core(code: ErrorCode) -> &'static str {
         ErrorCode::Conflict => Key::FailureChanged,
         ErrorCode::PermissionDenied => Key::FailurePermission,
         ErrorCode::StorageFull => Key::FailureFull,
-        ErrorCode::Io => Key::FailureIo,
+        ErrorCode::Io | ErrorCode::Network | ErrorCode::Timeout | ErrorCode::RateLimited => {
+            Key::FailureIo
+        }
+        ErrorCode::Unauthorized => Key::FailurePermission,
         ErrorCode::UnsupportedSchema | ErrorCode::CorruptData | ErrorCode::Database => {
             Key::FailureLibrary
         }
@@ -337,6 +473,94 @@ pub fn file_size(bytes: u64) -> String {
 
 fn pair(key: Key) -> (&'static str, &'static str) {
     match key {
+        Key::Settings => ("设置", "Settings"),
+        Key::Appearance => ("外观", "Appearance"),
+        Key::Language => ("语言", "Language"),
+        Key::System => ("跟随系统", "System"),
+        Key::Light => ("浅色", "Light"),
+        Key::Dark => ("深色", "Dark"),
+        Key::Chinese => ("中文", "Chinese"),
+        Key::English => ("英文", "English"),
+        Key::Library => ("图片库", "Library"),
+        Key::OriginalCount => ("原图数量", "Original count"),
+        Key::OriginalBytes => ("原图占用", "Original storage"),
+        Key::CacheBytes => ("缓存占用", "Cache storage"),
+        Key::SettingsFailed => (
+            "无法读取或保存设置，请重试。",
+            "Could not read or save settings. Please retry.",
+        ),
+        Key::Backup => ("备份与恢复", "Backup and restore"),
+        Key::CreateBackup => ("创建备份", "Create backup"),
+        Key::RestoreBackup => ("恢复备份", "Restore backup"),
+        Key::BackupHint => (
+            "备份包含表情、合集、标签和原图。",
+            "Back up stickers, collections, tags, and originals.",
+        ),
+        Key::BackupPreview => ("备份内容", "Backup contents"),
+        Key::Merge => ("合并到当前库", "Merge into library"),
+        Key::Replace => ("替换当前库", "Replace library"),
+        Key::ReplaceHint => (
+            "当前图片库将被备份内容替换，继续吗？",
+            "Replace the current library with this backup?",
+        ),
+        Key::BackupSaved => ("备份已保存", "Backup saved"),
+        Key::BackupRestored => ("恢复完成", "Restore complete"),
+        Key::Working => ("正在处理…", "Working…"),
+        Key::Telegram => ("Telegram 导入", "Import from Telegram"),
+        Key::Token => ("Bot Token", "Bot Token"),
+        Key::TokenHint => (
+            "通过 Telegram 的 @BotFather 创建机器人，即可获取 Token。",
+            "Create a bot with @BotFather on Telegram to get a token.",
+        ),
+        Key::RememberToken => ("记住 Token", "Remember token"),
+        Key::ClearToken => ("清除 Token", "Clear token"),
+        Key::TokenFailed => (
+            "无法读取或保存 Token，请重试或清除。",
+            "Could not read or save the token. Retry or clear it.",
+        ),
+        Key::StickerPack => ("贴纸包名称或链接", "Sticker pack name or link"),
+        Key::ViewStickers => ("查看贴纸", "View stickers"),
+        Key::ChooseStickers => ("选一些喜欢的贴纸带回来", "Pick some stickers to bring back"),
+        Key::SelectNew => ("选择未导入的", "Select new stickers"),
+        Key::ClearSelection => ("清空选择", "Clear selection"),
+        Key::ImportSelected => ("导入所选", "Import selected"),
+        Key::ChangePack => ("换一个贴纸包", "Change pack"),
+        Key::AlreadyImported => ("已导入", "Imported"),
+        Key::InTrash => ("在回收站", "In trash"),
+        Key::DownloadAgain => ("可重新下载", "Download again"),
+        Key::NoPreview => ("暂无预览", "No preview"),
+        Key::ImportFailed => ("导入失败", "Import failed"),
+        Key::ImportFinished => ("导入完成", "Import complete"),
+        Key::ImportStopped => ("已停止导入", "Import stopped"),
+        Key::NetworkFailed => (
+            "暂时无法连接 Telegram，请检查网络后重试。",
+            "Could not connect to Telegram. Check your connection and retry.",
+        ),
+        Key::TokenInvalid => (
+            "Token 无效，请检查后重试。",
+            "Invalid token. Check it and retry.",
+        ),
+        Key::RateLimited => (
+            "请求太频繁，请稍后再试。",
+            "Too many requests. Please try again later.",
+        ),
+        Key::PackMissing => (
+            "找不到这个贴纸包，请检查名称或链接。",
+            "Sticker pack not found. Check the name or link.",
+        ),
+        Key::LeaveImport => ("停止并退出？", "Stop and leave?"),
+        Key::LeaveImportHint => (
+            "未完成的导入会停止，已经导入的表情会保留。",
+            "Unfinished imports will stop. Stickers already imported will stay.",
+        ),
+        Key::FileTokenHint => (
+            "系统密钥环不可用，Token 将保存在仅当前用户可读的本机文件中。",
+            "The system keyring is unavailable. The token will be stored in a local file readable only by you.",
+        ),
+        Key::RestoreHintNew => (
+            "恢复前请先停止导入；正在分享或复制的文件可能需要先释放。",
+            "Stop imports before restoring. Files being shared or copied may need to be released first.",
+        ),
         Key::Back => ("返回", "Back"),
         Key::Cancel => ("取消", "Cancel"),
         Key::Done => ("完成", "Done"),

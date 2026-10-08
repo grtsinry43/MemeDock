@@ -52,7 +52,7 @@ pub fn show(
         return;
     }
     let dialog = adw::Dialog::new();
-    dialog.set_title(i18n::text(Key::BatchOrganize));
+    i18n::bind(&dialog, "title", Key::BatchOrganize);
     dialog.set_content_width(420);
     let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     outer.append(&adw::HeaderBar::new());
@@ -148,7 +148,7 @@ pub fn show(
 }
 
 fn button(key: Key) -> gtk4::Button {
-    gtk4::Button::with_label(i18n::text(key))
+    i18n::button(key)
 }
 fn clear(column: &gtk4::Box) {
     while let Some(child) = column.first_child() {
@@ -169,7 +169,7 @@ fn choose(host: Host, mode: u8) {
         return;
     };
     clear(&column);
-    column.append(&gtk4::Label::new(Some(i18n::text(Key::SharePreparing))));
+    column.append(&i18n::label(Key::SharePreparing));
     glib::spawn_future_local(async move {
         if mode == 0 {
             let result = match host.library.collections(false) {
@@ -183,7 +183,7 @@ fn choose(host: Host, mode: u8) {
             match result {
                 Ok(values) => {
                     if values.is_empty() {
-                        column.append(&gtk4::Label::new(Some(i18n::text(Key::CollectionEmpty))));
+                        column.append(&i18n::label(Key::CollectionEmpty));
                     }
                     for value in values {
                         let button = gtk4::Button::with_label(value.name().as_str());
@@ -272,7 +272,7 @@ fn run(host: Host, action: BatchAction) {
     *host.current.borrow_mut() = Some(batch.controller());
     if let Some(column) = host.column.upgrade() {
         clear(&column);
-        column.append(&gtk4::Label::new(Some(i18n::text(Key::SharePreparing))));
+        column.append(&i18n::label(Key::SharePreparing));
         let spinner = adw::Spinner::new();
         column.append(&spinner);
         let cancel = button(Key::Cancel);
