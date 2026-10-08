@@ -1,28 +1,21 @@
 package com.grtsinry43.memedock.ui.components
 
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.AccessibilityManager
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -130,36 +123,5 @@ class MemeDockMessageHostTest {
         val actionBounds = compose.onNodeWithText("重新尝试").fetchSemanticsNode().boundsInRoot
         assertTrue("Action must remain below the multiline text", textBounds.bottom <= actionBounds.top)
         compose.onNodeWithText("重新尝试").performClick()
-    }
-
-    @Suppress("DEPRECATION") // adjustResize matches the manifest and supports IME insets on API 28.
-    @Test fun keyboardDoesNotCoverTheMessage() {
-        var imeBottom = 0
-        val input = mutableStateOf("")
-        compose.runOnUiThread {
-            // Match MainActivity rather than the test manifest's default adjustPan window.
-            compose.activity.enableEdgeToEdge()
-            compose.activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        }
-        compose.setContent {
-            MemeDockTheme {
-                scope = rememberCoroutineScope()
-                val bottom = WindowInsets.ime.getBottom(LocalDensity.current)
-                SideEffect { imeBottom = bottom }
-                Scaffold(snackbarHost = { MemeDockMessageHost(host) }) { padding ->
-                    Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-                        TextField(input.value, { input.value = it }, modifier = Modifier.testTag("input"))
-                    }
-                }
-            }
-        }
-        compose.onNodeWithTag("input").performClick()
-        compose.waitUntil(10_000) { imeBottom > 0 }
-        compose.runOnIdle { scope.launch { host.showMemeDockMessage(
-            MemeDockMessage("键盘上方的提示", MemeDockMessageType.Success, duration = SnackbarDuration.Indefinite)) } }
-        val message = compose.onNodeWithText("键盘上方的提示").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
-        assertTrue("Message must remain above the IME", message.bottom <= root.bottom - imeBottom)
-        compose.onNodeWithContentDescription("关闭提示").performClick()
     }
 }

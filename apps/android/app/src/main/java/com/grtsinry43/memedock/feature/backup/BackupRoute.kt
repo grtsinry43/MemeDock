@@ -113,9 +113,9 @@ fun BackupRoute(coordinator: BackupCoordinator, back: () -> Unit) {
 private fun Progress(phase: BackupPhase, cancel: () -> Unit) {
     val waitingForPicker = phase == BackupPhase.ChooseDestination || phase == BackupPhase.ChooseSource
     Row(Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.RowHeight).padding(start = 16.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapLarge)) {
+        Box(Modifier.size(MemeDockLayout.IconLarge), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(MemeDockLayout.IconMedium), strokeWidth = 2.dp)
         }
         Text(stringResource(when (phase) {
             BackupPhase.Creating -> R.string.backup_creating
@@ -135,13 +135,10 @@ private fun PreviewActions(merge: () -> Unit, replace: () -> Unit, cancel: () ->
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(stringResource(R.string.backup_merge_hint), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        Button(onClick = merge, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp).testTag("backup-merge"),
-            shape = MaterialTheme.shapes.medium) { Text(stringResource(R.string.backup_merge)) }
-        TextButton(onClick = replace, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("backup-replace"),
-            shape = MaterialTheme.shapes.medium) { Text(stringResource(R.string.backup_replace_action), color = colors.error) }
-        TextButton(onClick = cancel, modifier = Modifier.fillMaxWidth().height(52.dp), shape = MaterialTheme.shapes.medium) {
-            Text(stringResource(R.string.cancel), color = colors.onSurfaceVariant)
-        }
+        MemeDockButton(stringResource(R.string.backup_merge), merge, Modifier.padding(top = 8.dp).testTag("backup-merge"))
+        MemeDockTextButton(stringResource(R.string.backup_replace_action), replace, Modifier.testTag("backup-replace"),
+            destructive = true)
+        MemeDockTextButton(stringResource(R.string.cancel), cancel)
     }
 }
 

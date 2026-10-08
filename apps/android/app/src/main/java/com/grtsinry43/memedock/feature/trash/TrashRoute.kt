@@ -108,7 +108,7 @@ private fun RestoreGroup(title: String, icon: ImageVector, entries: List<Restore
         entries.forEach { entry ->
             row {
                 MemeDockRow(entry.name, icon = icon, trailing = {
-                    if (restoring == entry.id) CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(20.dp), strokeWidth = 2.dp)
+                    if (restoring == entry.id) CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(MemeDockLayout.IconMedium), strokeWidth = 2.dp)
                     else TextButton(onClick = entry.restore, enabled = restoring == null,
                         modifier = Modifier.testTag("restore:${entry.id}")) { Text(stringResource(R.string.restore)) }
                 })

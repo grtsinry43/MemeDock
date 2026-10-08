@@ -1,21 +1,19 @@
 package com.grtsinry43.memedock.feature.trash
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.data.library.*
 import com.grtsinry43.memedock.ui.components.*
 import com.grtsinry43.memedock.ui.failureCode
 import com.grtsinry43.memedock.ui.failureText
+import com.grtsinry43.memedock.ui.theme.MemeDockLayout
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -43,12 +41,12 @@ fun RestoreSheet(visible: Boolean, id: String, repository: ManagementRepository,
             history == null && loadError == null -> MemeDockSkeleton(
                 Modifier.padding(horizontal = 24.dp, vertical = 8.dp).fillMaxWidth(.6f).height(20.dp), MaterialTheme.shapes.extraSmall)
             history != null && (history.collection != null || history.tags.isNotEmpty()) -> {
-                Text(stringResource(R.string.restore_previous), style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+                MemeDockSectionHeader(stringResource(R.string.restore_previous), Modifier.padding(top = MemeDockLayout.GapSmall),
+                    inset = 24.dp)
                 FlowRow(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    history.collection?.let { PlaceChip(it.name, MemeDockIcons.Folder) }
-                    history.tags.forEach { PlaceChip(it.name, MemeDockIcons.Label) }
+                    history.collection?.let { MemeDockChip(it.name, icon = MemeDockIcons.Folder) }
+                    history.tags.forEach { MemeDockChip(it.name, icon = MemeDockIcons.Label) }
                 }
             }
         }
@@ -59,24 +57,7 @@ fun RestoreSheet(visible: Boolean, id: String, repository: ManagementRepository,
                 if (loadError != null) TextButton(onClick = { refresh++ }, enabled = !busy) { Text(stringResource(R.string.retry)) }
             }
         }
-        Button(
-            onClick = { if (!busy) restore() },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 20.dp).height(52.dp)
-                .testTag("confirm-restore-sticker"),
-            shape = MaterialTheme.shapes.medium,
-        ) {
-            if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-            else Text(stringResource(R.string.restore))
-        }
-    }
-}
-
-@Composable
-private fun PlaceChip(name: String, icon: ImageVector) {
-    val colors = MaterialTheme.colorScheme
-    Row(Modifier.heightIn(min = 32.dp).background(colors.surfaceContainer, MaterialTheme.shapes.small).padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Icon(icon, null, Modifier.size(16.dp), tint = colors.onSurfaceVariant)
-        Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        MemeDockButton(stringResource(R.string.restore), restore,
+            Modifier.padding(horizontal = 24.dp).padding(top = 20.dp).testTag("confirm-restore-sticker"), busy = busy)
     }
 }

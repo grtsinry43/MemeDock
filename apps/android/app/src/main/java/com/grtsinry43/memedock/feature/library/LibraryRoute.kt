@@ -30,7 +30,8 @@ import com.grtsinry43.memedock.ui.failureTextRes
 import com.grtsinry43.memedock.ui.findActivity
 
 @Composable
-fun HomeLibraryRoute(container: AppContainer, contentPadding: PaddingValues, open: (LibraryItem) -> Unit, openTrash: () -> Unit) {
+fun HomeLibraryRoute(container: AppContainer, contentPadding: PaddingValues, open: (LibraryItem) -> Unit, openTrash: () -> Unit,
+    openTelegram: () -> Unit) {
     val model: LibraryViewModel = viewModel(key = "library:home", factory = factory {
         LibraryViewModel(container.library, collections = container.library)
     })
@@ -61,7 +62,8 @@ fun HomeLibraryRoute(container: AppContainer, contentPadding: PaddingValues, ope
     BatchActionsSheet(batchSheet, { batchSheet = false }, batchModel, container.library)
     ImportSourceSheet(choosingSource, { choosingSource = false },
         { choosingSource = false; photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-        { choosingSource = false; files.launch(arrayOf("image/*")) })
+        { choosingSource = false; files.launch(arrayOf("image/*")) },
+        { choosingSource = false; openTelegram() })
 }
 
 /** The stickers of one collection or tag. [deleted] runs after the group itself moves to the trash. */
@@ -116,7 +118,7 @@ fun GroupLibraryRoute(container: AppContainer, group: StickerGroup, name: String
     ), reordering) {
         when (group) {
             is StickerGroup.Collection -> MemeDockEmptyState(stringResource(R.string.collection_empty),
-                stringResource(R.string.collection_empty_hint), icon = MemeDockIcons.Collections)
+                stringResource(R.string.collection_empty_hint), icon = MemeDockIcons.Folder)
             is StickerGroup.Tag -> MemeDockEmptyState(stringResource(R.string.tag_empty),
                 stringResource(R.string.tag_empty_hint), icon = MemeDockIcons.Label)
         }

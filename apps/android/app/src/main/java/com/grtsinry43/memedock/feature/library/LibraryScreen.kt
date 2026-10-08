@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -94,21 +93,19 @@ fun HomeLibraryScreen(
         contentPadding,
         header = {
             item(key = "title", span = { GridItemSpan(maxLineSpan) }, contentType = "title") {
-                Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.tab_stickers), style = MaterialTheme.typography.headlineLarge,
-                        modifier = Modifier.weight(1f).semantics { heading() })
+                MemeDockPageHeader(stringResource(R.string.tab_stickers), Modifier.bleed(GridGutter)) {
                     SelectionModeButton(actions)
                     FilledTonalIconButton(onClick = add, enabled = actions.selection?.busy != true,
                         modifier = Modifier.testTag("library-add")) {
-                        Icon(MemeDockIcons.Add, stringResource(R.string.library_add), Modifier.size(24.dp))
+                        Icon(MemeDockIcons.Add, stringResource(R.string.library_add), Modifier.size(MemeDockLayout.IconLarge))
                     }
                 }
             }
             stickyHeader(key = "controls", contentType = "controls") {
+                // The grid's item spacing adds to this padding, so the title, search, filters and stickers sit 12 dp apart.
                 Column(Modifier.fillMaxWidth().bleed(GridGutter).background(MaterialTheme.colorScheme.background)
-                    .padding(horizontal = GridGutter, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    .padding(horizontal = MemeDockLayout.PagePadding, vertical = MemeDockLayout.GapXSmall),
+                    verticalArrangement = Arrangement.spacedBy(MemeDockLayout.GapMedium)) {
                     SearchField(state.search, search)
                     FilterRow(state, select)
                     val shownNotice = rememberRetained(notice)
@@ -125,7 +122,7 @@ fun HomeLibraryScreen(
                 filter == LibraryFilter.Starred -> MemeDockEmptyState(stringResource(R.string.starred_empty),
                     stringResource(R.string.starred_empty_hint), icon = MemeDockIcons.Star)
                 filter is LibraryFilter.Collection -> MemeDockEmptyState(stringResource(R.string.collection_empty),
-                    stringResource(R.string.collection_empty_hint), icon = MemeDockIcons.Collections)
+                    stringResource(R.string.collection_empty_hint), icon = MemeDockIcons.Folder)
                 else -> MemeDockEmptyState(stringResource(R.string.library_empty), stringResource(R.string.library_empty_hint),
                     stringResource(R.string.import_photos), add, icon = MemeDockIcons.Mood)
             }
@@ -195,9 +192,9 @@ fun GroupLibraryScreen(
                         modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 12.dp, bottom = 8.dp).semantics { heading() })
                 }
                 if (reordering) item(key = "reorder-hint", span = { GridItemSpan(maxLineSpan) }, contentType = "hint") {
-                    Row(Modifier.padding(start = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                        Row(Modifier.padding(start = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (state.hasMore) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        if (state.hasMore) CircularProgressIndicator(Modifier.size(MemeDockLayout.IconSmall), strokeWidth = 2.dp)
                         Text(stringResource(if (state.hasMore) R.string.reorder_loading else R.string.reorder_grid_hint),
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -262,13 +259,13 @@ internal fun StickerGrid(
                 top = contentPadding.calculateTopPadding(),
                 bottom = contentPadding.calculateBottomPadding() + if (selecting) 72.dp else 16.dp,
             ),
-            horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapSmall),
-            verticalArrangement = Arrangement.spacedBy(MemeDockLayout.GapSmall),
+            horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapXSmall),
+            verticalArrangement = Arrangement.spacedBy(MemeDockLayout.GapXSmall),
         ) {
             header()
             when {
                 state.loading -> items(12, key = { "skeleton:$it" }, contentType = { "skeleton" }) {
-                    MemeDockSkeleton(Modifier.aspectRatio(1f))
+                    MemeDockSkeleton(Modifier.aspectRatio(1f).padding(MemeDockLayout.GapXSmall), MaterialTheme.shapes.small)
                 }
                 state.error != null -> item(key = "error", span = { GridItemSpan(maxLineSpan) }) {
                     Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
@@ -293,7 +290,7 @@ internal fun StickerGrid(
                                     enabled = reorder.enabled,
                                     onDragStarted = { reorder.started(item) },
                                     onDragStopped = reorder.stopped,
-                                ))
+                                ), lifted = dragging)
                         }
                     }
                     if (state.loadingMore || state.pageError != null) item(key = "footer", span = { GridItemSpan(maxLineSpan) }) {
@@ -329,17 +326,17 @@ private fun SearchField(value: String, search: (String) -> Unit) {
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
         decorationBox = { field ->
-            Row(Modifier.fillMaxWidth().height(44.dp).background(colors.surfaceContainer, MaterialTheme.shapes.small)
-                .padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(MemeDockIcons.Search, null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
-                Spacer(Modifier.width(8.dp))
+            Row(Modifier.fillMaxWidth().height(MemeDockLayout.FieldHeight).background(colors.surfaceContainer, MaterialTheme.shapes.small)
+                .padding(start = 16.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(MemeDockIcons.Search, null, Modifier.size(MemeDockLayout.IconMedium), tint = colors.onSurfaceVariant)
+                Spacer(Modifier.width(MemeDockLayout.GapSmall))
                 Box(Modifier.weight(1f)) {
                     if (value.isEmpty()) Text(stringResource(R.string.library_search), style = MaterialTheme.typography.bodyLarge,
                         color = colors.onSurfaceVariant)
                     field()
                 }
                 if (value.isNotEmpty()) IconButton(onClick = { search("") }, Modifier.size(36.dp)) {
-                    Icon(MemeDockIcons.Close, stringResource(R.string.clear_search), Modifier.size(18.dp), tint = colors.onSurfaceVariant)
+                    Icon(MemeDockIcons.Close, stringResource(R.string.clear_search), Modifier.size(MemeDockLayout.IconMedium), tint = colors.onSurfaceVariant)
                 }
             }
         },
@@ -375,11 +372,11 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
         style = MaterialTheme.typography.labelLarge,
         color = if (selected) colors.surfaceContainerLowest else colors.onSurface,
         maxLines = 1,
-        modifier = Modifier.height(32.dp)
-            .background(if (selected) colors.onSurface else colors.surfaceContainer, CircleShape)
-            .clip(CircleShape)
+        modifier = Modifier.height(MemeDockLayout.ChipHeight)
+            .background(if (selected) colors.onSurface else colors.surfaceContainer, MaterialTheme.shapes.small)
+            .clip(MaterialTheme.shapes.small)
             .selectable(selected, role = Role.Tab, onClick = onClick)
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = 16.dp)
             .wrapContentHeight(Alignment.CenterVertically),
     )
 }
@@ -389,18 +386,18 @@ private fun ImportNoticeRow(notice: ImportNotice, open: () -> Unit, stop: () -> 
     val colors = MaterialTheme.colorScheme
     val waiting = notice is ImportNotice.Waiting
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(MaterialTheme.shapes.small).background(colors.primary.copy(alpha = .10f))
+        Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.FieldHeight).clip(MaterialTheme.shapes.small).background(colors.primary.copy(alpha = .10f))
             .then(if (waiting) Modifier.clickable(role = Role.Button, onClick = open) else Modifier)
-            .padding(start = 14.dp, end = if (waiting) 10.dp else 4.dp).testTag("import-notice"),
+            .padding(start = 16.dp, end = if (waiting) 12.dp else 4.dp).testTag("import-notice"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapMedium),
     ) {
         when (notice) {
-            is ImportNotice.Preparing -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            is ImportNotice.Preparing -> CircularProgressIndicator(Modifier.size(MemeDockLayout.IconMedium), strokeWidth = 2.dp)
             is ImportNotice.Running -> CircularProgressIndicator(
                 progress = { if (notice.total == 0) 0f else notice.done.toFloat() / notice.total },
-                modifier = Modifier.size(16.dp), strokeWidth = 2.dp, trackColor = colors.primary.copy(alpha = .2f))
-            is ImportNotice.Waiting -> Icon(MemeDockIcons.Image, null, Modifier.size(18.dp), tint = colors.primary)
+                modifier = Modifier.size(MemeDockLayout.IconMedium), strokeWidth = 2.dp, trackColor = colors.primary.copy(alpha = .2f))
+            is ImportNotice.Waiting -> Icon(MemeDockIcons.Image, null, Modifier.size(MemeDockLayout.IconMedium), tint = colors.primary)
         }
         Text(
             when (notice) {
@@ -411,7 +408,7 @@ private fun ImportNoticeRow(notice: ImportNotice, open: () -> Unit, stop: () -> 
             style = MaterialTheme.typography.bodyMedium, color = colors.onSurface, modifier = Modifier.weight(1f),
         )
         val stopping = (notice as? ImportNotice.Running)?.stopping ?: (notice as? ImportNotice.Preparing)?.stopping
-        if (stopping == null) Icon(MemeDockIcons.ChevronRight, null, Modifier.size(18.dp), tint = colors.onSurfaceVariant)
+        if (stopping == null) Icon(MemeDockIcons.ChevronRight, null, Modifier.size(MemeDockLayout.IconMedium), tint = colors.onSurfaceVariant)
         else TextButton(onClick = stop, enabled = !stopping) {
             Text(stringResource(if (stopping) R.string.import_cancelling else R.string.import_cancel_remaining))
         }

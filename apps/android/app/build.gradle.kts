@@ -1,7 +1,41 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.aboutLibraries)
     id("com.grtsinry43.memedock.rust-bridge")
+}
+
+val licenseDefinitions = layout.buildDirectory.file("generated/aboutLibraries/export/aboutlibraries.json")
+
+aboutLibraries {
+    // Builds must not depend on network access; licenses come from the dependency metadata.
+    offlineMode = true
+    collect { configPath = file("aboutlibraries") }
+    export {
+        variant = "release"
+        outputFile = licenseDefinitions
+    }
+}
+
+abstract class LicenseResources : DefaultTask() {
+    @get:InputFile abstract val definitions: RegularFileProperty
+    @get:OutputDirectory abstract val resources: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val raw = resources.dir("raw").get().asFile.apply { deleteRecursively(); mkdirs() }
+        definitions.get().asFile.copyTo(raw.resolve("aboutlibraries.json"), overwrite = true)
+    }
+}
+
+// The 13.x Android integration needs the AppExtension that AGP 9 removed.
+val licenseResources = tasks.register<LicenseResources>("licenseResources") {
+    dependsOn("exportLibraryDefinitions")
+    definitions = licenseDefinitions
+}
+
+androidComponents {
+    onVariants { variant -> variant.sources.res?.addGeneratedSourceDirectory(licenseResources, LicenseResources::resources) }
 }
 
 android {
@@ -57,6 +91,7 @@ dependencies {
     implementation(libs.androidx.navigation3.ui)
     implementation(libs.haze)
     implementation(libs.reorderable)
+    implementation(libs.aboutlibraries.core)
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
     implementation(libs.kotlinx.coroutines.core)

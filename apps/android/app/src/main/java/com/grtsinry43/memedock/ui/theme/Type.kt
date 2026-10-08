@@ -10,7 +10,7 @@ private fun text(size: Int, lineHeight: Int, weight: FontWeight) = TextStyle(
     fontSize = size.sp, lineHeight = lineHeight.sp, letterSpacing = 0.sp,
 )
 
-private val PageTitle = text(28, 36, FontWeight.Bold)
+private val PageTitle = text(26, 34, FontWeight.Bold)
 private val SectionTitle = text(20, 28, FontWeight.SemiBold)
 private val RowTitle = text(16, 22, FontWeight.Medium)
 private val Body = text(14, 20, FontWeight.Normal)

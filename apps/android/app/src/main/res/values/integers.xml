@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Han glyphs read heavier than Latin at the same weight. -->
+    <integer name="page_title_weight">500</integer>
+</resources>

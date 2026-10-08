@@ -43,6 +43,7 @@ import com.grtsinry43.memedock.feature.library.GroupLibraryRoute
 import com.grtsinry43.memedock.feature.library.HomeLibraryRoute
 import com.grtsinry43.memedock.feature.library.StickerGroup
 import com.grtsinry43.memedock.feature.organize.OrganizeRoute
+import com.grtsinry43.memedock.feature.settings.LicensesRoute
 import com.grtsinry43.memedock.feature.settings.SettingsRoute
 import com.grtsinry43.memedock.feature.trash.TrashRoute
 import com.grtsinry43.memedock.ui.components.*
@@ -174,6 +175,7 @@ private fun MemeDockContent(container: AppContainer, messages: SnackbarHostState
                                     Destination.Trash -> TrashRoute(container, ::pop, open)
                                     Destination.Backup -> BackupRoute(container.backups, ::pop)
                                     Destination.TelegramImport -> com.grtsinry43.memedock.feature.telegram.TelegramImportRoute(container, ::pop)
+                                    Destination.Licenses -> LicensesRoute(::pop)
                                 }
                             }
                         }
@@ -204,11 +206,12 @@ private fun HomeScreen(container: AppContainer, tab: HomeTab, select: (HomeTab) 
                 contentKey = { it }, label = "home-tabs") { shownTab ->
                 tabs.SaveableStateProvider(shownTab.name) {
                     when (shownTab) {
-                        HomeTab.Stickers -> HomeLibraryRoute(container, bar, open) { push(Destination.Trash) }
+                        HomeTab.Stickers -> HomeLibraryRoute(container, bar, open, { push(Destination.Trash) },
+                            { push(Destination.TelegramImport) })
                         HomeTab.Organize -> OrganizeRoute(container, bar, { push(Destination.Collection(it.id, it.name)) },
                             { push(Destination.Tag(it.id, it.name)) }, { push(Destination.Trash) }, viewAll = { push(Destination.Collections) })
                         HomeTab.Mine -> SettingsRoute(container, bar, { push(Destination.Trash) }, { push(Destination.Backup) },
-                            { push(Destination.TelegramImport) })
+                            { push(Destination.Licenses) })
                     }
                 }
             }

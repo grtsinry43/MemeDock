@@ -36,7 +36,7 @@ fun MemeDockEmptyState(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (action != null && onAction != null) {
             Spacer(Modifier.height(20.dp))
-            Button(onClick = onAction, contentPadding = PaddingValues(horizontal = 24.dp)) { Text(action) }
+            Button(onClick = onAction, shape = MaterialTheme.shapes.small, contentPadding = PaddingValues(horizontal = 24.dp)) { Text(action) }
         }
     }
 }

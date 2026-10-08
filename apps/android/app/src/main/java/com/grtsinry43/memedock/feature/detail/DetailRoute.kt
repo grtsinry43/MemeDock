@@ -137,7 +137,7 @@ fun DetailRoute(id: String, container: AppContainer, initialItem: LibraryItem?, 
     }
     val detail = rememberRetained(state.detail)
     MemeDockSheet(more && state.detail?.deleted == false, { more = false }, title = detail?.title) {
-        MemeDockSheetAction(stringResource(R.string.organize), MemeDockIcons.Label,
+        MemeDockSheetAction(stringResource(R.string.organize), MemeDockIcons.Collections,
             { more = false; organizing = true }, supporting = stringResource(R.string.organize_hint))
         MemeDockSheetAction(stringResource(R.string.delete), MemeDockIcons.Delete, {
             more = false

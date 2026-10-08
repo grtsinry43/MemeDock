@@ -2,8 +2,6 @@ package com.grtsinry43.memedock.feature.organize
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CornerSize
@@ -15,17 +13,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,27 +54,21 @@ fun OrganizeScreen(state: OrganizeState, reordering: Boolean, actions: OrganizeA
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(bottom = contentPadding.calculateBottomPadding() + MemeDockLayout.SectionGap),
     ) {
-        Row(
-            Modifier.fillMaxWidth()
-                .padding(start = MemeDockLayout.PagePadding, end = 8.dp, top = 12.dp, bottom = 12.dp)
-                .heightIn(min = 48.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(stringResource(R.string.tab_organize), style = MaterialTheme.typography.headlineLarge,
-                modifier = Modifier.weight(1f).semantics { heading() })
+        MemeDockPageHeader(stringResource(R.string.tab_organize)) {
             if (reordering) TextButton(onClick = actions.finishReorder, modifier = Modifier.testTag("organize-reorder-done")) {
                 Text(stringResource(R.string.done))
             }
         }
         when {
             state.loading -> {
-                SectionTitle(stringResource(R.string.tab_collections))
-                MemeDockSkeleton(Modifier.padding(horizontal = MemeDockLayout.PagePadding).fillMaxWidth().height(168.dp),
-                    MaterialTheme.shapes.large)
+                MemeDockSectionHeader(stringResource(R.string.tab_collections))
+                Row(Modifier.padding(horizontal = MemeDockLayout.PagePadding), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    repeat(3) { CollectionCardSkeleton(Modifier.width(CollectionCardWidth)) }
+                }
             }
             state.error != null -> Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
                 MemeDockEmptyState(stringResource(R.string.organize_load_failed), failureText(state.error),
-                    stringResource(R.string.retry), actions.retry, icon = MemeDockIcons.Folder)
+                    stringResource(R.string.retry), actions.retry, icon = MemeDockIcons.Alert)
             }
             else -> {
                 if (reordering) ReorderCollections(state.collections, actions.move)
@@ -93,20 +82,20 @@ fun OrganizeScreen(state: OrganizeState, reordering: Boolean, actions: OrganizeA
 
 @Composable
 private fun Collections(state: OrganizeState, actions: OrganizeActions, loader: ImageLoader, thumbnail: suspend (String) -> String) {
-    Row(Modifier.fillMaxWidth().padding(start = MemeDockLayout.PagePadding, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(stringResource(R.string.tab_collections), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-        TextButton(onClick = actions.viewAll) { Text(stringResource(R.string.view_all_collections)) }
-    }
+    MemeDockSectionHeader(stringResource(R.string.tab_collections), action = stringResource(R.string.view_all_collections),
+        onAction = actions.viewAll)
     val summaries = remember(state.summaries) { state.summaries.associateBy { it.collection.id } }
     LazyRow(contentPadding = PaddingValues(horizontal = MemeDockLayout.PagePadding), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         items(state.collections, key = { it.id }) { collection ->
             val summary = summaries[collection.id] ?: return@items
             CollectionCard(summary, loader, thumbnail, { actions.openCollection(collection) },
-                { actions.more(OrganizeItem.Collection(collection)) }, Modifier.width(152.dp))
+                { actions.more(OrganizeItem.Collection(collection)) }, Modifier.width(CollectionCardWidth))
+        }
+        if (state.editing != OrganizeEdit.NewCollection) item(key = "new") {
+            NewCollectionCard({ actions.edit(OrganizeEdit.NewCollection) }, Modifier.width(CollectionCardWidth))
         }
     }
-    TextButton(onClick = { actions.edit(OrganizeEdit.NewCollection) }, modifier = Modifier.padding(horizontal = 8.dp)) { Text(stringResource(R.string.new_collection)) }
-    CollectionEditor(state, actions)
+    CollectionEditor(state, actions, Modifier.padding(horizontal = MemeDockLayout.PagePadding).padding(top = MemeDockLayout.GapMedium))
 }
 
 @Composable
@@ -116,7 +105,7 @@ private fun ReorderCollections(collections: List<LibraryCollection>, move: (Int,
     val corners = MaterialTheme.shapes.large
     val moveUp = stringResource(R.string.move_up)
     val moveDown = stringResource(R.string.move_down)
-    SectionTitle(stringResource(R.string.tab_collections))
+    MemeDockSectionHeader(stringResource(R.string.tab_collections), inset = MemeDockLayout.PagePadding + 16.dp)
     ReorderableColumn(
         list = collections,
         onSettle = move,
@@ -143,8 +132,8 @@ private fun ReorderCollections(collections: List<LibraryCollection>, move: (Int,
                         if (index > 0 && !dragging) HorizontalDivider(Modifier.padding(start = 16.dp), MemeDockLayout.Hairline,
                             colors.outlineVariant)
                         Row(Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.RowHeight).padding(start = 16.dp, end = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Icon(MemeDockIcons.Folder, null, Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapLarge)) {
+                            Icon(MemeDockIcons.Folder, null, Modifier.size(MemeDockLayout.IconLarge), tint = colors.onSurfaceVariant)
                             Text(collection.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Icon(MemeDockIcons.DragHandle, null,
@@ -169,14 +158,16 @@ private fun ReorderCollections(collections: List<LibraryCollection>, move: (Int,
 @Composable
 private fun Tags(state: OrganizeState, actions: OrganizeActions) {
     val editing = state.editing
-    SectionTitle(stringResource(R.string.tags_title))
+    MemeDockSectionHeader(stringResource(R.string.tags_title))
     FlowRow(Modifier.fillMaxWidth().padding(horizontal = MemeDockLayout.PagePadding),
         horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.tags.forEach { tag ->
-            TagChip(tag, (editing as? OrganizeItem.Tag)?.value?.id == tag.id, { actions.openTag(tag) },
-                { actions.more(OrganizeItem.Tag(tag)) })
+            MemeDockChip(tag.name, Modifier.testTag("tag:${tag.id}"), accent = (editing as? OrganizeItem.Tag)?.value?.id == tag.id,
+                container = MaterialTheme.colorScheme.surfaceContainerLowest,
+                onLongClick = { actions.more(OrganizeItem.Tag(tag)) }, onClick = { actions.openTag(tag) })
         }
-        if (editing != OrganizeEdit.NewTag) AddTagChip { actions.edit(OrganizeEdit.NewTag) }
+        if (editing != OrganizeEdit.NewTag) MemeDockAddChip(stringResource(R.string.new_tag), { actions.edit(OrganizeEdit.NewTag) },
+            Modifier.testTag("organize-new-tag"))
     }
     if (editing == OrganizeEdit.NewTag || editing is OrganizeItem.Tag) key(editing) {
         MemeDockInlineEdit(
@@ -193,49 +184,7 @@ private fun Tags(state: OrganizeState, actions: OrganizeActions) {
 }
 
 @Composable
-private fun TagChip(tag: LibraryTag, editing: Boolean, open: () -> Unit, more: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val haptics = LocalHapticFeedback.current
-    Text(
-        tag.name,
-        style = MaterialTheme.typography.bodyMedium,
-        color = if (editing) colors.primary else colors.onSurface,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.heightIn(min = 36.dp).clip(MaterialTheme.shapes.small)
-            .background(if (editing) colors.primary.copy(alpha = .12f) else colors.surfaceContainerLowest)
-            .combinedClickable(role = Role.Button, onLongClickLabel = stringResource(R.string.more_actions),
-                onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); more() }, onClick = open)
-            .padding(horizontal = 14.dp)
-            .wrapContentHeight(Alignment.CenterVertically)
-            .testTag("tag:${tag.id}"),
-    )
-}
-
-@Composable
-private fun AddTagChip(onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        Modifier.heightIn(min = 36.dp).clip(MaterialTheme.shapes.small).background(colors.primary.copy(alpha = .10f))
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(start = 8.dp, end = 12.dp).testTag("organize-new-tag"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Icon(MemeDockIcons.Add, null, Modifier.size(16.dp), tint = colors.primary)
-        Text(stringResource(R.string.new_tag), style = MaterialTheme.typography.bodyMedium, color = colors.primary)
-    }
-}
-
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = MemeDockLayout.PagePadding + 16.dp, bottom = 8.dp).semantics { heading() })
-}
-
-@Composable
 private fun SectionFooter(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = MemeDockLayout.PagePadding + 16.dp, end = MemeDockLayout.PagePadding + 16.dp,
-            top = 8.dp))
+        modifier = Modifier.padding(horizontal = MemeDockLayout.PagePadding).padding(top = 8.dp))
 }

@@ -10,13 +10,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import com.grtsinry43.memedock.R
@@ -162,10 +160,8 @@ private fun DetailBody(detail: StickerDetails, state: DetailUiState, editing: De
         }
         if (detail.animated && detail.mime == "image/png") Text(stringResource(R.string.apng_first_frame),
             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-        if (detail.originalError != null && hasThumbnail) Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(failureText(detail.originalError), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = colors.error)
-            TextButton(onClick = actions.retry) { Text(stringResource(R.string.preview_retry)) }
-        }
+        if (detail.originalError != null && hasThumbnail) MemeDockSheetError(failureText(detail.originalError), inset = 0.dp,
+            retryLabel = stringResource(R.string.preview_retry), retry = actions.retry)
         if (detail.deleted) Text(stringResource(R.string.restore_hint), style = MaterialTheme.typography.bodyMedium,
             color = colors.onSurfaceVariant)
         else Relations(detail, enabled = editable && editing == null && !state.managing, actions.organize)
@@ -183,29 +179,12 @@ private fun DetailBody(detail: StickerDetails, state: DetailUiState, editing: De
 private fun Relations(detail: StickerDetails, enabled: Boolean, organize: () -> Unit) {
     FlowRow(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        detail.collection?.let { RelationChip(it.name, MemeDockIcons.Folder, enabled, organize) }
-        detail.tags.forEach { RelationChip(it.name, MemeDockIcons.Label, enabled, organize) }
+        val container = MaterialTheme.colorScheme.surfaceContainerLowest
+        detail.collection?.let { MemeDockChip(it.name, icon = MemeDockIcons.Folder, enabled = enabled, container = container, onClick = organize) }
+        detail.tags.forEach { MemeDockChip(it.name, icon = MemeDockIcons.Label, enabled = enabled, container = container, onClick = organize) }
         val empty = detail.collection == null && detail.tags.isEmpty()
-        RelationChip(stringResource(if (empty) R.string.organize_hint else R.string.organize), MemeDockIcons.Add, enabled, organize,
-            accent = true, modifier = Modifier.testTag("detail-organize"))
-    }
-}
-
-@Composable
-private fun RelationChip(label: String, icon: ImageVector, enabled: Boolean, onClick: () -> Unit,
-    modifier: Modifier = Modifier, accent: Boolean = false) {
-    val colors = MaterialTheme.colorScheme
-    val content = if (accent) colors.primary else colors.onSurface
-    Row(
-        modifier.heightIn(min = 32.dp).clip(MaterialTheme.shapes.small)
-            .background(if (accent) colors.primary.copy(alpha = .10f) else colors.surfaceContainerLowest)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(start = 10.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(icon, null, Modifier.size(16.dp), tint = if (accent) content else colors.onSurfaceVariant)
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = content, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        MemeDockAddChip(stringResource(if (empty) R.string.organize_hint else R.string.organize), organize,
+            Modifier.testTag("detail-organize"), enabled = enabled)
     }
 }
 
@@ -221,10 +200,8 @@ private fun DetailBar(detail: StickerDetails, state: DetailUiState, choice: Expo
             verticalArrangement = Arrangement.spacedBy(MemeDockLayout.GapSmall),
         ) {
             if (detail.deleted) {
-                Button(onClick = actions.restore, enabled = !state.managing, shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.fillMaxWidth().height(52.dp).testTag("restore-sticker")) {
-                    Text(stringResource(R.string.restore))
-                }
+                MemeDockButton(stringResource(R.string.restore), actions.restore, Modifier.testTag("restore-sticker"),
+                    enabled = !state.managing)
                 return@Column
             }
             val ready = outputsReady && !state.managing && detail.originalError == null
@@ -243,22 +220,13 @@ private fun DetailBar(detail: StickerDetails, state: DetailUiState, choice: Expo
                     }
                 }
             }
-            Button(onClick = { if (!state.sharing) actions.share(false) }, enabled = ready, shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth().height(52.dp).testTag("share-sticker")) {
-                if (state.sharing) {
-                    CircularProgressIndicator(Modifier.size(18.dp), color = colors.onPrimary, strokeWidth = 2.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text(stringResource(if (state.saving) R.string.image_saving else R.string.share_preparing))
-                } else {
-                    Icon(MemeDockIcons.Share, null, Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(if (choice == ExportChoice.Original || firstFrameOnly) R.string.share_original else R.string.share_sticker))
-                }
-            }
-            if (firstFrameOnly) TextButton(onClick = { actions.share(true) }, enabled = ready && !state.sharing,
-                modifier = Modifier.fillMaxWidth().testTag("share-first-frame")) {
-                Text(stringResource(R.string.share_first_frame_as, stringResource(choice.titleResource())))
-            }
+            MemeDockButton(
+                stringResource(if (choice == ExportChoice.Original || firstFrameOnly) R.string.share_original else R.string.share_sticker),
+                { actions.share(false) }, Modifier.testTag("share-sticker"), enabled = ready, busy = state.sharing,
+                busyText = stringResource(if (state.saving) R.string.image_saving else R.string.share_preparing), icon = MemeDockIcons.Share,
+            )
+            if (firstFrameOnly) MemeDockTextButton(stringResource(R.string.share_first_frame_as, stringResource(choice.titleResource())),
+                { actions.share(true) }, Modifier.testTag("share-first-frame"), enabled = ready && !state.sharing)
         }
     }
 }
@@ -267,14 +235,16 @@ private fun DetailBar(detail: StickerDetails, state: DetailUiState, choice: Expo
 private fun PresetPill(choice: ExportChoice, enabled: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(
-        Modifier.heightIn(min = 36.dp).clip(MaterialTheme.shapes.small).background(colors.surfaceContainer)
+        Modifier.heightIn(min = MemeDockLayout.ChipHeight).clip(MaterialTheme.shapes.small).background(colors.surfaceContainer)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(start = 12.dp, end = 8.dp).testTag("choose-export-preset"),
+            .padding(start = 14.dp, end = 10.dp).testTag("choose-export-preset"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        val disabled = colors.onSurface.copy(alpha = .38f)
         Text(stringResource(choice.titleResource()), style = MaterialTheme.typography.bodyMedium,
-            color = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = .38f))
-        Icon(MemeDockIcons.ExpandMore, stringResource(R.string.export_choose), Modifier.size(18.dp), tint = colors.onSurfaceVariant)
+            color = if (enabled) colors.onSurface else disabled)
+        Icon(MemeDockIcons.ExpandMore, stringResource(R.string.export_choose), Modifier.size(MemeDockLayout.IconMedium),
+            tint = if (enabled) colors.onSurfaceVariant else disabled)
     }
 }

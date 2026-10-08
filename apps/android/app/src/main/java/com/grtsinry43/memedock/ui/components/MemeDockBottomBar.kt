@@ -48,10 +48,10 @@ fun MemeDockBottomBar(selected: HomeTab, select: (HomeTab) -> Unit, glass: HazeS
                     verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
                 ) {
                     Icon(when (tab) {
-                        HomeTab.Stickers -> MemeDockIcons.Mood
-                        HomeTab.Organize -> MemeDockIcons.Collections
-                        HomeTab.Mine -> MemeDockIcons.Person
-                    }, null, Modifier.size(24.dp), tint = color)
+                        HomeTab.Stickers -> if (active) MemeDockIcons.MoodFilled else MemeDockIcons.Mood
+                        HomeTab.Organize -> if (active) MemeDockIcons.CollectionsFilled else MemeDockIcons.Collections
+                        HomeTab.Mine -> if (active) MemeDockIcons.PersonFilled else MemeDockIcons.Person
+                    }, null, Modifier.size(MemeDockLayout.IconLarge), tint = color)
                     Text(stringResource(when (tab) {
                         HomeTab.Stickers -> R.string.tab_stickers
                         HomeTab.Organize -> R.string.tab_organize

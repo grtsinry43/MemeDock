@@ -19,6 +19,8 @@ annotation = "1.10.0"
 navigation3 = "1.2.0"
 haze = "1.7.2"
 reorderable = "3.1.0"
+# 14.x requires Kotlin 2.3 and 15.x requires Kotlin 2.4.
+aboutLibraries = "13.1.0"
 
 [libraries]
 material-symbols = { module = "com.composables:icons-material-symbols-rounded-android", version.ref = "materialSymbols" }
@@ -33,6 +35,7 @@ androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runt
 androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "navigation3" }
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
+aboutlibraries-core = { module = "com.mikepenz:aboutlibraries-core", version.ref = "aboutLibraries" }
 androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "annotation" }
 jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -57,3 +60,4 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+aboutLibraries = { id = "com.mikepenz.aboutlibraries.plugin", version.ref = "aboutLibraries" }

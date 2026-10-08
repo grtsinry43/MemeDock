@@ -48,7 +48,7 @@ class DetailScreenTest {
         try {
             compose.setContent {
                 MemeDockTheme { if (visible.value) StickerPreview(StickerDetails("animation", "动图测试", "", "fixture.$extension", "image/$extension", 12, 8, file.length(), true, false,
-                    emptyList(), emptyList(), file.path, null), loader, playing.value) }
+                    emptyList(), null, file.path, null), loader, playing.value) }
             }
             compose.waitUntil(10_000) { decoded.get()?.child is AnimatedImageDrawable }
             val wrapper = requireNotNull(decoded.get())

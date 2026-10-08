@@ -10,12 +10,14 @@ import com.grtsinry43.memedock.ui.components.MemeDockSheet
 import com.grtsinry43.memedock.ui.components.MemeDockSheetAction
 
 @Composable
-fun ImportSourceSheet(visible: Boolean, dismiss: () -> Unit, photos: () -> Unit, files: () -> Unit) {
+fun ImportSourceSheet(visible: Boolean, dismiss: () -> Unit, photos: () -> Unit, files: () -> Unit, telegram: () -> Unit) {
     MemeDockSheet(visible, dismiss, title = stringResource(R.string.import_photos),
         subtitle = stringResource(R.string.import_source_description)) {
         MemeDockSheetAction(stringResource(R.string.import_source_photos), MemeDockIcons.Image, photos,
             Modifier.testTag("import-source-photos"), supporting = stringResource(R.string.import_source_photos_hint))
         MemeDockSheetAction(stringResource(R.string.import_files), MemeDockIcons.Folder, files,
             Modifier.testTag("import-source-files"), supporting = stringResource(R.string.import_source_files_hint))
+        MemeDockSheetAction(stringResource(R.string.import_source_telegram), MemeDockIcons.Send, telegram,
+            Modifier.testTag("import-source-telegram"), supporting = stringResource(R.string.import_source_telegram_hint))
     }
 }

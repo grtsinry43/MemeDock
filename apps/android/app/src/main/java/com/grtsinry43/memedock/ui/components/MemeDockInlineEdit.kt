@@ -72,9 +72,9 @@ fun MemeDockInlineEdit(
             lineLimits = if (multiline) TextFieldLineLimits.MultiLine(1, 6) else TextFieldLineLimits.SingleLine,
             decorator = { field ->
                 Row(
-                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.FieldHeight)
                         .background(if (error != null) colors.errorContainer else colors.surfaceContainer, MaterialTheme.shapes.small)
-                        .padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
+                        .padding(start = 16.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.weight(1f)) {
@@ -83,13 +83,13 @@ fun MemeDockInlineEdit(
                         field()
                     }
                     when {
-                        busy -> CircularProgressIndicator(Modifier.padding(horizontal = 6.dp).size(18.dp), strokeWidth = 2.dp)
+                        busy -> CircularProgressIndicator(Modifier.padding(horizontal = 6.dp).size(MemeDockLayout.IconMedium), strokeWidth = 2.dp)
                         // The return key adds a line here, so the field needs its own way to finish.
                         multiline -> Icon(MemeDockIcons.Check, stringResource(R.string.done),
-                            Modifier.size(28.dp).clickable(role = Role.Button) { finish() }.padding(4.dp), tint = colors.primary)
+                            Modifier.size(32.dp).clickable(role = Role.Button) { finish() }.padding(6.dp), tint = colors.primary)
                         state.text.isNotEmpty() -> Icon(MemeDockIcons.Close, stringResource(R.string.clear),
-                            Modifier.size(28.dp).clickable(role = Role.Button) { state.edit { replace(0, length, "") } }
-                                .padding(5.dp), tint = colors.onSurfaceVariant)
+                            Modifier.size(32.dp).clickable(role = Role.Button) { state.edit { replace(0, length, "") } }
+                                .padding(6.dp), tint = colors.onSurfaceVariant)
                     }
                 }
             },
@@ -99,7 +99,10 @@ fun MemeDockInlineEdit(
     }
 }
 
-/** An "add" row that becomes an inline field; the caller owns [editing] and leaves it once creation succeeds. */
+/**
+ * An "add" row that becomes an inline field; the caller owns [editing] and leaves it once creation succeeds.
+ * Insets match [MemeDockSheetChoice], so the row lines up with the options it adds to.
+ */
 @Composable
 fun MemeDockInlineCreate(
     label: String,
@@ -114,15 +117,15 @@ fun MemeDockInlineCreate(
 ) {
     if (editing) {
         MemeDockInlineEdit("", placeholder, onCreate, onCancel,
-            modifier.padding(horizontal = MemeDockLayout.PagePadding, vertical = 4.dp), busy = busy, error = error)
+            modifier.padding(horizontal = 24.dp, vertical = 4.dp), busy = busy, error = error)
     } else {
         Row(
             modifier.fillMaxWidth().heightIn(min = MemeDockLayout.RowHeight)
-                .clickable(role = Role.Button, onClick = onStart).padding(horizontal = MemeDockLayout.PagePadding),
+                .clickable(role = Role.Button, onClick = onStart).padding(horizontal = 24.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapLarge),
         ) {
-            Icon(MemeDockIcons.Add, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+            Icon(MemeDockIcons.Add, null, Modifier.size(MemeDockLayout.IconLarge), tint = MaterialTheme.colorScheme.primary)
             Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
         }
     }

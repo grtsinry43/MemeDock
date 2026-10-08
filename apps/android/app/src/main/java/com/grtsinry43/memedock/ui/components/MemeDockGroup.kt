@@ -15,8 +15,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -38,9 +36,7 @@ fun MemeDockGroup(
 ) {
     val rows = MemeDockGroupScope().apply(content).rows
     Column(modifier.fillMaxWidth().padding(horizontal = horizontalPadding)) {
-        if (title != null) Text(title, style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, bottom = 8.dp).semantics { heading() })
+        if (title != null) MemeDockSectionHeader(title, inset = 16.dp)
         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLowest) {
             Column {
                 rows.forEachIndexed { index, row ->
@@ -89,9 +85,9 @@ fun MemeDockRow(
             })
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapLarge),
     ) {
-        if (icon != null) Icon(icon, null, Modifier.size(22.dp),
+        if (icon != null) Icon(icon, null, Modifier.size(MemeDockLayout.IconLarge),
             tint = if (destructive || !enabled) titleColor else colors.onSurfaceVariant)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, color = titleColor,
@@ -103,7 +99,7 @@ fun MemeDockRow(
             maxLines = 1)
         when {
             trailing != null -> trailing()
-            onClick != null && !destructive -> Icon(MemeDockIcons.ChevronRight, null, Modifier.size(20.dp),
+            onClick != null && !destructive -> Icon(MemeDockIcons.ChevronRight, null, Modifier.size(MemeDockLayout.IconMedium),
                 tint = if (enabled) colors.outline else titleColor)
         }
     }

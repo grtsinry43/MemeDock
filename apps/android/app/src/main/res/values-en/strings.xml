@@ -134,6 +134,8 @@
     <string name="import_source_photos_hint">Select from photo library (multiple selection supported)</string>
     <string name="import_files">Files</string>
     <string name="import_source_files_hint">Select from device files or downloads</string>
+    <string name="import_source_telegram">Telegram</string>
+    <string name="import_source_telegram_hint">Enter a sticker pack name, then pick stickers</string>
     <string name="import_preparing">Processing…</string>
     <string name="import_running_progress">Importing %1$d of %2$d</string>
     <string name="import_waiting_count">%1$d stickers pending confirmation</string>
@@ -175,6 +177,8 @@
     <string name="tag_empty_hint">Touch and hold a sticker and select Organize to add tags</string>
     <string name="tag_deleted">Tag moved to Trash</string>
     <string name="no_collections_hint">No collections yet. Create one below.</string>
+    <string name="collections_empty">No collections yet</string>
+    <string name="collections_empty_hint">Group similar stickers to find them faster</string>
     <string name="select_tags">Select Tags</string>
     <string name="reorder_grid_hint">Touch and hold a sticker to drag and reorder</string>
     <string name="reorder_loading">Loading stickers…</string>
@@ -206,7 +210,13 @@
     <string name="settings_original_count">Original stickers</string>
     <string name="settings_saved_originals">Storage used</string>
     <string name="settings_cache_usage">Cache used</string>
-    <string name="settings_cache_usage_hint">Thumbnails and temporary sharing files</string>
+    <string name="settings_cache_footer">Cache includes thumbnails and temporary sharing files</string>
+    <string name="settings_general">General</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version</string>
+    <string name="settings_licenses">Open-source licenses</string>
+    <string name="licenses_load_failed">Could not read the license list</string>
+    <string name="licenses_open_failed">No app can open this link</string>
 
     <!-- Backup -->
     <string name="backup_title">Backup &amp; Restore</string>
@@ -262,6 +272,7 @@
     <string name="remove_tags">Remove tags</string>
     <string name="batch_progress">Processed %1$d of %2$d</string>
     <string name="batch_result">%1$d completed, %2$d failed, %3$d remaining</string>
+    <string name="batch_no_tags">No tags yet</string>
     <string name="selected">Selected</string>
     <string name="not_selected">Not selected</string>
     <string name="view_all_collections">View all</string>

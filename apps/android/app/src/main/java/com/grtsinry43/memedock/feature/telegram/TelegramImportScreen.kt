@@ -1,5 +1,8 @@
 package com.grtsinry43.memedock.feature.telegram
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
@@ -10,6 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -30,9 +35,12 @@ import com.grtsinry43.memedock.data.telegram.*
 import com.grtsinry43.memedock.ui.components.*
 import com.grtsinry43.memedock.ui.failureText
 import com.grtsinry43.memedock.ui.theme.MemeDockLayout
+import com.grtsinry43.memedock.ui.theme.MemeDockMotion
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.CancellationException
 import java.io.File
+
+private val GridGutter = 12.dp
 
 @Composable
 fun TelegramImportScreen(state: TelegramImportState, model: TelegramImportViewModel, imageLoader: ImageLoader, back: () -> Unit) {
@@ -47,36 +55,36 @@ fun TelegramImportScreen(state: TelegramImportState, model: TelegramImportViewMo
         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
         LazyVerticalGrid(columns = GridCells.Adaptive(104.dp), state = grid,
             modifier = Modifier.fillMaxSize().glassSource(glass).testTag("telegram-grid"),
-            contentPadding = PaddingValues(top = top + 8.dp, bottom = bottom + if (pack == null) 24.dp else 100.dp)) {
+            contentPadding = PaddingValues(start = GridGutter, end = GridGutter, top = top,
+                bottom = bottom + if (pack == null) MemeDockLayout.SectionGap else 88.dp),
+            horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapXSmall),
+            verticalArrangement = Arrangement.spacedBy(MemeDockLayout.GapXSmall)) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(Modifier.padding(horizontal = MemeDockLayout.PagePadding, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(pack?.title ?: stringResource(R.string.telegram_title), style = MaterialTheme.typography.headlineLarge)
+                Column(Modifier.padding(horizontal = MemeDockLayout.PagePadding - GridGutter).padding(top = MemeDockLayout.GapSmall,
+                    bottom = MemeDockLayout.GapSmall), verticalArrangement = Arrangement.spacedBy(MemeDockLayout.GapMedium)) {
                     if (pack == null) {
                         TokenInputs(state, model)
-                        OutlinedTextField(state.name, model::name, Modifier.fillMaxWidth().testTag("telegram-pack"),
-                            enabled = !state.busy, singleLine = true, label = { Text(stringResource(R.string.telegram_pack)) },
-                            placeholder = { Text(stringResource(R.string.telegram_pack_placeholder)) }, shape = MaterialTheme.shapes.medium)
+                        MemeDockTextField(state.name, model::name, stringResource(R.string.telegram_pack), Modifier.testTag("telegram-pack"),
+                            enabled = !state.busy, placeholder = stringResource(R.string.telegram_pack_placeholder))
                         if (state.loading) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                                Text(stringResource(R.string.telegram_loading), Modifier.weight(1f).padding(start = 12.dp))
+                            Row(Modifier.heightIn(min = MemeDockLayout.ButtonHeight), verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(Modifier.size(MemeDockLayout.IconMedium), strokeWidth = 2.dp)
+                                Text(stringResource(R.string.telegram_loading), Modifier.weight(1f).padding(start = MemeDockLayout.GapMedium))
                                 TextButton(onClick = model::cancel) { Text(stringResource(R.string.cancel)) }
                             }
-                        } else Button(onClick = { keyboard?.hide(); model.load() },
-                            enabled = !state.busy && state.token.isNotBlank() && state.name.isNotBlank(),
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("telegram-load"), shape = MaterialTheme.shapes.medium) {
-                            Text(stringResource(R.string.telegram_load))
-                        }
+                        } else MemeDockButton(stringResource(R.string.telegram_load), { keyboard?.hide(); model.load() },
+                            Modifier.testTag("telegram-load"),
+                            enabled = !state.busy && state.token.isNotBlank() && state.name.isNotBlank())
                     } else {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.telegram_choose), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            TextButton(onClick = model::changePack, enabled = !state.busy) { Text(stringResource(R.string.telegram_change_pack)) }
-                        }
-                        Row {
-                            TextButton(onClick = model::selectAll, enabled = !state.busy) { Text(stringResource(R.string.telegram_select_new)) }
-                            TextButton(onClick = model::clearSelection, enabled = !state.busy && state.selected.isNotEmpty()) { Text(stringResource(R.string.clear)) }
+                        Column {
+                            MemeDockSectionHeader(stringResource(R.string.telegram_choose), inset = 0.dp,
+                                action = stringResource(R.string.telegram_change_pack), actionEnabled = !state.busy,
+                                onAction = model::changePack)
+                            Row(horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapSmall)) {
+                                MemeDockChip(stringResource(R.string.telegram_select_new), enabled = !state.busy, onClick = model::selectAll)
+                                MemeDockChip(stringResource(R.string.clear), enabled = !state.busy && state.selected.isNotEmpty(),
+                                    onClick = model::clearSelection)
+                            }
                         }
                         if (!state.importing) state.report?.let { report -> ImportSummary(report) }
                     }
@@ -90,26 +98,22 @@ fun TelegramImportScreen(state: TelegramImportState, model: TelegramImportViewMo
             }
         }
         val scrolled by remember { derivedStateOf { grid.firstVisibleItemIndex > 0 || grid.firstVisibleItemScrollOffset > 0 } }
-        MemeDockTopBar(stringResource(R.string.telegram_title), glass, back = back, scrolled = scrolled)
-        if (pack != null) Surface(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(), shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 0.dp, shadowElevation = 1.dp) {
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(if (state.importing) stringResource(R.string.telegram_progress, state.report?.completed ?: 0,
-                        state.report?.items?.size ?: 0) else stringResource(R.string.selection_count, state.selected.size),
-                        style = MaterialTheme.typography.labelLarge)
-                    if (state.importing) LinearProgressIndicator(progress = {
-                        val total = state.report?.items?.size ?: 0
-                        if (total == 0) 0f else (state.report?.completed ?: 0).toFloat() / total
-                    }, modifier = Modifier.padding(top = 4.dp).fillMaxWidth())
-                }
-                Spacer(Modifier.width(12.dp))
-                if (state.importing) TextButton(onClick = model::cancel, enabled = !state.stopping) {
-                    Text(stringResource(if (state.stopping) R.string.telegram_stopping else R.string.cancel))
-                } else TextButton(onClick = model::importSelected, enabled = state.selected.isNotEmpty() && !state.busy,
-                    modifier = Modifier.testTag("telegram-import")) { Text(stringResource(R.string.telegram_import)) }
+        MemeDockTopBar(pack?.title ?: stringResource(R.string.telegram_title), glass, back = back, scrolled = scrolled)
+        if (pack != null) MemeDockFloatingBar(glass, Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+            .padding(horizontal = MemeDockLayout.PagePadding).padding(bottom = MemeDockLayout.GapMedium)) {
+            Column(Modifier.weight(1f).padding(vertical = MemeDockLayout.GapSmall)) {
+                Text(if (state.importing) stringResource(R.string.telegram_progress, state.report?.completed ?: 0,
+                    state.report?.items?.size ?: 0) else stringResource(R.string.selection_count, state.selected.size),
+                    style = MaterialTheme.typography.bodyMedium)
+                if (state.importing) LinearProgressIndicator(progress = {
+                    val total = state.report?.items?.size ?: 0
+                    if (total == 0) 0f else (state.report?.completed ?: 0).toFloat() / total
+                }, modifier = Modifier.padding(top = MemeDockLayout.GapXSmall).fillMaxWidth())
             }
+            if (state.importing) TextButton(onClick = model::cancel, enabled = !state.stopping) {
+                Text(stringResource(if (state.stopping) R.string.telegram_stopping else R.string.cancel))
+            } else TextButton(onClick = model::importSelected, enabled = state.selected.isNotEmpty() && !state.busy,
+                modifier = Modifier.testTag("telegram-import")) { Text(stringResource(R.string.telegram_import)) }
         }
     }
 }
@@ -117,27 +121,33 @@ fun TelegramImportScreen(state: TelegramImportState, model: TelegramImportViewMo
 @Composable
 private fun TokenInputs(state: TelegramImportState, model: TelegramImportViewModel) {
     var revealed by remember { mutableStateOf(false) }
-    OutlinedTextField(state.token, model::token, Modifier.fillMaxWidth().testTag("telegram-token"),
-        enabled = !state.busy, singleLine = true, label = { Text(stringResource(R.string.telegram_token)) },
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-        visualTransformation = if (revealed) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = { TextButton(onClick = { revealed = !revealed }) {
-            Text(stringResource(if (revealed) R.string.telegram_hide else R.string.telegram_show))
-        } }, shape = MaterialTheme.shapes.medium)
-    Text(stringResource(R.string.telegram_token_hint), style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Row(Modifier.weight(1f).toggleable(state.rememberToken, enabled = !state.busy, role = Role.Checkbox,
-            onValueChange = model::remember), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(state.rememberToken, null, enabled = !state.busy)
-            Text(stringResource(R.string.telegram_remember), style = MaterialTheme.typography.bodyMedium)
+    Column(verticalArrangement = Arrangement.spacedBy(MemeDockLayout.GapSmall)) {
+        MemeDockTextField(state.token, model::token, stringResource(R.string.telegram_token), Modifier.testTag("telegram-token"),
+            enabled = !state.busy,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+            visualTransformation = if (revealed) VisualTransformation.None else PasswordVisualTransformation(),
+            trailing = { TextButton(onClick = { revealed = !revealed }) {
+                Text(stringResource(if (revealed) R.string.telegram_hide else R.string.telegram_show))
+            } })
+        Text(stringResource(R.string.telegram_token_hint), Modifier.padding(horizontal = MemeDockLayout.GapLarge),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).clip(MaterialTheme.shapes.small)
+                .toggleable(state.rememberToken, enabled = !state.busy, role = Role.Checkbox, onValueChange = model::remember)
+                .heightIn(min = 48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MemeDockLayout.GapMedium)) {
+                Checkbox(state.rememberToken, null, enabled = !state.busy)
+                Text(stringResource(R.string.telegram_remember), style = MaterialTheme.typography.bodyMedium)
+            }
+            TextButton(onClick = model::forget, enabled = !state.busy) { Text(stringResource(R.string.telegram_forget)) }
         }
-        TextButton(onClick = model::forget, enabled = !state.busy) { Text(stringResource(R.string.telegram_forget)) }
     }
 }
 
 private data class Preview(val path: String? = null, val failed: Boolean = false)
 
+/** Follows the library tile: bare artwork, a rounded highlight and a shrink when selected, status as a corner label. */
 @Composable
 private fun StickerChoice(pack: TelegramPack, item: TelegramItem, status: TelegramItemState, selected: Boolean,
     enabled: Boolean, result: TelegramResult?, model: TelegramImportViewModel, imageLoader: ImageLoader) {
@@ -150,36 +160,43 @@ private fun StickerChoice(pack: TelegramPack, item: TelegramItem, status: Telegr
         catch (_: Exception) { value = Preview(failed = true) }
     }
     val context = LocalContext.current
+    val colors = MaterialTheme.colorScheme
     val description = stringResource(R.string.telegram_sticker, item.emoji.orEmpty())
+    val failed = result?.outcome == TelegramOutcome.Failed
     val label = when {
-        result?.outcome == TelegramOutcome.Failed -> stringResource(R.string.telegram_failed)
+        failed -> stringResource(R.string.telegram_failed)
         status == TelegramItemState.Imported -> stringResource(R.string.telegram_imported)
         status == TelegramItemState.RestoreRequired -> stringResource(R.string.telegram_restore_required)
         status == TelegramItemState.OriginalMissing -> stringResource(R.string.telegram_redownload)
         item.animated -> stringResource(R.string.telegram_animated)
         else -> null
     }
-    Column(Modifier.padding(2.dp).clip(MaterialTheme.shapes.small)
-        .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
-        .toggleable(selected, enabled = enabled && status != TelegramItemState.RestoreRequired, role = Role.Checkbox,
-            onValueChange = { model.toggle(item.id) }).semantics { contentDescription = listOfNotNull(description, label).joinToString(", ") }) {
-        Box(Modifier.fillMaxWidth().aspectRatio(1f), contentAlignment = Alignment.Center) {
+    val selectable = status != TelegramItemState.RestoreRequired
+    val scale by animateFloatAsState(if (selected) .9f else 1f, tween(MemeDockMotion.Feedback), label = "choice-scale")
+    val highlight by animateColorAsState(if (selected) colors.primary.copy(alpha = .12f) else colors.primary.copy(alpha = 0f),
+        tween(MemeDockMotion.Feedback), label = "choice-highlight")
+    Box(Modifier.aspectRatio(1f).clip(MaterialTheme.shapes.small).background(highlight)
+        .toggleable(selected, enabled = enabled && selectable, role = Role.Checkbox, onValueChange = { model.toggle(item.id) })
+        .semantics { contentDescription = listOfNotNull(description, label).joinToString(", ") }
+        .padding(MemeDockLayout.GapXSmall)) {
+        Box(Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale }, contentAlignment = Alignment.Center) {
             when {
                 preview.path != null -> {
                     val request = remember(preview.path, context) { ImageRequest.Builder(context).data(File(preview.path!!)).size(256, 256).build() }
-                    AsyncImage(request, description, imageLoader, Modifier.fillMaxSize().padding(8.dp))
+                    AsyncImage(request, description, imageLoader, Modifier.fillMaxSize())
                 }
                 preview.failed -> TextButton(onClick = { attempt++ }, enabled = enabled) { Text(stringResource(R.string.retry)) }
                 !item.hasPreview -> Text(item.emoji.orEmpty().ifBlank { stringResource(R.string.telegram_no_preview) },
                     style = MaterialTheme.typography.bodySmall)
-                else -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else -> MemeDockSkeleton(Modifier.fillMaxSize(), MaterialTheme.shapes.small)
             }
-            if (selected) Icon(MemeDockIcons.Check, null, Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp),
-                tint = MaterialTheme.colorScheme.primary)
+            if (label != null) Text(label, Modifier.align(Alignment.BottomStart)
+                .background(if (failed) colors.error else Color.Black.copy(alpha = .45f), MaterialTheme.shapes.extraSmall)
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.labelSmall, color = if (failed) colors.onError else Color.White,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (label != null) Text(label, Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            color = if (result?.outcome == TelegramOutcome.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        if (selectable) MemeDockSelectionMark(selected, Modifier.align(Alignment.TopEnd))
     }
 }
 

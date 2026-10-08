@@ -13,6 +13,7 @@ sealed interface Destination {
     data object Trash : Destination
     data object Backup : Destination
     data object TelegramImport : Destination
+    data object Licenses : Destination
 }
 
 // Each destination is a tag followed by a fixed number of arguments, so names may contain any text.
@@ -29,6 +30,7 @@ val BackStackSaver = Saver<SnapshotStateList<Destination>, ArrayList<String>>(
                     Destination.Trash -> add("trash")
                     Destination.Backup -> add("backup")
                     Destination.TelegramImport -> add("telegram")
+                    Destination.Licenses -> add("licenses")
                 }
             }
         }
@@ -46,6 +48,7 @@ val BackStackSaver = Saver<SnapshotStateList<Destination>, ArrayList<String>>(
                     "trash" -> Destination.Trash
                     "backup" -> Destination.Backup
                     "telegram" -> Destination.TelegramImport
+                    "licenses" -> Destination.Licenses
                     else -> error("Unknown destination $tag")
                 })
             }

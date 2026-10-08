@@ -1,22 +1,13 @@
 package com.grtsinry43.memedock.feature.detail
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.data.library.*
@@ -79,27 +70,15 @@ fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementReposit
     ) {
         val sheet = this
         Column(Modifier.weight(1f, fill = false).imePadding().verticalScroll(rememberScrollState())) {
-            SectionLabel(stringResource(R.string.select_collections))
+            MemeDockSectionHeader(stringResource(R.string.select_collections), Modifier.padding(top = MemeDockLayout.GapSmall), inset = 24.dp)
             val available = collections
             when {
-                available == null -> if (loadError == null) LoadingRows()
-                available.isEmpty() -> EmptyHint(stringResource(R.string.no_collections_hint))
+                available == null -> if (loadError == null) MemeDockSheetLoading()
+                available.isEmpty() -> MemeDockSheetHint(stringResource(R.string.no_collections_hint))
                 else -> available.forEach { collection ->
                     val checked = collection.id == selectedCollection
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.RowHeight)
-                            .toggleable(checked, enabled = !locked, role = Role.RadioButton) {
-                                selectedCollection = if (checked) null else collection.id
-                            }
-                            .padding(horizontal = 24.dp).testTag("relation-collection:${collection.id}"),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        Icon(MemeDockIcons.Folder, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(collection.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (checked) Icon(MemeDockIcons.Check, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-                    }
+                    MemeDockSheetChoice(collection.name, checked, { selectedCollection = if (checked) null else collection.id },
+                        Modifier.testTag("relation-collection:${collection.id}"), icon = MemeDockIcons.Folder, enabled = !locked)
                 }
             }
             if (available != null) MemeDockInlineCreate(
@@ -128,17 +107,19 @@ fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementReposit
                 busy = creating,
                 error = createError?.let { failureText(it) },
             )
-            SectionLabel(stringResource(R.string.select_tags), Modifier.padding(top = 16.dp))
+            MemeDockSectionHeader(stringResource(R.string.select_tags), Modifier.padding(top = MemeDockLayout.SectionGap), inset = 24.dp)
             val labels = tags
-            if (labels == null) { if (loadError == null) LoadingRows() }
+            if (labels == null) { if (loadError == null) MemeDockSheetLoading() }
             else FlowRow(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 labels.forEach { tag ->
-                    TagChip(tag.name, tag.id in selectedTags, !locked) {
+                    MemeDockChoiceChip(tag.name, tag.id in selectedTags, multiple = true, enabled = !locked, onClick = {
                         selectedTags = if (tag.id in selectedTags) selectedTags - tag.id else selectedTags + tag.id
-                    }
+                    })
                 }
-                if (!addingTag) AddTagChip(enabled = !locked) { addingCollection = false; createError = null; addingTag = true }
+                if (!addingTag) MemeDockAddChip(stringResource(R.string.new_tag),
+                    { addingCollection = false; createError = null; addingTag = true },
+                    Modifier.testTag("relations-new-tag"), enabled = !locked)
             }
             if (labels != null && addingTag) MemeDockInlineEdit(
                 initial = "",
@@ -163,74 +144,11 @@ fun StickerRelationsSheet(detail: StickerDetails?, repository: ManagementReposit
                 error = createError?.let { failureText(it) },
             )
             (error ?: loadError)?.let { code ->
-                Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(failureText(code), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error)
-                    if (loadError != null) TextButton(onClick = { refresh++ }) { Text(stringResource(R.string.retry)) }
-                }
+                MemeDockSheetError(failureText(code), Modifier.padding(top = MemeDockLayout.GapSmall),
+                    retry = if (loadError != null) { { refresh++ } } else null)
             }
         }
-        Button(
-            onClick = { if (!locked) sheet.dismiss() },
-            enabled = !locked,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 20.dp).height(52.dp)
-                .testTag("relations-done"),
-            shape = MaterialTheme.shapes.medium,
-        ) {
-            if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-            else Text(stringResource(R.string.done))
-        }
-    }
-}
-
-@Composable
-private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(horizontal = 24.dp, vertical = 8.dp).semantics { heading() })
-}
-
-@Composable
-private fun EmptyHint(text: String) {
-    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
-}
-
-@Composable
-private fun LoadingRows() {
-    Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        MemeDockSkeleton(Modifier.fillMaxWidth(.6f).height(20.dp), MaterialTheme.shapes.extraSmall)
-        MemeDockSkeleton(Modifier.fillMaxWidth(.4f).height(20.dp), MaterialTheme.shapes.extraSmall)
-    }
-}
-
-@Composable
-private fun TagChip(name: String, selected: Boolean, enabled: Boolean, toggle: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        Modifier.heightIn(min = 36.dp).clip(MaterialTheme.shapes.small)
-            .background(if (selected) colors.primary.copy(alpha = .12f) else colors.surfaceContainer)
-            .toggleable(selected, enabled = enabled, role = Role.Checkbox) { toggle() }
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        if (selected) Icon(MemeDockIcons.Check, null, Modifier.size(16.dp), tint = colors.primary)
-        Text(name, style = MaterialTheme.typography.bodyMedium, color = if (selected) colors.primary else colors.onSurface,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun AddTagChip(enabled: Boolean, onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        Modifier.heightIn(min = 36.dp).clip(MaterialTheme.shapes.small).background(colors.primary.copy(alpha = .10f))
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(start = 8.dp, end = 12.dp).testTag("relations-new-tag"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Icon(MemeDockIcons.Add, null, Modifier.size(16.dp), tint = colors.primary)
-        Text(stringResource(R.string.new_tag), style = MaterialTheme.typography.bodyMedium, color = colors.primary)
+        MemeDockButton(stringResource(R.string.done), { sheet.dismiss() },
+            Modifier.padding(horizontal = 24.dp).padding(top = 20.dp).testTag("relations-done"), enabled = !creating, busy = busy)
     }
 }

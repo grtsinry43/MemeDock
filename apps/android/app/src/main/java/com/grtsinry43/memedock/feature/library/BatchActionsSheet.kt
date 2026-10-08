@@ -7,8 +7,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -16,7 +16,9 @@ import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.app.AppContainer
 import com.grtsinry43.memedock.data.library.*
 import com.grtsinry43.memedock.ui.components.*
+import com.grtsinry43.memedock.ui.failureCode
 import com.grtsinry43.memedock.ui.failureText
+import com.grtsinry43.memedock.ui.theme.MemeDockLayout
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -30,107 +32,203 @@ internal fun rememberBatchActions(container: AppContainer, key: String, query: A
     return model
 }
 
+private enum class BatchPage { Actions, Collection, AddTags, RemoveTags, Delete }
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BatchActionsSheet(visible: Boolean, close: () -> Unit, model: BatchActionsViewModel,
     repository: ManagementRepository, trash: Boolean = false, collection: LibraryCollection? = null) {
     val state by model.state.collectAsStateWithLifecycle()
-    var mode by remember(visible) { mutableIntStateOf(0) }
+    var page by remember(visible) { mutableStateOf(BatchPage.Actions) }
     var collections by remember { mutableStateOf<List<LibraryCollection>?>(null) }
     var tags by remember { mutableStateOf<List<LibraryTag>?>(null) }
-    var chosenTags by remember(mode) { mutableStateOf(emptySet<String>()) }
-    var error by remember(visible) { mutableStateOf<String?>(null) }
-    var addingCollection by remember(visible) { mutableStateOf(false) }
+    var loadError by remember(visible) { mutableStateOf<String?>(null) }
+    var reload by remember { mutableIntStateOf(0) }
+    var chosenCollection by remember(page) { mutableStateOf<String?>(null) }
+    var chosenTags by remember(page) { mutableStateOf(emptySet<String>()) }
+    var adding by remember(page) { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
-    var createError by remember(visible) { mutableStateOf<String?>(null) }
+    var createError by remember(page) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    var retry by remember { mutableIntStateOf(0) }
-    LaunchedEffect(visible, retry) {
-        if (visible) try { error = null; collections = repository.collections(false); tags = repository.tags() }
+    LaunchedEffect(visible, reload) {
+        if (visible && !trash) try { loadError = null; collections = repository.collections(false); tags = repository.tags() }
         catch (cancel: CancellationException) { throw cancel }
-        catch (failure: Exception) { error = com.grtsinry43.memedock.ui.failureCode(failure) }
+        catch (failure: Exception) { loadError = failureCode(failure) }
     }
-    MemeDockSheet(visible, close, title = stringResource(R.string.batch_organize), dismissible = !state.busy && !creating) {
+    val locked = state.busy || creating
+    val run: (BatchAction) -> Unit = { action -> model.run(action); page = BatchPage.Actions }
+    val title = when (page) {
+        BatchPage.Actions -> R.string.batch_organize
+        BatchPage.Collection -> R.string.assign_collection
+        BatchPage.AddTags -> R.string.add_tags
+        BatchPage.RemoveTags -> R.string.remove_tags
+        BatchPage.Delete -> R.string.delete
+    }
+    MemeDockSheet(visible, close, title = stringResource(title),
+        subtitle = state.selected.size.takeIf { it > 0 }?.let { stringResource(R.string.selection_count, it) },
+        dismissible = !locked) {
+        val sheet = this
         Column(Modifier.weight(1f, fill = false).imePadding().verticalScroll(rememberScrollState())) {
-            Text(stringResource(R.string.selection_count, state.selected.size), Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
-            if (state.busy) {
-                val done = state.report?.items?.count { it.outcome != BatchOutcome.Pending } ?: 0
-                LinearProgressIndicator(Modifier.fillMaxWidth().padding(24.dp))
-                Text(stringResource(R.string.batch_progress, done, state.report?.items?.size ?: state.selected.size), Modifier.padding(horizontal = 24.dp))
-                TextButton(onClick = model::stop, modifier = Modifier.padding(horizontal = 16.dp)) { Text(stringResource(R.string.cancel)) }
-            } else {
-                state.report?.let { report ->
-                    Text(stringResource(R.string.batch_result, report.items.count { it.outcome in setOf(BatchOutcome.Applied, BatchOutcome.Unchanged) },
-                        report.items.count { it.outcome == BatchOutcome.Failed }, report.items.count { it.outcome == BatchOutcome.Pending }), Modifier.padding(24.dp))
-                    report.items.firstOrNull { it.error != null }?.error?.let { Text(failureText(it), Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.error) }
+            when {
+                state.busy -> Progress(state)
+                page == BatchPage.Actions -> {
+                    Outcome(state)
+                    if (state.selected.isNotEmpty()) Actions(trash, collection, run) { page = it }
                 }
-                (state.error ?: error)?.let { Text(failureText(it), Modifier.padding(24.dp), color = MaterialTheme.colorScheme.error) }
-                if (error != null) TextButton(onClick = { retry++ }) { Text(stringResource(R.string.retry)) }
-                if (state.selected.isNotEmpty()) when (mode) {
-                    0 -> {
-                        if (trash) MemeDockSheetAction(stringResource(R.string.restore), MemeDockIcons.BackupRestore, { model.run(BatchAction.Restore) })
-                        else {
-                            MemeDockSheetAction(stringResource(R.string.assign_collection), MemeDockIcons.Collections, { mode = 1 })
-                            MemeDockSheetAction(stringResource(R.string.add_tags), MemeDockIcons.Label, { mode = 2 })
-                            MemeDockSheetAction(stringResource(R.string.remove_tags), MemeDockIcons.Label, { mode = 3 })
-                            MemeDockSheetAction(stringResource(R.string.favorite), MemeDockIcons.Star, { model.run(BatchAction.Star(true)) })
-                            MemeDockSheetAction(stringResource(R.string.unfavorite), MemeDockIcons.Star, { model.run(BatchAction.Star(false)) })
-                            MemeDockSheetAction(stringResource(if (collection == null) R.string.clear_collection else R.string.remove_from_collection), MemeDockIcons.Folder,
-                                { model.run(BatchAction.ClearCollection(collection)) })
-                            MemeDockSheetAction(stringResource(R.string.delete), MemeDockIcons.Delete, { mode = 4 }, destructive = true)
+                page == BatchPage.Delete -> MemeDockSheetHint(stringResource(R.string.delete_hint))
+                loadError != null -> MemeDockSheetError(failureText(loadError), retry = { reload++ })
+                page == BatchPage.Collection -> {
+                    val available = collections
+                    when {
+                        available == null -> MemeDockSheetLoading()
+                        available.isEmpty() -> MemeDockSheetHint(stringResource(R.string.no_collections_hint))
+                        else -> available.forEach { value ->
+                            val checked = value.id == chosenCollection
+                            MemeDockSheetChoice(value.name, checked, { chosenCollection = if (checked) null else value.id },
+                                Modifier.testTag("batch-collection:${value.id}"), icon = MemeDockIcons.Folder, enabled = !locked)
                         }
                     }
-                    1 -> {
-                        TextButton(onClick = { mode = 0 }, enabled = !creating && !addingCollection) { Text(stringResource(R.string.back)) }
-                        if (collections == null) CircularProgressIndicator(Modifier.padding(24.dp))
-                        collections?.forEach { value -> MemeDockSheetAction(value.name, MemeDockIcons.Folder, { model.run(BatchAction.Assign(value)); mode = 0 }, enabled = !creating && !addingCollection) }
-                        if (collections?.isEmpty() == true) Text(stringResource(R.string.no_collections_hint), Modifier.padding(24.dp))
-                        if (collections != null) MemeDockInlineCreate(
-                            label = stringResource(R.string.new_collection),
-                            placeholder = stringResource(R.string.name),
-                            editing = addingCollection,
-                            onStart = { createError = null; addingCollection = true },
-                            onCreate = { name ->
-                                if (!creating) {
-                                    creating = true
-                                    createError = null
-                                    scope.launch {
-                                        try {
-                                            val created = repository.createCollection(name)
-                                            collections = (collections.orEmpty() + created).distinctBy { it.id }
-                                            addingCollection = false
-                                            model.run(BatchAction.Assign(created))
-                                            mode = 0
-                                        } catch (cancel: CancellationException) { throw cancel }
-                                        catch (failure: Exception) { createError = com.grtsinry43.memedock.ui.failureCode(failure) }
-                                        finally { creating = false }
-                                    }
+                    if (available != null) MemeDockInlineCreate(
+                        label = stringResource(R.string.new_collection),
+                        placeholder = stringResource(R.string.name),
+                        editing = adding,
+                        onStart = { if (!locked) { createError = null; adding = true } },
+                        onCreate = { name ->
+                            if (!locked) {
+                                creating = true
+                                createError = null
+                                scope.launch {
+                                    try {
+                                        val created = repository.createCollection(name)
+                                        collections = (collections.orEmpty() + created).distinctBy { it.id }
+                                        chosenCollection = created.id
+                                        adding = false
+                                    } catch (cancel: CancellationException) { throw cancel }
+                                    catch (failure: Exception) { createError = failureCode(failure) }
+                                    finally { creating = false }
                                 }
-                            },
-                            onCancel = { addingCollection = false; createError = null },
-                            busy = creating,
-                            error = createError?.let { failureText(it) },
-                            modifier = Modifier.testTag("batch-new-collection"),
-                        )
-                    }
-                    2, 3 -> {
-                        TextButton(onClick = { mode = 0 }) { Text(stringResource(R.string.back)) }
-                        if (tags == null) CircularProgressIndicator(Modifier.padding(24.dp))
-                        tags?.forEach { tag ->
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                Checkbox(tag.id in chosenTags, { chosenTags = if (it) chosenTags + tag.id else chosenTags - tag.id })
-                                Text(tag.name)
                             }
+                        },
+                        onCancel = { adding = false; createError = null },
+                        modifier = Modifier.testTag("batch-new-collection"),
+                        busy = creating,
+                        error = createError?.let { failureText(it) },
+                    )
+                }
+                page == BatchPage.AddTags || page == BatchPage.RemoveTags -> {
+                    val labels = tags
+                    val creatable = page == BatchPage.AddTags
+                    when {
+                        labels == null -> MemeDockSheetLoading()
+                        labels.isEmpty() && !creatable -> MemeDockSheetHint(stringResource(R.string.batch_no_tags))
+                        else -> FlowRow(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            labels.forEach { tag ->
+                                MemeDockChoiceChip(tag.name, tag.id in chosenTags, multiple = true, enabled = !locked,
+                                    modifier = Modifier.testTag("batch-tag:${tag.id}"), onClick = {
+                                        chosenTags = if (tag.id in chosenTags) chosenTags - tag.id else chosenTags + tag.id
+                                    })
+                            }
+                            if (creatable && !adding) MemeDockAddChip(stringResource(R.string.new_tag),
+                                { createError = null; adding = true }, Modifier.testTag("batch-new-tag"), enabled = !locked)
                         }
-                        Button(onClick = { val selected = tags.orEmpty().filter { it.id in chosenTags }; model.run(if (mode == 2) BatchAction.AddTags(selected) else BatchAction.RemoveTags(selected)); mode = 0 },
-                            enabled = chosenTags.isNotEmpty(), modifier = Modifier.padding(24.dp)) { Text(stringResource(R.string.done)) }
                     }
-                    4 -> {
-                        Text(stringResource(R.string.delete_hint), Modifier.padding(24.dp))
-                        TextButton(onClick = { mode = 0 }) { Text(stringResource(R.string.cancel)) }
-                        Button(onClick = { model.run(BatchAction.Delete); mode = 0 }, modifier = Modifier.padding(24.dp)) { Text(stringResource(R.string.delete)) }
-                    }
+                    if (labels != null && creatable && adding) MemeDockInlineEdit(
+                        initial = "",
+                        placeholder = stringResource(R.string.new_tag),
+                        onCommit = { name ->
+                            creating = true
+                            createError = null
+                            scope.launch {
+                                try {
+                                    val tag = repository.createTag(name)
+                                    tags = repository.tags()
+                                    chosenTags = chosenTags + tag.id
+                                    adding = false
+                                } catch (cancel: CancellationException) { throw cancel }
+                                catch (failure: Exception) { createError = failureCode(failure) }
+                                finally { creating = false }
+                            }
+                        },
+                        onCancel = { adding = false; createError = null },
+                        modifier = Modifier.padding(horizontal = 24.dp).padding(top = 12.dp),
+                        busy = creating,
+                        error = createError?.let { failureText(it) },
+                    )
+                }
+            }
+        }
+        val actionList = !state.busy && page == BatchPage.Actions && state.selected.isNotEmpty()
+        if (!actionList) Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val back = Modifier.testTag("batch-back")
+            when {
+                state.busy -> MemeDockTextButton(stringResource(R.string.cancel), model::stop, Modifier.testTag("batch-stop"))
+                page == BatchPage.Actions -> MemeDockButton(stringResource(R.string.done), { sheet.dismiss() }, Modifier.testTag("batch-done"))
+                page == BatchPage.Collection -> {
+                    MemeDockButton(stringResource(R.string.assign_collection), {
+                        collections.orEmpty().firstOrNull { it.id == chosenCollection }?.let { run(BatchAction.Assign(it)) }
+                    }, Modifier.testTag("batch-apply"), enabled = chosenCollection != null && !creating)
+                    MemeDockTextButton(stringResource(R.string.back), { page = BatchPage.Actions }, back, enabled = !creating)
+                }
+                page == BatchPage.AddTags || page == BatchPage.RemoveTags -> {
+                    val adds = page == BatchPage.AddTags
+                    MemeDockButton(stringResource(if (adds) R.string.add_tags else R.string.remove_tags), {
+                        val selected = tags.orEmpty().filter { it.id in chosenTags }
+                        run(if (adds) BatchAction.AddTags(selected) else BatchAction.RemoveTags(selected))
+                    }, Modifier.testTag("batch-apply"), enabled = chosenTags.isNotEmpty() && !creating)
+                    MemeDockTextButton(stringResource(R.string.back), { page = BatchPage.Actions }, back, enabled = !creating)
+                }
+                page == BatchPage.Delete -> {
+                    MemeDockButton(stringResource(R.string.delete), { run(BatchAction.Delete) }, Modifier.testTag("batch-apply"),
+                        destructive = true)
+                    MemeDockTextButton(stringResource(R.string.cancel), { page = BatchPage.Actions }, back)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun Actions(trash: Boolean, collection: LibraryCollection?, run: (BatchAction) -> Unit, open: (BatchPage) -> Unit) {
+    if (trash) {
+        MemeDockSheetAction(stringResource(R.string.restore), MemeDockIcons.BackupRestore, { run(BatchAction.Restore) })
+        return
+    }
+    MemeDockSheetAction(stringResource(R.string.assign_collection), MemeDockIcons.Folder, { open(BatchPage.Collection) })
+    MemeDockSheetAction(stringResource(if (collection == null) R.string.clear_collection else R.string.remove_from_collection),
+        MemeDockIcons.FolderOff, { run(BatchAction.ClearCollection(collection)) })
+    MemeDockSheetAction(stringResource(R.string.add_tags), MemeDockIcons.Label, { open(BatchPage.AddTags) })
+    MemeDockSheetAction(stringResource(R.string.remove_tags), MemeDockIcons.LabelOff, { open(BatchPage.RemoveTags) })
+    MemeDockSheetAction(stringResource(R.string.favorite), MemeDockIcons.Star, { run(BatchAction.Star(true)) })
+    MemeDockSheetAction(stringResource(R.string.unfavorite), MemeDockIcons.StarFilled, { run(BatchAction.Star(false)) })
+    HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = MemeDockLayout.GapXSmall), MemeDockLayout.Hairline,
+        MaterialTheme.colorScheme.outlineVariant)
+    MemeDockSheetAction(stringResource(R.string.delete), MemeDockIcons.Delete, { open(BatchPage.Delete) }, destructive = true)
+}
+
+@Composable
+private fun Progress(state: BatchSelectionState) {
+    val items = state.report?.items
+    val total = items?.size ?: state.selected.size
+    val done = items?.count { it.outcome != BatchOutcome.Pending } ?: 0
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LinearProgressIndicator({ if (total == 0) 0f else done.toFloat() / total }, Modifier.fillMaxWidth())
+        Text(stringResource(R.string.batch_progress, done, total), style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Summarises the last run; failed and unprocessed stickers stay selected so the actions below retry them. */
+@Composable
+private fun Outcome(state: BatchSelectionState) {
+    state.report?.let { report ->
+        val items = report.items
+        MemeDockSheetHint(stringResource(R.string.batch_result,
+            items.count { it.outcome == BatchOutcome.Applied || it.outcome == BatchOutcome.Unchanged },
+            items.count { it.outcome == BatchOutcome.Failed }, items.count { it.outcome == BatchOutcome.Pending }))
+        items.firstNotNullOfOrNull { it.error }?.let { MemeDockSheetHint(failureText(it), error = true) }
+    }
+    state.error?.let { MemeDockSheetError(failureText(it)) }
+    if (state.report != null || state.error != null) Spacer(Modifier.height(MemeDockLayout.GapSmall))
 }

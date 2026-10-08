@@ -2,7 +2,6 @@ package com.grtsinry43.memedock.feature.importing
 
 import android.net.Uri
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -20,9 +19,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
@@ -103,16 +99,14 @@ private fun MemeDockSheetScope.ReviewContent(state: ImportState, coordinator: Im
     val unreadable = state.count(ImportItemStatus.Failed)
     if (unreadable > 0) Text(stringResource(R.string.import_unreadable, unreadable), style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 24.dp).padding(top = 8.dp))
-    Text(stringResource(R.string.import_collection), style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 8.dp).semantics { heading() })
+    MemeDockSectionHeader(stringResource(R.string.import_collection), Modifier.padding(top = 20.dp), inset = 24.dp)
     val available = collections
     if (available != null) LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         item(key = "none") {
-            CollectionChoice(stringResource(R.string.no_collection), state.collection == null) { coordinator.selectCollection(null) }
+            MemeDockChoiceChip(stringResource(R.string.no_collection), state.collection == null, { coordinator.selectCollection(null) })
         }
         items(available, key = { it.id }) { collection ->
-            CollectionChoice(collection.name, state.collection?.id == collection.id) { coordinator.selectCollection(collection) }
+            MemeDockChoiceChip(collection.name, state.collection?.id == collection.id, { coordinator.selectCollection(collection) })
         }
     }
     else if (error != null) Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -120,21 +114,10 @@ private fun MemeDockSheetScope.ReviewContent(state: ImportState, coordinator: Im
         TextButton(onClick = { refresh++ }) { Text(stringResource(R.string.retry)) }
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        val colors = MaterialTheme.colorScheme
-        if (preparing || state.ready > 0) Button(
-            onClick = { if (!preparing) { coordinator.start(); coordinator.hide() } },
-            modifier = Modifier.fillMaxWidth().height(52.dp).testTag("import-start"),
-            shape = MaterialTheme.shapes.medium,
-        ) {
-            if (preparing) {
-                CircularProgressIndicator(Modifier.size(18.dp), color = colors.onPrimary, strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
-                Text(stringResource(R.string.import_reading_files))
-            } else Text(stringResource(R.string.import_add_count, state.ready))
-        }
-        TextButton(onClick = coordinator::discard, modifier = Modifier.fillMaxWidth().height(48.dp), shape = MaterialTheme.shapes.medium) {
-            Text(stringResource(R.string.import_discard), color = colors.onSurfaceVariant)
-        }
+        if (preparing || state.ready > 0) MemeDockButton(stringResource(R.string.import_add_count, state.ready),
+            { coordinator.start(); coordinator.hide() }, Modifier.testTag("import-start"),
+            busy = preparing, busyText = stringResource(R.string.import_reading_files))
+        MemeDockTextButton(stringResource(R.string.import_discard), coordinator::discard)
     }
 }
 
@@ -154,13 +137,9 @@ private fun MemeDockSheetScope.ProblemsContent(state: ImportState, coordinator: 
         }
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (state.retryable) Button(onClick = { coordinator.retryFailed(); coordinator.hide() },
-            modifier = Modifier.fillMaxWidth().height(52.dp).testTag("import-retry"), shape = MaterialTheme.shapes.medium) {
-            Text(stringResource(R.string.import_retry_failed))
-        }
-        TextButton(onClick = { sheet.dismiss() }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = MaterialTheme.shapes.medium) {
-            Text(stringResource(R.string.done), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        if (state.retryable) MemeDockButton(stringResource(R.string.import_retry_failed),
+            { coordinator.retryFailed(); coordinator.hide() }, Modifier.testTag("import-retry"))
+        MemeDockTextButton(stringResource(R.string.done), { sheet.dismiss() })
     }
 }
 
@@ -190,27 +169,11 @@ private fun ImportThumbnail(item: ImportItemState, loader: ImageLoader, source: 
             }
         }
         if (request != null) AsyncImage(request, null, loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else Icon(MemeDockIcons.Image, null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
-        if (working && source == null) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        else Icon(MemeDockIcons.Image, null, Modifier.size(MemeDockLayout.IconMedium), tint = colors.onSurfaceVariant)
+        if (working && source == null) CircularProgressIndicator(Modifier.size(MemeDockLayout.IconMedium), strokeWidth = 2.dp)
         if (bad) Box(Modifier.align(Alignment.BottomEnd).padding(4.dp).size(18.dp).background(colors.error, CircleShape),
             contentAlignment = Alignment.Center) {
             Icon(MemeDockIcons.Alert, null, Modifier.size(12.dp), tint = colors.onError)
         }
-    }
-}
-
-@Composable
-private fun CollectionChoice(name: String, selected: Boolean, select: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        Modifier.heightIn(min = 36.dp).clip(MaterialTheme.shapes.small)
-            .background(if (selected) colors.primary.copy(alpha = .12f) else colors.surfaceContainer)
-            .clickable(role = Role.RadioButton, onClick = select).padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        if (selected) Icon(MemeDockIcons.Check, null, Modifier.size(16.dp), tint = colors.primary)
-        Text(name, style = MaterialTheme.typography.bodyMedium, color = if (selected) colors.primary else colors.onSurface,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

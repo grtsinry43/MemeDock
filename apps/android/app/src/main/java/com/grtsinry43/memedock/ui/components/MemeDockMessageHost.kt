@@ -12,11 +12,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.AccessibilityManager
 import androidx.compose.ui.platform.LocalAccessibilityManager
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.grtsinry43.memedock.R
+import com.grtsinry43.memedock.ui.theme.MemeDockLayout
 
 /** App-wide message queue; mounted once at the root so messages survive page changes. */
 val LocalMemeDockMessages = staticCompositionLocalOf<SnackbarHostState> { error("MemeDock message host is not mounted") }
@@ -60,11 +60,11 @@ private fun MessageBar(data: SnackbarData) {
     // The bar sits on inverseSurface in both themes, so status hues are picked for that background.
     val dark = colors.inverseSurface.luminance() < .5f
     val (icon, label, tint) = when (message?.type) {
-        MemeDockMessageType.Success -> Triple(R.drawable.ic_message_success, R.string.message_success,
+        MemeDockMessageType.Success -> Triple(MemeDockIcons.CheckCircle, R.string.message_success,
             if (dark) Color(0xFF5BD68A) else Color(0xFF1E8E4E))
-        MemeDockMessageType.Warning -> Triple(R.drawable.ic_message_warning, R.string.message_warning,
+        MemeDockMessageType.Warning -> Triple(MemeDockIcons.Alert, R.string.message_warning,
             if (dark) Color(0xFFFFC94D) else Color(0xFFA86B00))
-        MemeDockMessageType.Error -> Triple(R.drawable.ic_message_error, R.string.message_error,
+        MemeDockMessageType.Error -> Triple(MemeDockIcons.Error, R.string.message_error,
             if (dark) Color(0xFFFF8A80) else Color(0xFFC5221F))
         null -> Triple(null, null, Color.Unspecified)
     }
@@ -80,7 +80,7 @@ private fun MessageBar(data: SnackbarData) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (icon != null && label != null) Icon(painterResource(icon), stringResource(label), Modifier.size(20.dp), tint = tint)
+            if (icon != null && label != null) Icon(icon, stringResource(label), Modifier.size(MemeDockLayout.IconMedium), tint = tint)
             Text(data.visuals.message, Modifier.weight(1f).padding(vertical = 8.dp),
                 style = MaterialTheme.typography.bodyMedium)
             data.visuals.actionLabel?.let { action ->
@@ -88,8 +88,8 @@ private fun MessageBar(data: SnackbarData) {
             }
             if (data.visuals.withDismissAction) {
                 IconButton(onClick = data::dismiss) {
-                    Icon(painterResource(R.drawable.ic_message_close), stringResource(R.string.message_dismiss),
-                        Modifier.size(20.dp), tint = colors.inverseOnSurface.copy(alpha = .7f))
+                    Icon(MemeDockIcons.Close, stringResource(R.string.message_dismiss),
+                        Modifier.size(MemeDockLayout.IconMedium), tint = colors.inverseOnSurface.copy(alpha = .7f))
                 }
             }
         }

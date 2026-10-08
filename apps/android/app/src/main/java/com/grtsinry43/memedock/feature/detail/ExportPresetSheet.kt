@@ -1,23 +1,16 @@
 package com.grtsinry43.memedock.feature.detail
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.dp
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.data.settings.ExportChoice
-import com.grtsinry43.memedock.ui.components.MemeDockIcons
 import com.grtsinry43.memedock.ui.components.MemeDockSheet
-import com.grtsinry43.memedock.ui.theme.MemeDockLayout
+import com.grtsinry43.memedock.ui.components.MemeDockSheetChoice
 
 fun ExportChoice.titleResource() = when (this) {
     ExportChoice.Original -> R.string.export_original
@@ -40,22 +33,8 @@ fun ExportPresetSheet(visible: Boolean, selected: ExportChoice, dismiss: () -> U
         Column(Modifier.fillMaxWidth().selectableGroup()) {
             ExportChoice.entries.forEach { choice ->
                 val checked = choice == selected
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = MemeDockLayout.RowHeight)
-                        .selectable(checked, role = Role.RadioButton, onClick = { if (checked) dismiss() else select(choice) })
-                        .testTag("export-preset-${choice.name}").padding(horizontal = 24.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(stringResource(choice.titleResource()), style = MaterialTheme.typography.bodyLarge,
-                            color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                        Text(stringResource(choice.hintResource()), style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (checked) Icon(MemeDockIcons.Check, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-                    else Spacer(Modifier.size(22.dp))
-                }
+                MemeDockSheetChoice(stringResource(choice.titleResource()), checked, { if (checked) dismiss() else select(choice) },
+                    Modifier.testTag("export-preset-${choice.name}"), supporting = stringResource(choice.hintResource()))
             }
         }
     }

@@ -134,6 +134,8 @@
     <string name="import_source_photos_hint">从系统相册选取，支持多选</string>
     <string name="import_files">文件</string>
     <string name="import_source_files_hint">从文件管理或下载目录选取</string>
+    <string name="import_source_telegram">Telegram</string>
+    <string name="import_source_telegram_hint">输入贴纸包名称，挑选后导入</string>
     <string name="import_preparing">正在处理…</string>
     <string name="import_running_progress">正在添加 %1$d / %2$d</string>
     <string name="import_waiting_count">待确认表情 %1$d 张</string>
@@ -175,6 +177,8 @@
     <string name="tag_empty_hint">长按表情选择「整理」可添加标签</string>
     <string name="tag_deleted">标签已移至回收站</string>
     <string name="no_collections_hint">暂无合集，点下方新建一个</string>
+    <string name="collections_empty">还没有合集</string>
+    <string name="collections_empty_hint">把同一类表情放进合集，找起来更快</string>
     <string name="select_tags">选择标签</string>
     <string name="reorder_grid_hint">长按表情拖动调整顺序</string>
     <string name="reorder_loading">正在加载全部表情…</string>
@@ -206,7 +210,13 @@
     <string name="settings_original_count">原图数量</string>
     <string name="settings_saved_originals">原图占用</string>
     <string name="settings_cache_usage">缓存占用</string>
-    <string name="settings_cache_usage_hint">缩略图和临时分享文件</string>
+    <string name="settings_cache_footer">缓存占用包括缩略图和临时分享文件</string>
+    <string name="settings_general">通用</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_version">版本</string>
+    <string name="settings_licenses">开源许可</string>
+    <string name="licenses_load_failed">无法读取许可清单</string>
+    <string name="licenses_open_failed">没有可以打开链接的应用</string>
 
     <!-- Backup -->
     <string name="backup_title">备份与恢复</string>
@@ -262,6 +272,7 @@
     <string name="remove_tags">移除标签</string>
     <string name="batch_progress">已处理 %1$d / %2$d 张</string>
     <string name="batch_result">已完成 %1$d 张，失败 %2$d 张，未处理 %3$d 张</string>
+    <string name="batch_no_tags">暂无标签</string>
     <string name="selected">已选中</string>
     <string name="not_selected">未选中</string>
     <string name="view_all_collections">查看全部</string>
