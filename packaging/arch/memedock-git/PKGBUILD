@@ -1,0 +1,67 @@
+# The initial version comes from Cargo.toml; pkgver() adds the Git revision.
+pkgname=memedock-git
+pkgver=0.1.0.r24.gf767858
+pkgrel=1
+pkgdesc='Unified sticker manager for easy importing and quick sharing (development sources)'
+arch=('x86_64')
+url='https://github.com/grtsinry43/MemeDock'
+license=('MIT')
+depends=('gtk4>=4.22' 'libadwaita>=1.9' 'glib2' 'glibc' 'gcc-libs')
+makedepends=('rustup' 'git' 'clang' 'cmake' 'ninja' 'pkgconf' 'nasm' 'curl' 'python')
+optdepends=('xdg-desktop-portal: desktop file dialogs' 'gnome-keyring: Secret Service credential storage')
+provides=('memedock')
+conflicts=('memedock')
+source=("MemeDock::git+$url.git#branch=main")
+sha256sums=('SKIP')
+options=('!lto' '!debug')
+_source_dir=MemeDock
+
+# CI builds its exact checkout, including a recorded Git version, before publication.
+if [[ -n ${MEMEDOCK_SOURCE_ARCHIVE:-} ]]; then
+  source=("${MEMEDOCK_SOURCE_ARCHIVE##*/}")
+  sha256sums=("$(sha256sum "$MEMEDOCK_SOURCE_ARCHIVE" | cut -d ' ' -f 1)")
+  _source_dir="MemeDock-${pkgver%%.r*}"
+fi
+
+pkgver() {
+  cd "$srcdir/$_source_dir"
+  local _version
+  _version=$(python tools/release/version.py)
+  if [[ -d .git ]]; then
+    printf '%s.r%s.g%s\n' "$_version" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+  else
+    local _snapshot
+    _snapshot=$(cat .memedock-git-version)
+    [[ $_snapshot =~ ^${_version//./\\.}\.r[0-9]+\.g[0-9a-f]+$ ]] || return 1
+    printf '%s\n' "$_snapshot"
+  fi
+}
+
+prepare() {
+  cd "$srcdir/$_source_dir"
+  python tools/release/version.py --check
+  rustup toolchain install "$(python tools/release/version.py --format rust)" --profile minimal
+  cargo fetch --locked --target x86_64-unknown-linux-gnu
+  bash tools/native-media/build.sh x86_64-unknown-linux-gnu
+}
+
+build() {
+  cd "$srcdir/$_source_dir"
+  # Preserve jitterentropy's required -O0 despite makepkg's global CFLAGS.
+  AWS_LC_SYS_CMAKE_BUILDER=1 AWS_LC_SYS_STATIC=1 \
+    cargo build --release --locked -p memedock-linux
+}
+
+package() {
+  cd "$srcdir/$_source_dir"
+  install -Dm755 target/release/memedock "$pkgdir/usr/bin/memedock"
+  install -Dm644 apps/linux/data/com.grtsinry43.memedock.desktop \
+    "$pkgdir/usr/share/applications/com.grtsinry43.memedock.desktop"
+  install -Dm644 apps/linux/data/icons/hicolor/scalable/apps/com.grtsinry43.memedock.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/com.grtsinry43.memedock.svg"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/memedock/LICENSE"
+  local _license
+  for _license in target/native-media/x86_64-unknown-linux-gnu/install/licenses/*.txt; do
+    install -Dm644 "$_license" "$pkgdir/usr/share/licenses/memedock/$(basename "$_license")"
+  done
+}

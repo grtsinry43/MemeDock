@@ -7,6 +7,24 @@ plugins {
 
 val licenseDefinitions = layout.buildDirectory.file("generated/aboutLibraries/export/aboutlibraries.json")
 
+val workspaceMetadata = providers.exec {
+    workingDir(rootProject.layout.projectDirectory.dir("../.."))
+    commandLine("cargo", "metadata", "--no-deps", "--locked", "--format-version", "1")
+}.standardOutput.asText
+val releaseVersion = workspaceMetadata.map { metadata ->
+    val workspace = groovy.json.JsonSlurper().parseText(metadata) as Map<*, *>
+    val packages = workspace["packages"] as List<*>
+    val versions = packages.map { (it as Map<*, *>)["version"] as String }.distinct()
+    require(versions.size == 1) { "Workspace package versions must agree" }
+    versions.single()
+}.get()
+val releaseVersionParts = releaseVersion.split('.').map { it.toInt() }
+require(releaseVersionParts.size == 3 && releaseVersionParts.all { it in 0..999 }) {
+    "Android releases require a stable major.minor.patch version with components <= 999"
+}
+val releaseVersionCode = releaseVersionParts[0] * 1_000_000 + releaseVersionParts[1] * 1_000 + releaseVersionParts[2]
+require(releaseVersionCode > 0) { "Android versionCode must be positive" }
+
 aboutLibraries {
     // Builds must not depend on network access; licenses come from the dependency metadata.
     offlineMode = true
@@ -48,8 +66,8 @@ android {
         applicationId = "com.grtsinry43.memedock"
         minSdk = 28
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = releaseVersionCode
+        versionName = releaseVersion
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

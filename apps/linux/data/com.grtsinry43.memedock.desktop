@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MemeDock
+Comment=Manage stickers in one place, import easily, and share quickly
+Comment[zh_CN]=统一管理表情，轻松导入，快速发图
+Exec=memedock %F
+Icon=com.grtsinry43.memedock
+Terminal=false
+StartupNotify=true
+Categories=Graphics;
+MimeType=image/png;image/jpeg;image/gif;image/webp;

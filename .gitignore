@@ -23,6 +23,11 @@ local.properties
 **/.externalNativeBuild/
 *.apk
 *.aab
+/apps/android/app/release/
+/packaging/arch/**/src/
+/packaging/arch/**/pkg/
+/packaging/arch/**/*.tar.*
+/packaging/arch/**/memedock-*-SHA256SUMS
 
 # IDE and operating-system files.
 .idea/

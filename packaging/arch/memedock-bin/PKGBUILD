@@ -1,0 +1,39 @@
+# Stable version is derived from Cargo.toml by tools/release/version.py --sync-arch.
+pkgname=memedock-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Unified sticker manager for easy importing and quick sharing (prebuilt release)'
+arch=('x86_64')
+url='https://github.com/grtsinry43/MemeDock'
+license=('MIT')
+depends=('gtk4>=4.22' 'libadwaita>=1.9' 'glib2' 'glibc' 'gcc-libs')
+optdepends=('xdg-desktop-portal: desktop file dialogs' 'gnome-keyring: Secret Service credential storage')
+provides=("memedock=$pkgver")
+conflicts=('memedock')
+options=('!strip' '!debug')
+_archive="MemeDock-$pkgver-linux-x86_64.tar.zst"
+_manifest="memedock-$pkgver-SHA256SUMS"
+source=("$url/releases/download/v$pkgver/$_archive"
+        "$_manifest::$url/releases/download/v$pkgver/SHA256SUMS")
+# The release manifest supplies the hash; prepare() verifies before extraction.
+sha256sums=('SKIP' 'SKIP')
+noextract=("$_archive")
+
+# Test the same assets in CI before the draft Release becomes downloadable.
+if [[ -n ${MEMEDOCK_BINARY_DIR:-} ]]; then
+  source=("$_archive" "$_manifest")
+  sha256sums=('SKIP' "$(sha256sum "$MEMEDOCK_BINARY_DIR/$_manifest" | cut -d ' ' -f 1)")
+fi
+
+prepare() {
+  cd "$srcdir"
+  local _hash
+  _hash=$(awk -v file="$_archive" '$2 == file { print $1 }' "$_manifest")
+  [[ $_hash =~ ^[0-9a-f]{64}$ ]] || { printf '%s\n' 'Missing or ambiguous release checksum' >&2; return 1; }
+  printf '%s  %s\n' "$_hash" "$_archive" | sha256sum --check --strict
+  bsdtar -xf "$_archive"
+}
+
+package() {
+  cp -a "$srcdir/usr" "$pkgdir/"
+}

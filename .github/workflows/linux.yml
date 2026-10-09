@@ -1,0 +1,100 @@
+name: Linux
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install Arch build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed git curl rustup gtk4 libadwaita clang \
+            cmake ninja pkgconf nasm python desktop-file-utils xorg-server-xvfb xorg-xauth
+          useradd --create-home builder
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Read and validate version
+        id: version
+        run: python tools/release/version.py --check --format github
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /home/builder/.cargo/registry
+            /home/builder/.cargo/git
+            target/native-media
+          key: linux-native-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'tools/native-media/**') }}
+      - name: Prepare unprivileged build user
+        env:
+          RUST_VERSION: ${{ steps.version.outputs.rust }}
+        run: |
+          chown -R builder:builder "$GITHUB_WORKSPACE" /home/builder
+          runuser -u builder -- rustup toolchain install "$RUST_VERSION" \
+            --profile minimal --component rustfmt --component clippy
+          runuser -u builder -- bash tools/native-media/fetch-test-fixtures.sh
+      - name: Rust formatting, check, Clippy and tests
+        run: |
+          runuser -u builder -- cargo fmt --all -- --check
+          runuser -u builder -- cargo check --workspace --locked
+          runuser -u builder -- cargo clippy --workspace --all-targets --locked -- -D warnings
+          runuser -u builder -- cargo test --workspace --locked
+          runuser -u builder -- cargo test -p memedock-core --locked \
+            sources::telegram::tests:: -- --ignored
+      - name: Build Linux release
+        run: |
+          runuser -u builder -- cargo build --release --locked -p memedock-linux
+          desktop-file-validate apps/linux/data/com.grtsinry43.memedock.desktop
+          runuser -u builder -- xvfb-run -a target/release/memedock --help
+          runuser -u builder -- bash tools/release/linux-bundle.sh
+      - name: Build both Arch packages from this checkout
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          archive="$GITHUB_WORKSPACE/target/release-source/MemeDock-$VERSION.tar.gz"
+          runuser -u builder -- python tools/release/version.py --check --archive "$archive"
+          distribution="$GITHUB_WORKSPACE/target/distribution/linux"
+          cd packaging/arch/memedock-git
+          runuser -u builder -- cp "$archive" .
+          runuser -u builder -- env MEMEDOCK_SOURCE_ARCHIVE="$archive" makepkg --noconfirm --cleanbuild
+          cp ./*.pkg.tar.zst "$distribution/"
+          cp PKGBUILD "$distribution/memedock-git.PKGBUILD"
+          makepkg --printsrcinfo > "$distribution/memedock-git.SRCINFO"
+          for package in ./*.pkg.tar.zst; do
+            bsdtar -tf "$package" | grep -Fx 'usr/bin/memedock'
+          done
+          cd ../memedock-bin
+          runuser -u builder -- cp "$distribution/MemeDock-$VERSION-linux-x86_64.tar.zst" .
+          runuser -u builder -- cp "$distribution/SHA256SUMS" "memedock-$VERSION-SHA256SUMS"
+          runuser -u builder -- env MEMEDOCK_BINARY_DIR="$PWD" makepkg --noconfirm --cleanbuild
+          cp ./*.pkg.tar.zst "$distribution/"
+          cp PKGBUILD "$distribution/memedock-bin.PKGBUILD"
+          makepkg --printsrcinfo > "$distribution/memedock-bin.SRCINFO"
+          for package in ./*.pkg.tar.zst; do
+            bsdtar -tf "$package" | grep -Fx 'usr/bin/memedock'
+          done
+          cp "$archive" "$distribution/"
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.release == true && 'linux-release' || 'linux-builds' }}
+          path: target/distribution/linux/
+          include-hidden-files: true
+          if-no-files-found: error

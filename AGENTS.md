@@ -2,7 +2,9 @@
 
 ## Project
 
-MemeDock is a local-first sticker library with shared Rust business logic and native platform UIs. Develop Rust + Android first; Linux follows. Local import, organization, export, sharing, clipboard, saving, portable backup and recovery are implemented.
+MemeDock is a unified sticker manager and image-sharing tool: organize stickers in one place, import them easily, and quickly find and send the right image in chats. Prioritize convenient importing, browsing/searching, and sharing in product and UI decisions. Local-first data handling, shared Rust business logic, and native platform UIs support these workflows.
+
+Develop Rust + Android first; Linux follows. Local import, organization, export, sharing, clipboard, saving, portable backup and recovery are implemented.
 
 Read relevant local designs in `docs/design.md`, `docs/domain-model.md`, and `docs/infrastructure.md`. If absent, use code as evidence and ask about missing requirements; do not invent them.
 
@@ -39,7 +41,9 @@ From `apps/android/`: `./gradlew :app:testDebugUnitTest :app:verifyDebugBridge` 
 - 5. Use `apply_patch` for file creation, edits, and deletion; no ad hoc Python or shell-generated project files.
 - 6. Ask about test expectations before adding tests. Run relevant checks and report actual results.
 - 7. Report changes, limitations, review focus, and test/CI results directly in conversation, never in project files.
-- 8. Until the user explicitly declares the initial release complete, do not implement historical-data compatibility, upgrades, downgrades, or old-format conversion. Extend the current design directly; accept only the current schema and contracts. Retain transaction rollback and recovery of interrupted current operations.
+- 8. The initial-release restriction on historical-data compatibility is lifted. Use the first public release (`0.1.0`) as the initial compatibility baseline; intermediate pre-release schema revisions are not separate released versions. Subsequent changes must account for upgrades of existing libraries and supported persisted formats. Preserve originals, transaction rollback, and recovery of interrupted migrations. Do not silently reset incompatible data or assume downgrade support.
+- 9. Organize migration and compatibility logic by source release / target application version pair, not by development iteration. Keep all steps for one transition together in a single transition file/module (for example, `v0_1_0_to_v0_2_0.rs`); extend that file with ordered functions or sections as development continues. Do not create a separate timestamped/numbered migration file for every intermediate schema edit, feature, or commit within the same unreleased target version. Preserve the existing layer/platform boundaries.
+- 10. Keep completed, released transitions stable; new feature/schema changes belong to the next version transition. Support upgrades across multiple releases by applying the completed transitions in order, rather than duplicating steps for every possible version pair. Keep fresh-library initialization aligned with the latest schema; specify supported source versions and failure/recovery behavior when proposing each migration.
 
 ## Git
 
