@@ -76,7 +76,7 @@ jobs:
           runuser -u builder -- env MEMEDOCK_SOURCE_ARCHIVE="$archive" makepkg --noconfirm --cleanbuild
           cp ./*.pkg.tar.zst "$distribution/"
           cp PKGBUILD "$distribution/memedock-git.PKGBUILD"
-          makepkg --printsrcinfo > "$distribution/memedock-git.SRCINFO"
+          runuser -u builder -- makepkg --printsrcinfo > "$distribution/memedock-git.SRCINFO"
           for package in ./*.pkg.tar.zst; do
             bsdtar -tf "$package" | grep -Fx 'usr/bin/memedock'
           done
@@ -86,7 +86,7 @@ jobs:
           runuser -u builder -- env MEMEDOCK_BINARY_DIR="$PWD" makepkg --noconfirm --cleanbuild
           cp ./*.pkg.tar.zst "$distribution/"
           cp PKGBUILD "$distribution/memedock-bin.PKGBUILD"
-          makepkg --printsrcinfo > "$distribution/memedock-bin.SRCINFO"
+          runuser -u builder -- makepkg --printsrcinfo > "$distribution/memedock-bin.SRCINFO"
           for package in ./*.pkg.tar.zst; do
             bsdtar -tf "$package" | grep -Fx 'usr/bin/memedock'
           done
