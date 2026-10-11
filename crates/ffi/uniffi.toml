@@ -4,3 +4,12 @@ cdylib_name = "memedock_ffi"
 android = true
 generate_immutable_records = true
 kotlin_target_version = "2.2.10"
+
+[crates.memedock_ffi.bindings.swift]
+# One module per boundary: MemeDockBridge holds the generated Swift API,
+# MemeDockBridgeFFI the generated C header and module map.
+module_name = "MemeDockBridge"
+ffi_module_name = "MemeDockBridgeFFI"
+# Records stay mutable so the app can build modified copies of
+# ResourceConfiguration without repeating every field.
+generate_immutable_records = false
