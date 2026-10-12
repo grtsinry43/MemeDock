@@ -15,6 +15,7 @@ mod paths;
 mod playback;
 mod preferences;
 mod settings;
+mod shortcuts;
 mod telegram;
 mod window;
 

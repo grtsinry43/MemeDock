@@ -5,11 +5,13 @@ use crate::browse::{self, BrowseFilter, EmptyCopy};
 use crate::detail::{self, DetailChrome, DetailLinks};
 use crate::i18n::{self, Key};
 use crate::output::Hold;
+use crate::shortcuts::Action;
 use gtk4::gdk::ModifierType;
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
 use libadwaita as adw;
 use libadwaita::prelude::*;
+use memedock_core::batch::{BatchOutcome, BatchReport, BatchTarget};
 use memedock_core::events::{ChangeKind, Notification};
 use memedock_core::tasks::Priority;
 use memedock_core::{CoreError, Library, QueryCursor, QueryRequest, RequestId};
@@ -162,7 +164,6 @@ pub fn attach(
     wire_items(&ui.factory, Rc::clone(&session));
     wire_menu(&ui.factory, Rc::clone(&session));
     wire_drag(&ui.factory, Rc::clone(&session));
-    wire_copy(toolbar, Rc::clone(&session));
     let back = gtk4::Button::from_icon_name("go-previous-symbolic");
     i18n::bind(&back, "tooltip-text", Key::Back);
     back.set_visible(false);
@@ -223,6 +224,7 @@ pub fn attach(
         selected_collection,
         &session.borrow().empty_add,
     );
+    wire_shortcuts(toolbar, Rc::clone(&session), Rc::clone(&importer));
     header.pack_end(&star);
     toolbar.set_content(Some(&ui.overlay));
     let search = ui.search.clone();
@@ -316,6 +318,16 @@ fn build_ui() -> Built {
 
     let search = gtk4::SearchEntry::new();
     i18n::bind(&search, "placeholder-text", Key::LibrarySearch);
+    let hint = crate::shortcuts::hint(Key::LibrarySearch, Action::FocusSearch);
+    search.set_tooltip_text(Some(hint.as_str()));
+    i18n::on_language(&search, {
+        let search = search.clone();
+        move || {
+            search.set_tooltip_text(Some(
+                crate::shortcuts::hint(Key::LibrarySearch, Action::FocusSearch).as_str(),
+            ))
+        }
+    });
     search.set_hexpand(true);
     let batch = i18n::button(Key::BatchOrganize);
     let select = i18n::button(Key::SelectItems);
@@ -668,27 +680,55 @@ fn wire_menu(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session>
     });
 }
 
-fn wire_copy(toolbar: &adw::ToolbarView, session: Rc<RefCell<Session>>) {
-    let controller = gtk4::ShortcutController::new();
-    controller.set_scope(gtk4::ShortcutScope::Global);
-    let Some(trigger) = gtk4::ShortcutTrigger::parse_string("<Control>c") else {
-        return;
-    };
-    let copy_session = Rc::clone(&session);
-    let action = gtk4::CallbackAction::new(move |widget, _| {
-        if text_focused(widget) {
-            return glib::Propagation::Proceed;
-        }
-        copy_focused(&copy_session);
-        glib::Propagation::Stop
+/// Registers everything the window listens for on its own. The accelerator table
+/// itself lives in [`crate::shortcuts`], which also decides when a key belongs to
+/// a focused text widget instead; what stays here is the grid-local handling of
+/// Escape and Return, because those act on the focused position rather than on
+/// the window as a whole.
+fn wire_shortcuts(
+    toolbar: &adw::ToolbarView,
+    session: Rc<RefCell<Session>>,
+    importer: Rc<crate::import::Controls>,
+) {
+    let grid_session = Rc::clone(&session);
+    crate::shortcuts::install(toolbar, move |shortcut| {
+        let handler: crate::shortcuts::Handler = match shortcut {
+            Action::CopyImage => {
+                let session = Rc::clone(&session);
+                Rc::new(move || copy_focused(&session))
+            }
+            Action::SelectAll => {
+                let session = Rc::clone(&session);
+                Rc::new(move || select_all(&session))
+            }
+            Action::UnselectAll => {
+                let session = Rc::clone(&session);
+                Rc::new(move || clear_selection(&session))
+            }
+            Action::FocusSearch => {
+                let session = Rc::clone(&session);
+                Rc::new(move || focus_search(&session))
+            }
+            Action::Import => {
+                let controls = Rc::clone(&importer);
+                let session = Rc::clone(&session);
+                Rc::new(move || {
+                    let collection = session.borrow().selected_collection.get();
+                    crate::import::request_import(&controls, collection);
+                })
+            }
+            Action::DeleteSelection => {
+                let session = Rc::clone(&session);
+                Rc::new(move || delete_selection(&session))
+            }
+        };
+        Some(handler)
     });
-    controller.add_shortcut(gtk4::Shortcut::new(Some(trigger), Some(action)));
-    toolbar.add_controller(controller);
     let keys = gtk4::EventControllerKey::new();
     keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
-    let target = Rc::clone(&session);
+    let target = Rc::clone(&grid_session);
     tracked_connect!(
-        session,
+        grid_session,
         keys,
         connect_key_pressed,
         move |_, key, _, modifiers| {
@@ -708,23 +748,18 @@ fn wire_copy(toolbar: &adw::ToolbarView, session: Rc<RefCell<Session>>) {
             glib::Propagation::Proceed
         }
     );
-    let target = Rc::clone(&session);
-    tracked_connect!(session, keys, connect_key_released, move |_, key, _, _| {
-        if matches!(key, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter) {
-            target.borrow_mut().keyboard_use = false;
+    let target = Rc::clone(&grid_session);
+    tracked_connect!(
+        grid_session,
+        keys,
+        connect_key_released,
+        move |_, key, _, _| {
+            if matches!(key, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter) {
+                target.borrow_mut().keyboard_use = false;
+            }
         }
-    });
-    session.borrow().grid.add_controller(keys);
-}
-
-fn text_focused(widget: &gtk4::Widget) -> bool {
-    let Some(focus) = widget.root().and_then(|root| root.focus()) else {
-        return false;
-    };
-    focus.is::<gtk4::Text>()
-        || focus.is::<gtk4::TextView>()
-        || focus.is::<gtk4::Entry>()
-        || focus.is::<gtk4::SearchEntry>()
+    );
+    grid_session.borrow().grid.add_controller(keys);
 }
 
 fn copy_focused(session: &Rc<RefCell<Session>>) {
@@ -1171,84 +1206,185 @@ fn clear_selection(session: &Rc<RefCell<Session>>) {
 fn update_batch(session: &Rc<RefCell<Session>>) {
     let state = session.borrow();
     let selection = state.selection.borrow();
-    state
-        .batch
-        .set_visible(selection.selecting && !selection.items.is_empty());
-    state.batch.set_label(&format!(
-        "{} · {}",
-        i18n::text(Key::BatchOrganize),
-        i18n::selection_count(selection.items.len())
-    ));
-    state.batch.set_sensitive(!selection.busy);
+    let count = selection.items.len();
+    state.batch.set_visible(selection.selecting && count > 0);
+    state.batch.set_label(&batch_label(&state, count));
+    // Above the core's per-call limit the dialog could only fail, so the bar
+    // says why it refuses instead of letting the failure arrive as a toast.
+    state.batch.set_sensitive(
+        !selection.busy
+            && !matches!(
+                crate::batch::select_all_scope(count),
+                crate::batch::Scope::OverLimit(_)
+            ),
+    );
     state.select.set_label(i18n::text(if selection.selecting {
         Key::Done
     } else {
         Key::SelectItems
     }));
+    let hint = if selection.selecting {
+        crate::shortcuts::hint(Key::ClearSelection, Action::UnselectAll)
+    } else {
+        crate::shortcuts::hint(Key::SelectItems, Action::SelectAll)
+    };
+    state.select.set_tooltip_text(Some(hint.as_str()));
     state.select.set_sensitive(!selection.busy);
     state.search_entry.set_sensitive(!selection.busy);
     state.sidebar.set_sensitive(!selection.busy);
     state.collections.set_sensitive(!selection.busy);
 }
 
-fn start_batch(session: Rc<RefCell<Session>>) {
-    let (parent, library, targets, trash, expected) = {
-        let state = session.borrow();
-        let mut selection = state.selection.borrow_mut();
-        if selection.busy || selection.items.is_empty() {
-            return;
-        }
-        let Some(parent) = state.navigation.visible_page() else {
-            return;
-        };
-        selection.busy = true;
-        let expected = match state.filter {
-            BrowseFilter::Collection(id) => state.collection_generations.get(&id).map(|g| (id, *g)),
-            _ => None,
-        };
-        (
-            parent,
-            state.library.clone(),
-            selection.items.values().copied().collect(),
-            state.filter == BrowseFilter::Trash,
-            expected,
-        )
+/// The bar states the batch limit, and that a select-all only covers the pages
+/// the grid has streamed in so far.
+fn batch_label(state: &Session, count: usize) -> String {
+    if let crate::batch::Scope::OverLimit(count) = crate::batch::select_all_scope(count) {
+        return i18n::selection_over_limit(count);
+    }
+    let mut label = format!(
+        "{} · {}",
+        i18n::text(Key::BatchOrganize),
+        i18n::selection_count(count)
+    );
+    if state.cursor.is_some() {
+        label.push_str(" · ");
+        label.push_str(i18n::text(Key::SelectionLoadedOnly));
+    }
+    label
+}
+
+/// One batch call's inputs, snapshotted while the selection is locked. The dialog
+/// and the Delete key build the same request, so the two cannot disagree about
+/// what the current selection is.
+struct BatchRequest {
+    parent: adw::NavigationPage,
+    library: Library,
+    targets: Vec<BatchTarget>,
+    trash: bool,
+    expected: Option<(CollectionId, Generation)>,
+}
+
+/// Locks the selection for one batch call. `None` means there is nothing to run,
+/// or that a batch is already in flight.
+fn begin_batch(session: &Rc<RefCell<Session>>) -> Option<BatchRequest> {
+    let state = session.borrow();
+    let mut selection = state.selection.borrow_mut();
+    if selection.busy || selection.items.is_empty() {
+        return None;
+    }
+    let parent = state.navigation.visible_page()?;
+    selection.busy = true;
+    let expected = match state.filter {
+        BrowseFilter::Collection(id) => state.collection_generations.get(&id).map(|g| (id, *g)),
+        _ => None,
     };
-    update_batch(&session);
-    let notify_session = Rc::downgrade(&session);
-    let finish_session = Rc::downgrade(&session);
-    crate::batch::show(
-        &parent,
-        library,
-        targets,
-        trash,
+    Some(BatchRequest {
+        parent,
+        library: state.library.clone(),
+        targets: selection.items.values().copied().collect(),
+        trash: state.filter == BrowseFilter::Trash,
         expected,
-        Rc::new(move |text| {
-            if let Some(session) = notify_session.upgrade() {
-                toast(&session, text);
-            }
-        }),
-        Rc::new(move |report| {
-            let Some(session) = finish_session.upgrade() else {
-                return;
-            };
-            {
-                let state = session.borrow();
-                let mut selection = state.selection.borrow_mut();
-                selection.busy = false;
-                for item in report.items {
-                    if matches!(
-                        item.outcome,
-                        memedock_core::batch::BatchOutcome::Applied
-                            | memedock_core::batch::BatchOutcome::Unchanged
-                    ) {
-                        selection.items.remove(&item.id);
-                    }
+    })
+}
+
+/// Reports a batch result in the bottom of the window.
+fn batch_notifier(session: &Rc<RefCell<Session>>) -> Rc<dyn Fn(&str)> {
+    let weak = Rc::downgrade(session);
+    Rc::new(move |text| {
+        if let Some(session) = weak.upgrade() {
+            toast(&session, text);
+        }
+    })
+}
+
+/// Drops the settled stickers from the selection and reloads, so a failed item
+/// stays selected for a retry.
+fn batch_finisher(session: &Rc<RefCell<Session>>) -> Rc<dyn Fn(BatchReport)> {
+    let weak = Rc::downgrade(session);
+    Rc::new(move |report| {
+        let Some(session) = weak.upgrade() else {
+            return;
+        };
+        {
+            let state = session.borrow();
+            let mut selection = state.selection.borrow_mut();
+            selection.busy = false;
+            for item in report.items {
+                if matches!(
+                    item.outcome,
+                    BatchOutcome::Applied | BatchOutcome::Unchanged
+                ) {
+                    selection.items.remove(&item.id);
                 }
             }
-            update_batch(&session);
-            spawn_reload(session, false);
-        }),
+        }
+        update_batch(&session);
+        spawn_reload(session, false);
+    })
+}
+
+/// Ctrl+A covers what the grid has loaded; the bar reports the count and refuses
+/// the dialog above the batch limit.
+fn select_all(session: &Rc<RefCell<Session>>) {
+    let model = {
+        let state = session.borrow();
+        if state.selection.borrow().busy {
+            return;
+        }
+        state.grid.model()
+    };
+    let Some(model) = model else {
+        return;
+    };
+    model.select_all();
+    // A single loaded sticker is still a selection: the >1 rule that opens the
+    // bar for pointer picks would leave it hidden.
+    session.borrow().selection.borrow_mut().selecting = true;
+    update_batch(session);
+}
+
+/// Ctrl+F puts the caret in the search field without touching the selection.
+fn focus_search(session: &Rc<RefCell<Session>>) {
+    let state = session.borrow();
+    if state.selection.borrow().busy {
+        return;
+    }
+    state.search_entry.grab_focus();
+}
+
+/// Delete mirrors the dialog's own Delete row, confirmation included. The trash
+/// only offers restoring, which needs a target collection, so that stays with the
+/// bar.
+fn delete_selection(session: &Rc<RefCell<Session>>) {
+    if session.borrow().filter == BrowseFilter::Trash {
+        return;
+    }
+    let Some(request) = begin_batch(session) else {
+        return;
+    };
+    update_batch(session);
+    crate::batch::delete_selection(
+        &request.parent,
+        request.library,
+        request.targets,
+        batch_notifier(session),
+        batch_finisher(session),
+    );
+}
+
+fn start_batch(session: Rc<RefCell<Session>>) {
+    let Some(request) = begin_batch(&session) else {
+        return;
+    };
+    update_batch(&session);
+    crate::batch::show(
+        &request.parent,
+        request.library,
+        request.targets,
+        request.trash,
+        request.expected,
+        batch_notifier(&session),
+        batch_finisher(&session),
     );
 }
 

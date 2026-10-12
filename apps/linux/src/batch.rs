@@ -39,6 +39,27 @@ struct Host {
     completed: Rc<Cell<bool>>,
 }
 
+/// What one batch call can cover. The grid streams pages in, so a select-all
+/// covers what has been loaded; the core refuses more than
+/// [`memedock_core::batch::MAX_BATCH_ITEMS`] targets in a single call, which has
+/// to be visible before the dialog opens instead of as a failure afterwards.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    Empty,
+    Ready(usize),
+    OverLimit(usize),
+}
+
+pub fn select_all_scope(loaded: usize) -> Scope {
+    if loaded == 0 {
+        Scope::Empty
+    } else if loaded > memedock_core::batch::MAX_BATCH_ITEMS {
+        Scope::OverLimit(loaded)
+    } else {
+        Scope::Ready(loaded)
+    }
+}
+
 pub fn show(
     parent: &impl IsA<gtk4::Widget>,
     library: Library,
@@ -145,6 +166,41 @@ pub fn show(
         column.append(&delete);
     }
     dialog.present(Some(parent));
+}
+
+/// Deletes the current selection behind the same confirmation the dialog uses,
+/// so a keyboard deletion cannot skip the prompt. Progress and the result go to
+/// the caller's toast handler, exactly as they do from inside the dialog.
+pub fn delete_selection(
+    parent: &impl IsA<gtk4::Widget>,
+    library: Library,
+    targets: Vec<BatchTarget>,
+    notify: Rc<dyn Fn(&str)>,
+    finished: Rc<dyn Fn(BatchReport)>,
+) {
+    if targets.is_empty() {
+        return;
+    }
+    let host = Host {
+        library,
+        targets,
+        busy: Rc::new(Cell::new(false)),
+        current: Rc::new(RefCell::new(None)),
+        dialog: glib::WeakRef::new(),
+        column: glib::WeakRef::new(),
+        notify,
+        finished,
+        completed: Rc::new(Cell::new(false)),
+    };
+    let tracked = host.clone();
+    detail::confirm(
+        parent,
+        i18n::text(Key::Delete),
+        i18n::text(Key::DeleteHint),
+        i18n::text(Key::Delete),
+        true,
+        move || run(tracked.clone(), BatchAction::Delete),
+    );
 }
 
 fn button(key: Key) -> gtk4::Button {
@@ -350,4 +406,32 @@ fn run(host: Host, action: BatchAction) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Scope, select_all_scope};
+    use memedock_core::batch::MAX_BATCH_ITEMS;
+
+    #[test]
+    fn an_empty_selection_has_nothing_to_run() {
+        assert_eq!(select_all_scope(0), Scope::Empty);
+    }
+
+    #[test]
+    fn the_limit_itself_is_still_accepted() {
+        assert_eq!(select_all_scope(1), Scope::Ready(1));
+        assert_eq!(
+            select_all_scope(MAX_BATCH_ITEMS),
+            Scope::Ready(MAX_BATCH_ITEMS)
+        );
+    }
+
+    #[test]
+    fn one_past_the_limit_is_reported_before_the_dialog_opens() {
+        assert_eq!(
+            select_all_scope(MAX_BATCH_ITEMS + 1),
+            Scope::OverLimit(MAX_BATCH_ITEMS + 1)
+        );
+    }
 }
