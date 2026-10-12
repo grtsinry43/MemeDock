@@ -2032,14 +2032,14 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "memedock-bindgen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "uniffi",
 ]
 
 [[package]]
 name = "memedock-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ffmpeg-next",
  "flate2",
@@ -2061,7 +2061,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-domain"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fractional_index",
  "serde",
@@ -2072,7 +2072,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "memedock-core",
  "memedock-domain",
@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-ffi-fixtures"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "memedock-domain",
  "memedock-storage",
@@ -2095,7 +2095,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-linux"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gtk4",
  "image",
@@ -2111,7 +2111,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "memedock-domain",
  "rustix",

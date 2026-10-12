@@ -1,6 +1,6 @@
 # The initial version comes from Cargo.toml; pkgver() adds the Git revision.
 pkgname=memedock-git
-pkgver=0.1.0.r24.gf767858
+pkgver=0.1.1
 pkgrel=1
 pkgdesc='Unified sticker manager for easy importing and quick sharing (development sources)'
 arch=('x86_64')
