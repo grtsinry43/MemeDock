@@ -152,11 +152,12 @@ final class StickerBrowser: ObservableObject {
     }
 
     private func apply(page: StickerPage, more: Bool) {
-        let paired = zip(page.stickers, page.resources).map { sticker, resource in
-            StickerItem(sticker: sticker, resource: resource)
-        }
-        let added = paired + page.stickers.dropFirst(paired.count).map { sticker in
-            StickerItem(sticker: sticker, resource: nil)
+        // The page carries stickers and resources as two parallel arrays, and
+        // the core does not promise that resources come back in sticker order,
+        // so pair them by content hash (the sticker id) instead of by position.
+        let resources = Self.byHash(page.resources)
+        let added = page.stickers.map { sticker in
+            StickerItem(sticker: sticker, resource: resources[sticker.id])
         }
         items = more ? items + added : added
         cursor = page.next
@@ -167,12 +168,22 @@ final class StickerBrowser: ObservableObject {
         if !missing.isEmpty {
             Task { [weak self] in
                 guard let self, let resources = try? await self.session.resources(missing) else { return }
-                for (stickerId, resource) in zip(missing, resources) {
-                    guard let index = self.items.firstIndex(where: { $0.id == stickerId }) else { continue }
+                let fetched = Self.byHash(resources)
+                for stickerId in missing {
+                    guard let resource = fetched[stickerId],
+                          let index = self.items.firstIndex(where: { $0.id == stickerId })
+                    else { continue }
                     self.items[index].apply(resource: resource)
                 }
             }
         }
+    }
+
+    /// Resources are addressed by content hash, which is also the sticker id;
+    /// the hash is the asset primary key, so folding is only a safety net.
+    private static func byHash(_ resources: [StickerResource]) -> [String: StickerResource] {
+        let pairs = resources.map { ($0.asset.hash, $0) }
+        return Dictionary(pairs, uniquingKeysWith: { first, _ in first })
     }
 
     private var collectionId: String? {
