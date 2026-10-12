@@ -3,24 +3,30 @@ import SwiftUI
 
 /// The settings window. It holds what is about the app rather than about the
 /// sticker being browsed: appearance and language, what the library occupies
-/// and where it lives, the maintenance actions, and the two operations that
-/// reach outside the library - Telegram and backups.
+/// and where it lives, the maintenance actions, and the operations that reach
+/// outside it - the trash, Telegram and backups.
 struct SettingsView: View {
     @ObservedObject var session: LibrarySession
     @ObservedObject var status: StatusCenter
+    /// The library window answers what this window asks of it; this window is
+    /// what the handle below is for, since handing a command over means getting
+    /// out of the way.
+    let navigation: LibraryNavigation
     @ObservedObject private var preferences = Preferences.shared
 
     @StateObject private var telegram: TelegramCoordinator
     @StateObject private var backups: BackupCoordinator
 
+    @State private var host = HostWindow()
     @State private var showTelegram = false
     @State private var showBackup = false
     @State private var working = false
     @State private var checkpoint: String?
 
-    init(session: LibrarySession, status: StatusCenter) {
+    init(session: LibrarySession, status: StatusCenter, navigation: LibraryNavigation) {
         _session = ObservedObject(wrappedValue: session)
         _status = ObservedObject(wrappedValue: status)
+        self.navigation = navigation
         _telegram = StateObject(wrappedValue: TelegramCoordinator(session: session, status: status))
         _backups = StateObject(wrappedValue: BackupCoordinator(session: session, status: status))
     }
@@ -43,6 +49,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 540)
         .overlay(alignment: .bottom) { StatusBanner(status: status) }
+        .background { HostWindowReader(host: host) }
         .toolbar {
             ToolbarItem {
                 Button {
@@ -102,13 +109,11 @@ struct SettingsView: View {
                     L10n.text(.originalBytes),
                     value: Format.size(statistics.readyOriginalBytes)
                 )
+                // A thumbnail and a prepared share are both rebuildable cache, so
+                // they are one line, the way Linux counts them.
                 LabeledContent(
                     L10n.text(.cacheBytes),
-                    value: Format.size(statistics.thumbnailBytes)
-                )
-                LabeledContent(
-                    L10n.text(.shareBytes),
-                    value: Format.size(statistics.temporaryShareBytes)
+                    value: Format.size(statistics.thumbnailBytes + statistics.temporaryShareBytes)
                 )
             } else {
                 HStack(spacing: 8) {
@@ -117,6 +122,10 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            // The library's own way to its trash, next to what it holds. It is
+            // the same move as the trash row in the library's sidebar.
+            Button(L10n.text(.trash)) { openTrash() }
+                .disabled(!libraryReady)
         }
     }
 
@@ -218,6 +227,14 @@ struct SettingsView: View {
                 status.show(error)
             }
         }
+    }
+
+    /// Hands the library the move and gets out of the way, so what the user sees
+    /// next is the trash itself rather than the window that offered it.
+    private func openTrash() {
+        navigation.show(.deleted)
+        host.window?.close()
+        navigation.bringForward()
     }
 
     private func reveal(_ path: String) {

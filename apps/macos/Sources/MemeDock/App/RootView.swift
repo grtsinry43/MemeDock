@@ -6,14 +6,23 @@ import SwiftUI
 struct RootView: View {
     @ObservedObject var session: LibrarySession
     @ObservedObject var status: StatusCenter
+    /// Handed to the library window, which is the only view that can answer what
+    /// the settings window asks it to show.
+    let navigation: LibraryNavigation
     @StateObject private var model: LibraryModel
     /// Observed so a theme or language change re-renders this window; applying
     /// them is `Preferences`' own job.
     @StateObject private var preferences = Preferences.shared
 
-    init(session: LibrarySession, status: StatusCenter, clipboard: ClipboardGuard) {
+    init(
+        session: LibrarySession,
+        status: StatusCenter,
+        clipboard: ClipboardGuard,
+        navigation: LibraryNavigation
+    ) {
         _session = ObservedObject(wrappedValue: session)
         _status = ObservedObject(wrappedValue: status)
+        self.navigation = navigation
         _model = StateObject(
             wrappedValue: LibraryModel(session: session, status: status, clipboard: clipboard)
         )
@@ -32,7 +41,7 @@ struct RootView: View {
         case .opening, .closed:
             OpeningView()
         case .ready:
-            LibraryWindow(model: model)
+            LibraryWindow(model: model, navigation: navigation)
         case let .failed(message):
             FailureView(message: message) {
                 Task { await session.start() }

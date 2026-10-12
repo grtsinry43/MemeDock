@@ -16,7 +16,7 @@ enum L10nKey: String {
     case copyImage, copyFile, share, saveAs, revealInFinder, copy
     case title, note, originalName, size, dimensions, format, animated, staticImage
     case createdAt, lastUsed, useCount, emptyLibrary, noResults, loading, loadMore, selection
-    case trash, backup, telegram, originalCount, originalBytes, cacheBytes, shareBytes
+    case trash, backup, telegram, originalCount, originalBytes, cacheBytes
     case createCheckpoint, cleanExports, libraryId, deviceId, dataDirectory, cacheDirectory, exportDirectory
     case checkpointCreated, exportsCleaned, imageCopied, fileCopied, saved, shareLaunched
     case importDone, importDoneReused, importDonePartial, importStopped, importFailed, importPreparing
@@ -73,7 +73,6 @@ enum L10n {
         .loadMore: "Load more", .selection: "Selection",
         .trash: "Trash", .backup: "Backup", .telegram: "Telegram",
         .originalCount: "Originals", .originalBytes: "Original size", .cacheBytes: "Thumbnails and cache",
-        .shareBytes: "Prepared shares",
         .createCheckpoint: "Create checkpoint", .cleanExports: "Clean prepared shares",
         .libraryId: "Library", .deviceId: "Device",
         .dataDirectory: "Library folder", .cacheDirectory: "Cache folder", .exportDirectory: "Share folder",
@@ -179,7 +178,6 @@ enum L10n {
         .loadMore: "加载更多", .selection: "所选",
         .trash: "回收站", .backup: "备份", .telegram: "Telegram",
         .originalCount: "原图数量", .originalBytes: "原图占用", .cacheBytes: "缩略图与缓存",
-        .shareBytes: "待分享副本",
         .createCheckpoint: "创建检查点", .cleanExports: "清理待分享副本",
         .libraryId: "素材库", .deviceId: "设备",
         .dataDirectory: "素材库目录", .cacheDirectory: "缓存目录", .exportDirectory: "分享目录",

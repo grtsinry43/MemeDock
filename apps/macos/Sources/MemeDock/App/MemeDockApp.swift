@@ -10,7 +10,12 @@ struct MemeDockApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(session: delegate.session, status: delegate.status, clipboard: delegate.clipboard)
+            RootView(
+                session: delegate.session,
+                status: delegate.status,
+                clipboard: delegate.clipboard,
+                navigation: delegate.navigation
+            )
         }
         .defaultSize(width: 1080, height: 720)
         .commands {
@@ -22,7 +27,11 @@ struct MemeDockApp: App {
         // browsed, so they live in the settings window (Command-,) instead of
         // taking room from the grid.
         Settings {
-            SettingsView(session: delegate.session, status: delegate.status)
+            SettingsView(
+                session: delegate.session,
+                status: delegate.status,
+                navigation: delegate.navigation
+            )
         }
     }
 }
@@ -31,6 +40,8 @@ struct MemeDockApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let session = LibrarySession(paths: .standard())
     let status = StatusCenter()
+    /// Shared because the settings window reaches the library through it.
+    let navigation = LibraryNavigation()
     private(set) lazy var clipboard = ClipboardGuard(session: session)
 
     private var terminating = false

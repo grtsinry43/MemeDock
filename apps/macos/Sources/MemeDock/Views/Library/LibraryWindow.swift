@@ -6,12 +6,16 @@ import SwiftUI
 /// building up.
 struct LibraryWindow: View {
     @ObservedObject var model: LibraryModel
+    /// Observed so a request from the settings window is answered as soon as it
+    /// arrives, even while nothing else about the window changes.
+    @ObservedObject var navigation: LibraryNavigation
     @ObservedObject private var browser: StickerBrowser
     @ObservedObject private var detail: StickerDetailModel
     @ObservedObject private var imports: ImportCoordinator
 
-    init(model: LibraryModel) {
+    init(model: LibraryModel, navigation: LibraryNavigation) {
         self.model = model
+        self.navigation = navigation
         _browser = ObservedObject(wrappedValue: model.browser)
         _detail = ObservedObject(wrappedValue: model.detail)
         _imports = ObservedObject(wrappedValue: model.imports)
@@ -42,6 +46,13 @@ struct LibraryWindow: View {
         .toolbar { toolbar }
         // What makes ⌘C and ⌘A land on the library instead of nowhere.
         .background { LibraryResponderInstaller(model: model) }
+        // Where the settings window finds this one when it has to bring it
+        // forward, and what lets it ask for a section at all.
+        .background { HostWindowReader(host: navigation.library) }
+        .onChange(of: navigation.request) { _, request in
+            guard let request else { return }
+            model.select(request.section)
+        }
         .task { await model.start() }
         .onDisappear { model.shutdown() }
     }
