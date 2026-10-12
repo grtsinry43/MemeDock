@@ -225,6 +225,16 @@ pub fn bind(
     i18n::bind(&paste_button, "tooltip-text", Key::PasteHint);
     header.pack_end(&paste_button);
     header.pack_end(&import_button);
+    let hint = crate::shortcuts::hint(Key::LibraryAdd, crate::shortcuts::Action::Import);
+    import_button.set_tooltip_text(Some(hint.as_str()));
+    i18n::on_language(&import_button, {
+        let button = import_button.clone();
+        move || {
+            button.set_tooltip_text(Some(
+                crate::shortcuts::hint(Key::LibraryAdd, crate::shortcuts::Action::Import).as_str(),
+            ))
+        }
+    });
 
     let controls_for_import = Rc::clone(&controls);
     let collection_for_import = Rc::clone(&collection);
@@ -430,6 +440,19 @@ fn begin_clipboard(controls: Rc<Controls>, collection: Option<CollectionId>) {
             _ => toast(&controls, i18n::text(Key::ClipboardEmpty)),
         }
     });
+}
+
+/// Opens the picker for the target collection that is in scope right now. The
+/// import button and the Ctrl+I accelerator both land here, so the two paths
+/// cannot drift.
+pub fn request_import(controls: &Rc<Controls>, collection: Option<CollectionId>) {
+    let Some(parent) = controls.parent.upgrade() else {
+        return;
+    };
+    let Ok(overlay) = parent.downcast::<gtk4::Overlay>() else {
+        return;
+    };
+    begin_picker(Rc::clone(controls), &overlay, collection);
 }
 
 fn begin_picker(controls: Rc<Controls>, overlay: &gtk4::Overlay, collection: Option<CollectionId>) {

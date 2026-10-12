@@ -214,6 +214,7 @@ pub enum Key {
     MoveUp,
     MoveDown,
     SelectItems,
+    SelectionLoadedOnly,
     BatchOrganize,
     AssignCollection,
     ClearCollection,
@@ -585,6 +586,7 @@ fn pair(key: Key) -> (&'static str, &'static str) {
         Key::MoveUp => ("向前移动", "Move up"),
         Key::MoveDown => ("向后移动", "Move down"),
         Key::SelectItems => ("选择", "Select"),
+        Key::SelectionLoadedOnly => ("仅含已加载的表情", "loaded stickers only"),
         Key::BatchOrganize => ("批量整理", "Organize selection"),
         Key::AssignCollection => ("归入合集", "Move to collection"),
         Key::ClearCollection => ("取消归类", "Uncategorize"),
@@ -764,6 +766,16 @@ pub fn batch_result(done: usize, failed: usize, remaining: usize) -> String {
     match language() {
         Language::Zh => format!("已完成 {done} 张，失败 {failed} 张，未处理 {remaining} 张"),
         Language::En => format!("{done} completed, {failed} failed, {remaining} remaining"),
+    }
+}
+
+/// The bar states the per-call limit itself, so the number cannot drift from the
+/// one the core enforces.
+pub fn selection_over_limit(count: usize) -> String {
+    let limit = memedock_core::batch::MAX_BATCH_ITEMS;
+    match language() {
+        Language::Zh => format!("已选 {count} 张，超过单次 {limit} 张上限"),
+        Language::En => format!("{count} selected, above the {limit} per batch limit"),
     }
 }
 
