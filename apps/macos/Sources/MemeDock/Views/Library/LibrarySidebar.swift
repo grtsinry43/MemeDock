@@ -4,6 +4,7 @@ import SwiftUI
 /// Sections of the library. Collections and tags come from their catalogs, so a
 /// rename, a deletion, or a restore shows up without reopening the window.
 struct LibrarySidebar: View {
+    @Environment(\.colorScheme) private var scheme
     @ObservedObject var model: LibraryModel
     @ObservedObject private var browser: StickerBrowser
     @ObservedObject private var collections: CollectionCatalog
@@ -61,44 +62,31 @@ struct LibrarySidebar: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("MemeDock")
-                .font(MemeDockTypography.sectionTitle)
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 8)
-            List(selection: selection) {
-                Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("MemeDock")
+                    .font(MemeDockTypography.sectionTitle)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 16)
+                Group {
                     sectionRow(.all, .all, "square.grid.2x2")
                     sectionRow(.starred, .starred, "star")
                     sectionRow(.recentlyUsed, .recentlyUsed, "clock")
                 }
                 collectionsSection
                 tagsSection
-                Section {
-                    sectionRow(.deleted, .trash, "trash")
-                }
+                sectionRow(.deleted, .trash, "trash")
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .font(MemeDockTypography.body)
-            .alert(L10n.text(naming?.title ?? .rename), isPresented: namingPresented) {
-                TextField(L10n.text(naming?.prompt ?? .collections), text: $draft)
-                Button(L10n.text(.cancel), role: .cancel) { naming = nil }
-                Button(L10n.text(.confirm)) { commitName() }
-            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 16)
         }
+        .font(MemeDockTypography.body)
         .background(MemeDockGlass(sidebar: true))
-    }
-
-    private var selection: Binding<LibraryFilter?> {
-        Binding(
-            get: { browser.filter },
-            set: { value in
-                guard let value else { return }
-                model.select(value)
-            }
-        )
+        .alert(L10n.text(naming?.title ?? .rename), isPresented: namingPresented) {
+            TextField(L10n.text(naming?.prompt ?? .collections), text: $draft)
+            Button(L10n.text(.cancel), role: .cancel) { naming = nil }
+            Button(L10n.text(.confirm)) { commitName() }
+        }
     }
 
     private var namingPresented: Binding<Bool> {
@@ -109,11 +97,10 @@ struct LibrarySidebar: View {
     }
 
     private var collectionsSection: some View {
-        Section(L10n.text(.collections)) {
+        sidebarSection(.collections) {
             ForEach(collections.active, id: \.id) { collection in
-                Label(collection.name, systemImage: "square.stack")
-                    .badge(Int(collections.summary(collection.id)?.count ?? 0))
-                    .tag(LibraryFilter.collection(collection.id))
+                navigationRow(collection.name, filter: .collection(collection.id), symbol: "square.stack",
+                              count: Int(collections.summary(collection.id)?.count ?? 0))
                     .contextMenu {
                         Button(L10n.text(.rename)) { begin(.collection(collection)) }
                         Button(L10n.text(.moveUp)) { move(collection, up: true) }
@@ -132,10 +119,9 @@ struct LibrarySidebar: View {
     }
 
     private var tagsSection: some View {
-        Section(L10n.text(.tags)) {
+        sidebarSection(.tags) {
             ForEach(tags.active, id: \.id) { tag in
-                Label(tag.name, systemImage: "tag")
-                    .tag(LibraryFilter.tag(tag.id))
+                navigationRow(tag.name, filter: .tag(tag.id), symbol: "tag")
                     .contextMenu {
                         Button(L10n.text(.rename)) { begin(.tag(tag)) }
                         Divider()
@@ -150,8 +136,47 @@ struct LibrarySidebar: View {
     }
 
     private func sectionRow(_ filter: LibraryFilter, _ title: L10nKey, _ symbol: String) -> some View {
-        Label(L10n.text(title), systemImage: symbol)
-            .tag(filter)
+        navigationRow(L10n.text(title), filter: filter, symbol: symbol)
+    }
+
+    private func navigationRow(_ title: String, filter: LibraryFilter, symbol: String, count: Int? = nil) -> some View {
+        let palette = MemeDockPalette(scheme)
+        let selected = browser.filter == filter
+        return Button { model.select(filter) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .frame(width: 18)
+                Text(title)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if let count {
+                    Text(String(count))
+                        .font(MemeDockTypography.caption)
+                        .monospacedDigit()
+                }
+            }
+            .foregroundStyle(selected ? palette.raised : palette.text)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 36)
+            .background(selected ? palette.text : .clear,
+                        in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func sidebarSection<Content: View>(_ title: L10nKey, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L10n.text(title))
+                .font(MemeDockTypography.sectionLabel)
+                .foregroundStyle(MemeDockPalette(scheme).secondary)
+                .padding(.horizontal, 10)
+                .padding(.top, 16)
+                .padding(.bottom, 4)
+            content()
+        }
     }
 
     /// A deleted collection or tag keeps its name so a restore can be recognised;
@@ -165,13 +190,17 @@ struct LibrarySidebar: View {
                 .buttonStyle(.borderless)
                 .controlSize(.small)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
     }
 
     private func createRow(_ target: Naming, _ title: L10nKey) -> some View {
         Button { begin(target) } label: {
             Label(L10n.text(title), systemImage: "plus")
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(MemeDockButtonStyle(kind: .quiet))
+        .foregroundStyle(MemeDockPalette(scheme).secondary)
     }
 
     private func begin(_ target: Naming) {

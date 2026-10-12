@@ -10,6 +10,7 @@ final class StickerDetailModel: ObservableObject {
     @Published private(set) var sticker: StickerDetail?
     @Published private(set) var loading = false
     @Published private(set) var failure: String?
+    @Published private(set) var organizing = false
 
     /// What the sticker belonged to before it was deleted. A restore does not
     /// bring that back, so it is offered as a separate step.
@@ -64,6 +65,7 @@ final class StickerDetailModel: ObservableObject {
 
     func apply(_ event: SessionEvent) {
         guard case let .sticker(changed) = event, changed == id else { return }
+        guard !organizing else { return }
         Task { [weak self] in await self?.reload() }
     }
 
@@ -93,13 +95,38 @@ final class StickerDetailModel: ObservableObject {
     }
 
     func assign(tags: [TagMetadata]) async {
-        guard let reference else { return }
+        guard let reference, !organizing else { return }
+        organizing = true
+        defer { organizing = false }
         let references = tags.map { EntityReference(id: $0.id, generation: $0.lifecycle.generation) }
         do {
             _ = try await session.setOrganization(sticker: reference, tags: references)
+            let updated = try await session.detail(reference.id)
+            if id == reference.id, pending == reference.id {
+                sticker = updated
+                self.reference = EntityReference(id: updated.sticker.id, generation: updated.sticker.lifecycle.generation)
+                failure = nil
+            }
         } catch {
             failure = describe(error)
         }
+    }
+
+    func toggleTag(_ tag: TagMetadata, stickerId: String) async {
+        guard !organizing, !loading, let sticker, sticker.sticker.id == stickerId else { return }
+        var updated = sticker.tags
+        if updated.contains(where: { $0.id == tag.id }) {
+            updated.removeAll { $0.id == tag.id }
+        } else {
+            updated.append(tag)
+        }
+        await assign(tags: updated)
+    }
+
+    func addTag(_ tag: TagMetadata, stickerId: String) async {
+        guard !organizing, !loading, let sticker, sticker.sticker.id == stickerId,
+              !sticker.tags.contains(where: { $0.id == tag.id }) else { return }
+        await assign(tags: sticker.tags + [tag])
     }
 
     func delete() async {

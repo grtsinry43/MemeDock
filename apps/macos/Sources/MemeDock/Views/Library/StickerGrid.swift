@@ -56,8 +56,9 @@ struct StickerGrid: View {
                         selected: selection.isSelected(item.id),
                         // While a batch is being picked the ring is nothing but
                         // a second highlight on rows that are already tinted.
-                        focused: detail.id == item.id && !model.selecting,
+                        focused: detail.id == item.id && !model.selecting && !detail.loading,
                         model: model,
+                        actions: model.actions,
                         thumbnails: model.thumbnails
                     )
                 }
@@ -109,7 +110,7 @@ struct StickerGrid: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(MemeDockGlass())
+        .background(MemeDockPalette(scheme).canvas)
     }
 
     private var emptyState: some View {
@@ -127,6 +128,9 @@ struct StickerGrid: View {
                     imports.presentPicker(collectionId: model.importCollectionId)
                 }
                 .buttonStyle(MemeDockButtonStyle(kind: .quiet))
+            } else if searching {
+                Button(L10n.text(.clearSearch)) { browser.searchText = "" }
+                    .buttonStyle(MemeDockButtonStyle(kind: .quiet))
             }
         }
         .multilineTextAlignment(.center)
@@ -221,42 +225,45 @@ private struct StickerCell: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
+    @FocusState private var keyboardFocused: Bool
     let item: StickerItem
     let selected: Bool
     let focused: Bool
     let model: LibraryModel
+    @ObservedObject var actions: StickerActions
     @ObservedObject var thumbnails: ThumbnailStore
 
     var body: some View {
-        VStack(spacing: 6) {
-            preview
-            if !item.sticker.title.isEmpty {
-                Text(item.sticker.title)
-                    .font(MemeDockTypography.caption)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(.secondary)
+        Button { model.click(item) } label: {
+            VStack(spacing: 6) {
+                preview
+                if !item.sticker.title.isEmpty {
+                    Text(item.sticker.title)
+                        .font(MemeDockTypography.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .padding(6)
         }
-        .padding(6)
+        .buttonStyle(.plain)
+        .focused($keyboardFocused)
         .background(background, in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
-        .overlay {
-            RoundedRectangle(cornerRadius: MemeDockGeometry.control)
-                .strokeBorder(focused ? MemeDockPalette(scheme).accent.opacity(0.65) : .clear, lineWidth: 1.5)
-        }
         .contentShape(RoundedRectangle(cornerRadius: MemeDockGeometry.control))
         .onHover { hovering = $0 }
         .animation(reduceMotion ? nil : MemeDockMotion.feedback, value: hovering)
         .animation(reduceMotion ? nil : MemeDockMotion.feedback, value: selected)
-        .onTapGesture { model.click(item) }
         .contextMenu { menu }
         .help(item.sticker.title.isEmpty ? item.sticker.originalName : item.sticker.title)
+        .accessibilityLabel(item.sticker.title.isEmpty ? item.sticker.originalName : item.sticker.title)
+        .accessibilityAddTraits(selected || focused ? .isSelected : [])
     }
 
     private var preview: some View {
         ZStack {
             RoundedRectangle(cornerRadius: MemeDockGeometry.control)
-                .fill(MemeDockPalette(scheme).input.opacity(0.45))
+                .fill(.clear)
             if let image = thumbnails.image(for: item) {
                 Image(nsImage: image)
                     .resizable()
@@ -301,7 +308,7 @@ private struct StickerCell: View {
 
     private var background: AnyShapeStyle {
         let palette = MemeDockPalette(scheme)
-        if selected { return AnyShapeStyle(palette.accent.opacity(0.12)) }
+        if selected || focused || keyboardFocused { return AnyShapeStyle(palette.pressed) }
         if hovering { return AnyShapeStyle(palette.input) }
         return AnyShapeStyle(Color.clear)
     }
@@ -315,21 +322,27 @@ private struct StickerCell: View {
     @ViewBuilder
     private var menu: some View {
         Button(L10n.text(.copyImage)) { copyImage(false) }
+            .disabled(actions.busy)
         Button(L10n.text(.copyFile)) { copyFile() }
+            .disabled(actions.busy)
         if item.animated {
             Button(L10n.text(.firstFrame)) { copyImage(true) }
+                .disabled(actions.busy)
         }
         Divider()
-        Menu(L10n.text(.saveAs)) {
-            ForEach(Self.presets, id: \.self) { preset in
-                Button(StickerExport.label(preset)) { save(preset) }
+        Button(L10n.text(.saveAs)) { save() }
+        .disabled(actions.busy)
+        Button(L10n.text(.share)) { share() }
+        .disabled(actions.busy)
+        Menu(L10n.text(.exportPreset)) {
+            Picker(L10n.text(.exportPreset), selection: $actions.outputPreset) {
+                ForEach([ExportPreset.original, .compatiblePng, .whiteBackground, .smallJpeg], id: \.self) { preset in
+                    Text(StickerExport.label(preset)).tag(preset)
+                }
             }
+            .pickerStyle(.inline)
         }
-        Menu(L10n.text(.share)) {
-            ForEach(Self.presets, id: \.self) { preset in
-                Button(StickerExport.label(preset)) { share(preset) }
-            }
-        }
+        .disabled(actions.busy)
         Divider()
         Button(item.sticker.starred ? L10n.text(.unstar) : L10n.text(.star)) {
             let starred = !item.sticker.starred
@@ -345,8 +358,6 @@ private struct StickerCell: View {
         }
     }
 
-    private static let presets: [ExportPreset] = [.original, .compatiblePng, .whiteBackground, .smallJpeg]
-
     private func copyImage(_ firstFrame: Bool) {
         run { try await model.actions.copyImage(item, firstFrame: firstFrame) }
     }
@@ -355,12 +366,12 @@ private struct StickerCell: View {
         run { try await model.actions.copyFile(item) }
     }
 
-    private func save(_ preset: ExportPreset) {
-        run { try await model.actions.save(item, preset: preset) }
+    private func save() {
+        run { try await model.actions.save(item) }
     }
 
-    private func share(_ preset: ExportPreset) {
-        run { try await model.actions.share(item, preset: preset) }
+    private func share() {
+        run { try await model.actions.share(item) }
     }
 
     private func run(_ body: @escaping () async throws -> Void) {

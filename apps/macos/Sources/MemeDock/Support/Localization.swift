@@ -12,7 +12,9 @@ enum L10nKey: String {
     case search, sort, sortRecent, sortCollectionOrder, sortLastUsed, sortHint
     case importAction, importReview, importProgress, importCancel, importSummary, importExisting
     case settings, general, storage, appearance, language, system, light, dark, chinese, english
-    case cancel, confirm, delete, restore, rename, done, retry, ok, close, empty, applying
+    case cancel, confirm, delete, restore, rename, done, retry, ok, close, empty, applying, more
+    case hideSidebar, showSidebar
+    case expanded, collapsed, removeTag, animatedUsesOriginal
     case copyImage, copyFile, share, saveAs, revealInFinder, copy
     case title, note, originalName, size, dimensions, format, animated, staticImage
     case createdAt, lastUsed, useCount, emptyLibrary, noResults, loading, loadMore, selection
@@ -63,7 +65,10 @@ enum L10n {
         .chinese: "Chinese", .english: "English",
         .cancel: "Cancel", .confirm: "Confirm", .delete: "Delete", .restore: "Restore",
         .rename: "Rename", .done: "Done", .retry: "Retry", .ok: "OK", .close: "Close",
-        .empty: "Nothing here", .applying: "Working",
+        .empty: "Nothing here", .applying: "Working", .more: "More",
+        .hideSidebar: "Hide sidebar", .showSidebar: "Show sidebar",
+        .expanded: "Expanded", .collapsed: "Collapsed", .removeTag: "Remove tag %@",
+        .animatedUsesOriginal: "Animations keep their original format. Use Copy first frame for a still image.",
         .copyImage: "Copy image", .copyFile: "Copy file", .share: "Share",
         .saveAs: "Save as", .revealInFinder: "Reveal in Finder", .copy: "Copy",
         .title: "Title", .note: "Note", .originalName: "File name", .size: "Size",
@@ -126,7 +131,7 @@ enum L10n {
         .star: "Star", .unstar: "Remove star",
         .batchResult: "Updated %d, %d failed, %d skipped", .batchRunning: "Working on %d stickers",
         .details: "Details", .fileInfo: "File", .organization: "Organisation",
-        .noCollection: "No collection", .addNote: "Add a note", .firstFrame: "First frame only",
+        .noCollection: "No collection", .addNote: "Add a note", .firstFrame: "Copy first frame",
         .pauseAnimation: "Pause", .playAnimation: "Play",
         .animatedFirstFrame: "Only the first frame is previewed. Animation will be preserved when shared.",
         .restoreOrganization: "Restore its previous collection and tags",
@@ -170,7 +175,10 @@ enum L10n {
         .chinese: "简体中文", .english: "English",
         .cancel: "取消", .confirm: "确定", .delete: "删除", .restore: "恢复",
         .rename: "重命名", .done: "完成", .retry: "重试", .ok: "好", .close: "关闭",
-        .empty: "暂无内容", .applying: "处理中",
+        .empty: "暂无内容", .applying: "处理中", .more: "更多",
+        .hideSidebar: "收起侧栏", .showSidebar: "展开侧栏",
+        .expanded: "已展开", .collapsed: "已收起", .removeTag: "移除标签 %@",
+        .animatedUsesOriginal: "动图保留原格式；需要静图时使用“复制首帧”。",
         .copyImage: "复制图片", .copyFile: "复制文件", .share: "分享",
         .saveAs: "另存为", .revealInFinder: "在访达中显示", .copy: "复制",
         .title: "标题", .note: "备注", .originalName: "文件名", .size: "大小",
@@ -231,7 +239,7 @@ enum L10n {
         .star: "加星标", .unstar: "取消星标",
         .batchResult: "已更新 %d 张，失败 %d 张，跳过 %d 张", .batchRunning: "正在处理 %d 张",
         .details: "详细信息", .fileInfo: "文件", .organization: "整理",
-        .noCollection: "未加入合集", .addNote: "添加备注", .firstFrame: "仅首帧",
+        .noCollection: "未加入合集", .addNote: "添加备注", .firstFrame: "复制首帧",
         .pauseAnimation: "暂停", .playAnimation: "播放",
         .animatedFirstFrame: "当前仅显示首帧预览，发送时仍为动图",
         .restoreOrganization: "恢复原先的合集与标签",

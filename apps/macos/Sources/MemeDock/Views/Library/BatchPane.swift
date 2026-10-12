@@ -25,7 +25,6 @@ struct BatchPane: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: MemeDockGeometry.sectionGap) {
                     countSection
@@ -63,7 +62,7 @@ struct BatchPane: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(MemeDockGlass())
+        .background(MemeDockPalette(scheme).raised)
     }
 
     /// The count line carries what the run is allowed to cover: the core refuses

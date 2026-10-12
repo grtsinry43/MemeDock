@@ -15,7 +15,7 @@ struct MemeDockGlass: View {
                 palette.canvas
             } else {
                 MaterialView(sidebar: sidebar)
-                    .overlay(palette.canvas.opacity(sidebar ? 0.40 : 0.72))
+                    .overlay(palette.canvas.opacity(0.72))
             }
         }
         .allowsHitTesting(false)
@@ -64,7 +64,7 @@ struct MemeDockButtonStyle: ButtonStyle {
             configuration.label
                 .font(MemeDockTypography.control)
                 .padding(.horizontal, kind == .quiet ? 8 : 12)
-                .frame(minHeight: 34)
+                .frame(minHeight: MemeDockGeometry.controlHeight)
                 .foregroundStyle(foreground(palette))
                 .background(background(palette), in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
                 .contentShape(RoundedRectangle(cornerRadius: MemeDockGeometry.control))
@@ -78,7 +78,7 @@ struct MemeDockButtonStyle: ButtonStyle {
         private func foreground(_ palette: MemeDockPalette) -> Color {
             if configuration.role == .destructive { return palette.error }
             switch kind {
-            case .primary: return palette.onAccent
+            case .primary: return palette.raised
             case .destructive: return palette.error
             case .secondary, .quiet: return palette.text
             }
@@ -86,7 +86,7 @@ struct MemeDockButtonStyle: ButtonStyle {
 
         private func background(_ palette: MemeDockPalette) -> Color {
             switch kind {
-            case .primary: return palette.accent.opacity(configuration.isPressed ? 0.86 : 1)
+            case .primary: return palette.text.opacity(configuration.isPressed ? 0.86 : 1)
             case .quiet, .destructive:
                 return enabled && (hovering || configuration.isPressed) ? palette.input : .clear
             case .secondary:
@@ -98,14 +98,27 @@ struct MemeDockButtonStyle: ButtonStyle {
 
 struct MemeDockFieldStyle: TextFieldStyle {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var focused = false
 
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
             .textFieldStyle(.plain)
             .font(MemeDockTypography.body)
+            .tint(MemeDockPalette(scheme).accent)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .background(MemeDockPalette(scheme).input,
                         in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
+            .overlay {
+                RoundedRectangle(cornerRadius: MemeDockGeometry.control)
+                    .strokeBorder(
+                        enabled && focused ? MemeDockPalette(scheme).text.opacity(0.3) : .clear,
+                        lineWidth: 1
+                    )
+            }
+            .animation(reduceMotion ? nil : MemeDockMotion.feedback, value: focused)
     }
 }

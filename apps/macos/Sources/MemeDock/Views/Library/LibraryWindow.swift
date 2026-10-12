@@ -8,6 +8,7 @@ struct LibraryWindow: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var searchFocused: Bool
+    @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @ObservedObject var model: LibraryModel
     /// Observed so a request from the settings window is answered as soon as it
     /// arrives, even while nothing else about the window changes.
@@ -25,9 +26,10 @@ struct LibraryWindow: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $sidebarVisibility) {
             LibrarySidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 300)
+                .toolbar(removing: .sidebarToggle)
         } detail: {
             VStack(spacing: 0) {
                 header
@@ -37,12 +39,10 @@ struct LibraryWindow: View {
                     // so an action can never land on the single open sticker by
                     // mistake.
                     if model.selecting {
-                        Divider()
                         BatchPane(model: model)
                             .frame(width: 320)
                             .transition(.opacity)
                     } else if detail.id != nil || detail.loading || detail.failure != nil {
-                        Divider()
                         StickerDetailPane(model: model)
                             .frame(width: 320)
                             .transition(.opacity)
@@ -51,9 +51,19 @@ struct LibraryWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(MemeDockPalette(scheme).canvas)
+            .toolbar(removing: .sidebarToggle)
             .animation(reduceMotion ? nil : MemeDockMotion.fade, value: model.selecting)
         }
         .focusedSceneValue(\.librarySearchFocus, { searchFocused = true })
+        .toolbar(removing: .sidebarToggle)
+        .toolbar {
+            if #available(macOS 26.0, *) {
+                ToolbarItem(placement: .navigation) { sidebarToggle }
+                    .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .navigation) { sidebarToggle }
+            }
+        }
         .toolbarBackground(.hidden, for: .windowToolbar)
         // What makes ⌘C and ⌘A land on the library instead of nowhere.
         .background { LibraryResponderInstaller(model: model) }
@@ -75,25 +85,27 @@ struct LibraryWindow: View {
         )
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
-                Text(sectionTitle)
-                    .font(MemeDockTypography.pageTitle)
-                    .lineLimit(1)
-                Spacer(minLength: 12)
-                Button {
-                    imports.presentPicker(collectionId: model.importCollectionId)
-                } label: {
-                    Label(L10n.text(.libraryAdd), systemImage: "plus")
-                }
-                .keyboardShortcut("o")
-                .buttonStyle(MemeDockButtonStyle(kind: .quiet))
-                .disabled(imports.isRunning)
-                .help(L10n.text(.importAction))
+    private var sidebarToggle: some View {
+        let expanded = sidebarVisibility != .detailOnly
+        return Button {
+            withAnimation(reduceMotion ? nil : MemeDockMotion.panel) {
+                sidebarVisibility = expanded ? .detailOnly : .all
             }
-            HStack(spacing: 12) {
-                searchField
+        } label: {
+            Image(systemName: "sidebar.left")
+                .foregroundStyle(expanded ? MemeDockPalette(scheme).text : MemeDockPalette(scheme).secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(L10n.text(expanded ? .hideSidebar : .showSidebar))
+        .accessibilityLabel(L10n.text(expanded ? .hideSidebar : .showSidebar))
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            searchField
+            Menu {
                 Picker(L10n.text(.sortHint), selection: $browser.sort) {
                     Text(L10n.text(.sortRecent)).tag(StickerSort.recent)
                     if browser.filter.allowsCollectionOrder {
@@ -101,22 +113,49 @@ struct LibraryWindow: View {
                     }
                     Text(L10n.text(.sortLastUsed)).tag(StickerSort.lastUsed)
                 }
-                .pickerStyle(.menu)
-                .font(MemeDockTypography.control)
-                .fixedSize()
-                Toggle(isOn: selecting) {
-                    Label(L10n.text(.selectItems), systemImage: "checkmark.circle")
+                .pickerStyle(.inline)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(sortLabel)
+                        .font(MemeDockTypography.control)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .medium))
                 }
-                .toggleStyle(.button)
-                .font(MemeDockTypography.control)
-                .fixedSize()
-                .help(L10n.text(.selectItems))
+                .frame(height: MemeDockGeometry.controlHeight)
+                .contentShape(Rectangle())
             }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .help(L10n.text(.sortHint))
+            .fixedSize()
+            Button { model.setSelecting(!model.selecting) } label: {
+                Label(L10n.text(.selectItems), systemImage: "checkmark.circle")
+                    .labelStyle(.iconOnly)
+                    .frame(width: MemeDockGeometry.controlHeight, height: MemeDockGeometry.controlHeight)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(model.selecting ? MemeDockPalette(scheme).text : MemeDockPalette(scheme).secondary)
+            .accessibilityAddTraits(model.selecting ? .isSelected : [])
+            .font(MemeDockTypography.control)
+            .fixedSize()
+            .help(L10n.text(.selectItems))
+            Button {
+                imports.presentPicker(collectionId: model.importCollectionId)
+            } label: {
+                Label(L10n.text(.libraryAdd), systemImage: "plus")
+                    .labelStyle(.iconOnly)
+                    .frame(width: MemeDockGeometry.controlHeight, height: MemeDockGeometry.controlHeight)
+            }
+            .keyboardShortcut("o")
+            .buttonStyle(.plain)
+            .disabled(imports.isRunning)
+            .help(L10n.text(.importAction))
         }
         .padding(.horizontal, MemeDockGeometry.pageInset)
         .padding(.top, 12)
-        .padding(.bottom, 16)
-        .background(MemeDockGlass())
+        .padding(.bottom, 12)
+        .background(MemeDockPalette(scheme).canvas)
     }
 
     private var searchField: some View {
@@ -128,6 +167,14 @@ struct LibraryWindow: View {
                 .textFieldStyle(.plain)
                 .font(MemeDockTypography.body)
                 .focused($searchFocused)
+                .tint(palette.accent)
+                .onExitCommand {
+                    if browser.searchText.isEmpty {
+                        searchFocused = false
+                    } else {
+                        browser.searchText = ""
+                    }
+                }
             if !browser.searchText.isEmpty {
                 Button { browser.searchText = "" } label: {
                     Image(systemName: "xmark")
@@ -138,34 +185,22 @@ struct LibraryWindow: View {
             }
         }
         .padding(.horizontal, 12)
-        .frame(height: 36)
-        .background(palette.input.opacity(0.72),
+        .frame(height: MemeDockGeometry.controlHeight)
+        .background(palette.input,
                     in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
         .overlay {
             RoundedRectangle(cornerRadius: MemeDockGeometry.control)
-                .strokeBorder(searchFocused ? palette.accent.opacity(0.45) : .clear, lineWidth: 1)
+                .strokeBorder(searchFocused ? palette.text.opacity(0.3) : .clear, lineWidth: 1)
+        }
+        .animation(reduceMotion ? nil : MemeDockMotion.feedback, value: searchFocused)
+    }
+
+    private var sortLabel: String {
+        switch browser.effectiveSort {
+        case .recent: return L10n.text(.sortRecent)
+        case .collectionOrder: return L10n.text(.sortCollectionOrder)
+        case .lastUsed: return L10n.text(.sortLastUsed)
         }
     }
 
-    private var sectionTitle: String {
-        switch browser.filter {
-        case .all: return L10n.text(.all)
-        case .starred: return L10n.text(.starred)
-        case .recentlyUsed: return L10n.text(.recentlyUsed)
-        case .deleted: return L10n.text(.trash)
-        case let .collection(id):
-            return model.collections.active.first { $0.id == id }?.name ?? L10n.text(.collections)
-        case let .tag(id):
-            return model.tags.active.first { $0.id == id }?.name ?? L10n.text(.tags)
-        }
-    }
-
-    /// Leaving the mode drops what was picked: a selection that is no longer
-    /// shown anywhere would keep rows tinted with nothing left to act on.
-    private var selecting: Binding<Bool> {
-        Binding(
-            get: { model.selecting },
-            set: { model.setSelecting($0) }
-        )
-    }
 }

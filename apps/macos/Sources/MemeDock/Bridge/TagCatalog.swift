@@ -33,8 +33,11 @@ final class TagCatalog: ObservableObject {
         }
     }
 
-    func create(name: String) async throws {
-        insertLocally(try await session.createTag(name: name))
+    @discardableResult
+    func create(name: String) async throws -> TagMetadata {
+        let tag = try await session.createTag(name: name)
+        insertLocally(tag)
+        return tag
     }
 
     func rename(_ tag: TagMetadata, name: String) async throws {

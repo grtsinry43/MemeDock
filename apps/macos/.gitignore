@@ -1,3 +1,5 @@
 Generated/
 .build/
 Bundle/MemeDock.app/
+# Xcode-managed SwiftPM workspace state.
+.swiftpm/

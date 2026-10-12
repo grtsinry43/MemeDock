@@ -33,7 +33,7 @@ struct RootView: View {
         content
             .font(MemeDockTypography.body)
             .foregroundStyle(MemeDockPalette(scheme).text)
-            .tint(MemeDockPalette(scheme).accent)
+            .tint(MemeDockPalette(scheme).text)
             .buttonStyle(MemeDockButtonStyle())
             .background(MemeDockPalette(scheme).canvas)
             .frame(minWidth: 720, minHeight: 480)

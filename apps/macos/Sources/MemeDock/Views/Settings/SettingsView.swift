@@ -6,6 +6,7 @@ import SwiftUI
 /// and where it lives, the maintenance actions, and the operations that reach
 /// outside it - the trash, Telegram and backups.
 struct SettingsView: View {
+    @Environment(\.colorScheme) private var scheme
     @ObservedObject var session: LibrarySession
     @ObservedObject var status: StatusCenter
     /// The library window answers what this window asks of it; this window is
@@ -37,17 +38,26 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
-            generalSection
-            librarySection
-            storageSection
-            locationSection
-            maintenanceSection
-            telegramSection
-            backupSection
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: MemeDockGeometry.sectionGap) {
+                    generalSection
+                    librarySection
+                    storageSection
+                    locationSection
+                    maintenanceSection
+                    telegramSection
+                    backupSection
+                }
+                .padding(MemeDockGeometry.pageInset)
+            }
         }
-        .formStyle(.grouped)
+        .font(MemeDockTypography.body)
+        .foregroundStyle(MemeDockPalette(scheme).text)
+        .tint(MemeDockPalette(scheme).text)
+        .background(MemeDockPalette(scheme).canvas)
         .frame(width: 540)
+        .frame(minHeight: 480, idealHeight: 640, maxHeight: 780)
         .overlay(alignment: .bottom) { StatusBanner(status: status) }
         .background { HostWindowReader(host: host) }
         .toolbar {
@@ -76,26 +86,30 @@ struct SettingsView: View {
     }
 
     private var generalSection: some View {
-        Section(L10n.text(.general)) {
+        settingsSection(.general) {
             Picker(L10n.text(.appearance), selection: $preferences.appearance) {
                 ForEach(AppearanceMode.allCases) { mode in
                     Text(mode.label).tag(mode)
                 }
             }
+            .pickerStyle(.menu)
+            separator
             Picker(L10n.text(.language), selection: $preferences.language) {
                 ForEach(LanguageMode.allCases) { mode in
                     Text(mode.label).tag(mode)
                 }
             }
+            .pickerStyle(.menu)
         }
     }
 
     private var librarySection: some View {
-        Section(L10n.text(.library)) {
+        settingsSection(.library) {
             LabeledContent(L10n.text(.libraryId)) {
                 Text(session.identity?.libraryId ?? "—")
                     .textSelection(.enabled)
             }
+            separator
             LabeledContent(L10n.text(.deviceId)) {
                 Text(session.identity?.deviceId ?? "—")
                     .textSelection(.enabled)
@@ -104,13 +118,15 @@ struct SettingsView: View {
     }
 
     private var storageSection: some View {
-        Section(L10n.text(.storage)) {
+        settingsSection(.storage) {
             if let statistics = session.statistics {
                 LabeledContent(L10n.text(.originalCount), value: "\(statistics.knownAssets)")
+                separator
                 LabeledContent(
                     L10n.text(.originalBytes),
                     value: Format.size(statistics.readyOriginalBytes)
                 )
+                separator
                 // A thumbnail and a prepared share are both rebuildable cache, so
                 // they are one line, the way Linux counts them.
                 LabeledContent(
@@ -124,6 +140,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            separator
             // The library's own way to its trash, next to what it holds. It is
             // the same move as the trash row in the library's sidebar.
             Button(L10n.text(.trash)) { openTrash() }
@@ -132,15 +149,17 @@ struct SettingsView: View {
     }
 
     private var locationSection: some View {
-        Section(L10n.text(.dataDirectory)) {
+        settingsSection(.dataDirectory) {
             location(L10n.text(.dataDirectory), session.paths.data)
+            separator
             location(L10n.text(.cacheDirectory), session.paths.cache)
+            separator
             location(L10n.text(.exportDirectory), session.paths.export)
         }
     }
 
     private var maintenanceSection: some View {
-        Section {
+        settingsSection {
             Button(L10n.text(.createCheckpoint)) { createCheckpoint() }
                 .disabled(working || !libraryReady)
             if let checkpoint {
@@ -153,6 +172,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            separator
             Button(L10n.text(.cleanExports)) { cleanExports() }
                 .disabled(working || !libraryReady)
             if working {
@@ -166,7 +186,7 @@ struct SettingsView: View {
     }
 
     private var telegramSection: some View {
-        Section(L10n.text(.telegram)) {
+        settingsSection(.telegram) {
             Button(L10n.text(.telegram)) { showTelegram = true }
                 .disabled(!libraryReady)
             Text(L10n.text(.telegramTokenHint))
@@ -176,7 +196,7 @@ struct SettingsView: View {
     }
 
     private var backupSection: some View {
-        Section(L10n.text(.backup)) {
+        settingsSection(.backup) {
             // Both directions are one file, so the sheet holds the two buttons
             // and this is only the way in.
             Button(L10n.text(.backup)) { showBackup = true }
@@ -185,6 +205,36 @@ struct SettingsView: View {
                 .font(MemeDockTypography.body)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// Use the same small labels and neutral grouped surfaces as Android.
+    /// Native pickers, labels and selectable values keep their desktop behavior.
+    private func settingsSection<Content: View>(
+        _ title: L10nKey? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let title {
+                Text(L10n.text(title))
+                    .font(MemeDockTypography.sectionLabel)
+                    .foregroundStyle(MemeDockPalette(scheme).secondary)
+                    .padding(.horizontal, 4)
+            }
+            VStack(alignment: .leading, spacing: 12, content: content)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(
+                    MemeDockPalette(scheme).raised,
+                    in: RoundedRectangle(cornerRadius: MemeDockGeometry.control)
+                )
+        }
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(MemeDockPalette(scheme).separator)
+            .frame(height: 0.5)
+            .accessibilityHidden(true)
     }
 
     private func location(_ title: String, _ url: URL) -> some View {

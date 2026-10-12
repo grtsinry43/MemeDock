@@ -116,7 +116,8 @@ final class LibraryModel: ObservableObject {
     /// out, and while a batch is being picked the right column belongs to the
     /// selection rather than to one sticker, so neither leaves anything to copy.
     var copyTarget: StickerItem? {
-        guard !selecting, browser.filter != .deleted else { return nil }
+        guard !selecting, browser.filter != .deleted, !detail.loading,
+              !actions.busy, detail.sticker?.originalPath != nil else { return nil }
         return detail.item
     }
 

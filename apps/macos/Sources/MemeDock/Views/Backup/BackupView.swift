@@ -32,7 +32,7 @@ struct BackupView: View {
                 if let savedPath = coordinator.savedPath {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(MemeDockPalette(scheme).success)
                         Text(savedPath)
                             .font(MemeDockTypography.body)
                             .lineLimit(1)
@@ -57,7 +57,7 @@ struct BackupView: View {
         .frame(width: 580)
         .font(MemeDockTypography.body)
         .foregroundStyle(MemeDockPalette(scheme).text)
-        .tint(MemeDockPalette(scheme).accent)
+        .tint(MemeDockPalette(scheme).text)
         .buttonStyle(MemeDockButtonStyle())
         .background(MemeDockPalette(scheme).canvas)
         // A preview holds a staged copy inside the library, so leaving the
@@ -137,7 +137,7 @@ struct BackupView: View {
             .disabled(!coordinator.hasPreview || coordinator.isBusy)
         }
         .padding(16)
-        .background(MemeDockGlass())
+        .background(MemeDockPalette(scheme).canvas)
     }
 
     /// A merge reports what it moved in; a replace leaves the library holding

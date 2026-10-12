@@ -9,6 +9,7 @@ import MemeDockBridge
 @MainActor
 final class StickerActions: ObservableObject {
     @Published private(set) var busy = false
+    @Published var outputPreset: ExportPreset = .compatiblePng
 
     private let session: LibrarySession
     private let clipboard: ClipboardGuard
@@ -25,7 +26,7 @@ final class StickerActions: ObservableObject {
 
     func copyImage(_ item: StickerItem, firstFrame: Bool = false) async throws {
         try await run {
-            let lease = try await self.export(item, preset: .compatiblePng, firstFrame: firstFrame)
+            let lease = try await self.export(item, preset: self.outputPreset, firstFrame: firstFrame)
             let artifact = try lease.metadata()
             try await self.clipboard.install(lease: lease) { pasteboard in
                 try Self.write(artifact: artifact, representation: .image, to: pasteboard)
@@ -37,7 +38,7 @@ final class StickerActions: ObservableObject {
 
     func copyFile(_ item: StickerItem) async throws {
         try await run {
-            let lease = try await self.exportOriginal(item)
+            let lease = try await self.export(item, preset: self.outputPreset, firstFrame: false)
             let artifact = try lease.metadata()
             try await self.clipboard.install(lease: lease) { pasteboard in
                 try Self.write(artifact: artifact, representation: .file, to: pasteboard)
@@ -47,9 +48,9 @@ final class StickerActions: ObservableObject {
         }
     }
 
-    func save(_ item: StickerItem, preset: ExportPreset, firstFrame: Bool = false) async throws {
+    func save(_ item: StickerItem, firstFrame: Bool = false) async throws {
         try await run {
-            let lease = try await self.export(item, preset: preset, firstFrame: firstFrame)
+            let lease = try await self.export(item, preset: self.outputPreset, firstFrame: firstFrame)
             let artifact = try lease.metadata()
             guard let destination = try await Self.askDestination(name: artifact.fileName) else { return }
             try Self.replace(source: URL(fileURLWithPath: artifact.path), destination: destination)
@@ -58,9 +59,9 @@ final class StickerActions: ObservableObject {
         }
     }
 
-    func share(_ item: StickerItem, preset: ExportPreset, firstFrame: Bool = false) async throws {
+    func share(_ item: StickerItem, firstFrame: Bool = false) async throws {
         try await run {
-            let lease = try await self.export(item, preset: preset, firstFrame: firstFrame)
+            let lease = try await self.export(item, preset: self.outputPreset, firstFrame: firstFrame)
             let artifact = try lease.metadata()
             let url = URL(fileURLWithPath: artifact.path)
             guard let view = Self.anchorView() else { throw AppFailure(.errorInternal) }
@@ -95,11 +96,6 @@ final class StickerActions: ObservableObject {
         let resolution = StickerExport.resolve(preset: preset, animated: item.animated, firstFrame: firstFrame)
         let options = StickerExport.options(resolution.preset, animation: resolution.animation)
         let lease = try await session.requireLibrary().export(id: item.id, options: options).awaitResult()
-        return retain(lease)
-    }
-
-    private func exportOriginal(_ item: StickerItem) async throws -> ArtifactLeaseHandle {
-        let lease = try await session.requireLibrary().exportOriginal(id: item.id).awaitResult()
         return retain(lease)
     }
 

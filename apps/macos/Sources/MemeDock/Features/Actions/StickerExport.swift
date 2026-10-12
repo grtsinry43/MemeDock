@@ -23,10 +23,13 @@ enum StickerExport {
     /// An animated original can only be handed over untouched, and asking for
     /// the first frame flattens it. Everything else keeps the animation.
     static func resolve(preset: ExportPreset, animated: Bool, firstFrame: Bool) -> Resolution {
+        if firstFrame {
+            return Resolution(preset: preset == .original ? .compatiblePng : preset, animation: .firstFrame)
+        }
         if preset == .original || (animated && !firstFrame) {
             return Resolution(preset: .original, animation: .preserve)
         }
-        return Resolution(preset: preset, animation: firstFrame ? .firstFrame : .preserve)
+        return Resolution(preset: preset, animation: .preserve)
     }
 
     static func label(_ preset: ExportPreset) -> String {

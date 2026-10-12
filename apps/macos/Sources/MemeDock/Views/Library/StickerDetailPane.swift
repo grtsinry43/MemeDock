@@ -12,6 +12,7 @@ struct StickerDetailPane: View {
     @ObservedObject private var collections: CollectionCatalog
     @ObservedObject private var tags: TagCatalog
     @ObservedObject private var thumbnails: ThumbnailStore
+    @ObservedObject private var actions: StickerActions
 
     private enum Field {
         case title
@@ -20,6 +21,11 @@ struct StickerDetailPane: View {
 
     @State private var title = ""
     @State private var note = ""
+    @State private var fileInfoExpanded = false
+    @State private var showingTagPicker = false
+    @State private var newTagName = ""
+    @State private var creatingTag = false
+    @State private var tagCreateError: String?
     @FocusState private var editing: Field?
 
     init(model: LibraryModel) {
@@ -28,29 +34,37 @@ struct StickerDetailPane: View {
         _collections = ObservedObject(wrappedValue: model.collections)
         _tags = ObservedObject(wrappedValue: model.tags)
         _thumbnails = ObservedObject(wrappedValue: model.thumbnails)
+        _actions = ObservedObject(wrappedValue: model.actions)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: MemeDockGeometry.sectionGap) {
-                    if let sticker = detail.sticker {
+                    if detail.loading {
+                        loadingState
+                    } else if let sticker = detail.sticker {
                         preview(sticker)
-                        fileSection(sticker)
+                        titleField(sticker)
+                        if sticker.originalPath == nil {
+                            Label(L10n.text(.restoreRequired), systemImage: "exclamationmark.triangle")
+                                .font(MemeDockTypography.caption)
+                                .foregroundStyle(.orange)
+                        }
+                        actionsSection
                         organizationSection(sticker)
                         if sticker.sticker.lifecycle.deletedAt != nil {
                             trashSection
                         }
-                        actionsSection
+                        fileSection(sticker)
+                        if let failure = detail.failure {
+                            errorState(failure)
+                        }
                     } else if let failure = detail.failure {
                         errorState(failure)
                     } else {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 40)
+                        loadingState
                     }
                 }
                 .padding(MemeDockGeometry.pageInset)
@@ -58,11 +72,17 @@ struct StickerDetailPane: View {
         }
         .background(MemeDockPalette(scheme).raised)
         .task(id: detail.id) { syncFields() }
+        .onChange(of: detail.id) { _, _ in
+            fileInfoExpanded = false
+            showingTagPicker = false
+            newTagName = ""
+            tagCreateError = nil
+        }
         .onChange(of: detail.sticker) { syncFields() }
         .onChange(of: editing) { previous, _ in
             // Leaving a field by clicking elsewhere commits it, so a typed title
             // is not lost to a pane that was never submitted.
-            guard let sticker = detail.sticker, let previous else { return }
+            guard !detail.loading, let sticker = detail.sticker, let previous else { return }
             switch previous {
             case .title: commitTitle(sticker)
             case .note: commitNote(sticker)
@@ -84,7 +104,9 @@ struct StickerDetailPane: View {
                         .foregroundStyle(sticker.sticker.starred ? MemeDockPalette(scheme).star : MemeDockPalette(scheme).secondary)
                 }
                 .buttonStyle(.borderless)
+                .disabled(detail.loading)
                 .help(L10n.text(sticker.sticker.starred ? .unstar : .star))
+                moreMenu(sticker)
             }
             Button {
                 detail.clear()
@@ -96,20 +118,16 @@ struct StickerDetailPane: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(MemeDockGlass())
+        .background(MemeDockPalette(scheme).raised)
     }
 
     private func preview(_ sticker: StickerDetail) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: MemeDockGeometry.control)
-                .fill(MemeDockPalette(scheme).canvas)
-            OriginalPreview(
-                path: sticker.originalPath,
-                fallback: previewFallback(sticker),
-                animated: sticker.asset.animated,
-                mime: sticker.asset.mime
-            )
-        }
+        OriginalPreview(
+            path: sticker.originalPath,
+            fallback: previewFallback(sticker),
+            animated: sticker.asset.animated,
+            mime: sticker.asset.mime
+        )
         .frame(height: 190)
     }
 
@@ -119,21 +137,45 @@ struct StickerDetailPane: View {
     }
 
     private func fileSection(_ sticker: StickerDetail) -> some View {
-        section(L10n.text(.fileInfo)) {
-            TextField(L10n.text(.title), text: $title)
-                .textFieldStyle(MemeDockFieldStyle())
-                .focused($editing, equals: .title)
-                .onSubmit { commitTitle(sticker) }
-            LabeledContent(L10n.text(.originalName), value: sticker.sticker.originalName)
-            LabeledContent(L10n.text(.size), value: Format.size(sticker.asset.byteSize))
-            LabeledContent(L10n.text(.dimensions), value: "\(sticker.asset.width) × \(sticker.asset.height)")
-            LabeledContent(L10n.text(.format), value: sticker.asset.animated ? L10n.text(.animated) : L10n.text(.staticImage))
-            LabeledContent(L10n.text(.createdAt), value: Format.timestamp(sticker.sticker.lifecycle.createdAt))
-            if sticker.originalPath == nil {
-                Label(L10n.text(.restoreRequired), systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
+        DisclosureGroup(isExpanded: $fileInfoExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                LabeledContent(L10n.text(.originalName)) {
+                    Text(sticker.sticker.originalName)
+                        .textSelection(.enabled)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+                LabeledContent(L10n.text(.size), value: Format.size(sticker.asset.byteSize))
+                LabeledContent(L10n.text(.dimensions), value: "\(sticker.asset.width) × \(sticker.asset.height)")
+                LabeledContent(L10n.text(.format), value: sticker.asset.animated ? L10n.text(.animated) : L10n.text(.staticImage))
+                LabeledContent(L10n.text(.createdAt), value: Format.timestamp(sticker.sticker.lifecycle.createdAt))
             }
+            .font(MemeDockTypography.caption)
+            .padding(.top, 8)
+        } label: {
+            Text(L10n.text(.fileInfo))
+                .font(MemeDockTypography.sectionLabel)
+                .foregroundStyle(MemeDockPalette(scheme).secondary)
         }
+        .disclosureGroupStyle(MemeDockDisclosureStyle())
+    }
+
+    private func titleField(_ sticker: StickerDetail) -> some View {
+        TextField(L10n.text(.title), text: $title)
+            .textFieldStyle(MemeDockFieldStyle(focused: editing == .title))
+            .focused($editing, equals: .title)
+            .onSubmit { commitTitle(sticker) }
+    }
+
+    private var loadingState: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(L10n.text(.loading))
+                .font(MemeDockTypography.caption)
+                .foregroundStyle(MemeDockPalette(scheme).secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
     }
 
     private func organizationSection(_ sticker: StickerDetail) -> some View {
@@ -142,7 +184,7 @@ struct StickerDetailPane: View {
             tagPicker(sticker)
             TextField(L10n.text(.addNote), text: $note, axis: .vertical)
                 .lineLimit(2 ... 6)
-                .textFieldStyle(MemeDockFieldStyle())
+                .textFieldStyle(MemeDockFieldStyle(focused: editing == .note))
                 .focused($editing, equals: .note)
                 .onSubmit { commitNote(sticker) }
         }
@@ -167,25 +209,95 @@ struct StickerDetailPane: View {
     }
 
     private func tagPicker(_ sticker: StickerDetail) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(L10n.text(.tags))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Menu(L10n.text(.addTags)) {
-                    ForEach(modelTags, id: \.id) { tag in
-                        Button(toggleSymbol(contains(sticker, tag)) + tag.name) {
-                            toggle(sticker, tag)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.text(.tags))
+                .font(MemeDockTypography.sectionLabel)
+                .foregroundStyle(MemeDockPalette(scheme).secondary)
+            MemeDockTagLayout {
+                ForEach(sticker.tags, id: \.id) { tag in
+                    Button { toggle(sticker, tag) } label: {
+                        tagLabel(tag.name, symbol: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.text(.removeTag, tag.name))
+                }
+                Button { showingTagPicker = true } label: {
+                    tagLabel(L10n.text(.addTags), symbol: "plus")
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showingTagPicker) { tagChoices(sticker) }
+            }
+            .disabled(detail.organizing || creatingTag || sticker.sticker.lifecycle.deletedAt != nil)
+        }
+    }
+
+    private func tagLabel(_ name: String, symbol: String, selected: Bool = false) -> some View {
+        HStack(spacing: 6) {
+            Text(name).lineLimit(1).truncationMode(.middle)
+            Image(systemName: symbol).font(.system(size: 10, weight: .medium))
+        }
+        .font(MemeDockTypography.caption)
+        .foregroundStyle(selected ? MemeDockPalette(scheme).raised : MemeDockPalette(scheme).text)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(selected ? MemeDockPalette(scheme).text : MemeDockPalette(scheme).input,
+                    in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
+        .contentShape(Rectangle())
+    }
+
+    private func tagChoices(_ sticker: StickerDetail) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L10n.text(.tags)).font(MemeDockTypography.rowTitle)
+            ScrollView {
+                MemeDockTagLayout {
+                    ForEach(tags.active, id: \.id) { tag in
+                        let selected = contains(sticker, tag)
+                        Button { toggle(sticker, tag) } label: {
+                            tagLabel(tag.name, symbol: selected ? "checkmark" : "plus", selected: selected)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(selected ? .isSelected : [])
                     }
                 }
-                .frame(maxWidth: 170, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if !sticker.tags.isEmpty {
-                Text(sticker.tags.map(\.name).joined(separator: "、"))
-                    .font(MemeDockTypography.body)
-                    .foregroundStyle(.secondary)
+            .frame(maxHeight: 180)
+            .disabled(detail.organizing || creatingTag)
+            HStack(spacing: 8) {
+                TextField(L10n.text(.newTag), text: $newTagName)
+                    .textFieldStyle(MemeDockFieldStyle())
+                    .onSubmit { createTag(for: sticker.sticker.id) }
+                Button { createTag(for: sticker.sticker.id) } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(MemeDockButtonStyle(kind: .quiet))
+                .help(L10n.text(.newTag))
+                .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            .disabled(detail.organizing || creatingTag)
+            if detail.organizing || creatingTag { ProgressView().controlSize(.small) }
+            if let error = tagCreateError ?? tags.failure ?? detail.failure {
+                Text(error).font(MemeDockTypography.caption).foregroundStyle(MemeDockPalette(scheme).error)
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
+        .font(MemeDockTypography.body)
+        .presentationCornerRadius(MemeDockGeometry.dialog)
+    }
+
+    private func createTag(for stickerId: String) {
+        let name = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !creatingTag, !detail.organizing else { return }
+        creatingTag = true
+        tagCreateError = nil
+        Task {
+            defer { creatingTag = false }
+            do {
+                let tag = try await tags.create(name: name)
+                await detail.addTag(tag, stickerId: stickerId)
+                if detail.id == stickerId, detail.failure == nil { newTagName = "" }
+            } catch { tagCreateError = describe(error) }
         }
     }
 
@@ -206,44 +318,101 @@ struct StickerDetailPane: View {
     }
 
     private var actionsSection: some View {
-        section(L10n.text(.copy)) {
+        VStack(alignment: .leading, spacing: 8) {
             if let item = detail.item {
-                HStack(spacing: 8) {
-                    Button(L10n.text(.copyImage)) { run { try await model.actions.copyImage(item) } }
-                    Button(L10n.text(.copyFile)) { run { try await model.actions.copyFile(item) } }
-                }
-                if item.animated {
-                    Button(L10n.text(.firstFrame)) {
-                        run { try await model.actions.copyImage(item, firstFrame: true) }
-                    }
-                }
-                HStack(spacing: 8) {
-                    Menu(L10n.text(.saveAs)) {
-                        presetButtons { preset in
-                            run { try await model.actions.save(item, preset: preset) }
+                Menu {
+                    Picker(L10n.text(.exportPreset), selection: $actions.outputPreset) {
+                        ForEach([ExportPreset.original, .compatiblePng, .whiteBackground, .smallJpeg], id: \.self) { preset in
+                            Text(StickerExport.label(preset)).tag(preset)
                         }
                     }
-                    Menu(L10n.text(.share)) {
-                        presetButtons { preset in
-                            run { try await model.actions.share(item, preset: preset) }
+                    .pickerStyle(.inline)
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(StickerExport.label(actions.outputPreset)).font(MemeDockTypography.control)
+                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .medium))
+                    }
+                    .frame(height: MemeDockGeometry.controlHeight)
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .help(StickerExport.hint(actions.outputPreset))
+                if item.animated, actions.outputPreset != .original {
+                    Text(L10n.text(.animatedUsesOriginal))
+                        .font(MemeDockTypography.caption)
+                        .foregroundStyle(MemeDockPalette(scheme).secondary)
+                }
+                Button { run { try await model.actions.copyImage(item) } } label: {
+                    HStack(spacing: 8) {
+                        Label(L10n.text(.copyImage), systemImage: "doc.on.doc")
+                        Spacer(minLength: 8)
+                        if actions.busy {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(MemeDockPalette(scheme).raised)
+                                .accessibilityLabel(L10n.text(.applying))
+                        } else {
+                            Text("⌘C")
+                                .font(MemeDockTypography.caption)
+                                .opacity(0.65)
                         }
                     }
+                    .frame(maxWidth: .infinity)
                 }
-                if detail.sticker?.sticker.lifecycle.deletedAt != nil {
-                    Button(L10n.text(.restoreStickerTitle)) { run { await detail.restore() } }
-                } else {
-                    Button(L10n.text(.deleteStickerTitle), role: .destructive) {
-                        run { await detail.delete() }
+                .buttonStyle(MemeDockButtonStyle(kind: .primary))
+                HStack(spacing: 12) {
+                    Button { run { try await model.actions.copyFile(item) } } label: {
+                        actionIcon(.copyFile, "doc")
                     }
+                    .buttonStyle(.plain)
+                    Button { run { try await model.actions.save(item) } } label: {
+                        actionIcon(.saveAs, "arrow.down.to.line")
+                    }
+                    .buttonStyle(.plain)
+                    Button { run { try await model.actions.share(item) } } label: {
+                        actionIcon(.share, "square.and.arrow.up")
+                    }
+                    .buttonStyle(.plain)
+                    Spacer(minLength: 0)
                 }
+                .foregroundStyle(MemeDockPalette(scheme).secondary)
             }
         }
+        .disabled(actions.busy || detail.loading || detail.sticker?.originalPath == nil)
     }
 
-    private func presetButtons(_ action: @escaping (ExportPreset) -> Void) -> some View {
-        ForEach([ExportPreset.original, .compatiblePng, .whiteBackground, .smallJpeg], id: \.self) { preset in
-            Button(StickerExport.label(preset)) { action(preset) }
+    private func actionIcon(_ title: L10nKey, _ symbol: String) -> some View {
+        Label(L10n.text(title), systemImage: symbol)
+            .labelStyle(.iconOnly)
+            .frame(width: MemeDockGeometry.controlHeight, height: MemeDockGeometry.controlHeight)
+            .contentShape(Rectangle())
+            .help(L10n.text(title))
+    }
+
+    private func moreMenu(_ sticker: StickerDetail) -> some View {
+        Menu {
+            if sticker.asset.animated, let item = detail.item {
+                Button(L10n.text(.firstFrame)) {
+                    run { try await model.actions.copyImage(item, firstFrame: true) }
+                }
+                .disabled(sticker.originalPath == nil)
+                Divider()
+            }
+            if sticker.sticker.lifecycle.deletedAt == nil {
+                Button(L10n.text(.deleteStickerTitle), role: .destructive) {
+                    run { await detail.delete() }
+                }
+            } else {
+                Button(L10n.text(.restoreStickerTitle)) { run { await detail.restore() } }
+            }
+        } label: {
+            actionIcon(.more, "ellipsis")
         }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .disabled(actions.busy || detail.loading)
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -268,28 +437,14 @@ struct StickerDetailPane: View {
         .padding(.vertical, 40)
     }
 
-    private var modelTags: [TagMetadata] {
-        tags.active
-    }
-
     private func contains(_ sticker: StickerDetail, _ tag: TagMetadata) -> Bool {
         sticker.tags.contains { $0.id == tag.id }
-    }
-
-    private func toggleSymbol(_ on: Bool) -> String {
-        on ? "✓ " : ""
     }
 
     /// The core replaces the whole tag set, so a single toggle is sent as the
     /// set the sticker should end up with.
     private func toggle(_ sticker: StickerDetail, _ tag: TagMetadata) {
-        var tags = sticker.tags
-        if contains(sticker, tag) {
-            tags.removeAll { $0.id == tag.id }
-        } else {
-            tags.append(tag)
-        }
-        run { await detail.assign(tags: tags) }
+        Task { await detail.toggleTag(tag, stickerId: sticker.sticker.id) }
     }
 
     private func assign(_ collection: LibrarySession.CollectionAssignment) {
@@ -322,6 +477,7 @@ struct StickerDetailPane: View {
 /// `AnimatedPlayback`). Still-image file reads happen off the main thread;
 /// AppKit image creation and view updates stay on the main actor.
 private struct OriginalPreview: View {
+    @Environment(\.colorScheme) private var scheme
     let path: String?
     let fallback: NSImage?
     let animated: Bool
@@ -333,22 +489,22 @@ private struct OriginalPreview: View {
     private var plays: Bool { AnimatedPlayback.plays(animated: animated, mime: mime) }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        VStack(spacing: 8) {
             picture
-            if plays {
-                control
-                    .padding(8)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if let note {
-                Text(note)
-                    .font(MemeDockTypography.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: MemeDockGeometry.badge))
-                    .padding(8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if plays || note != nil {
+                HStack(spacing: 8) {
+                    if let note {
+                        Text(note)
+                            .font(MemeDockTypography.caption)
+                            .foregroundStyle(MemeDockPalette(scheme).secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    if plays { control }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
             }
         }
         .task(id: path) { await load() }
@@ -383,10 +539,12 @@ private struct OriginalPreview: View {
         Button {
             playback.toggle()
         } label: {
-            Image(systemName: playback.state == .playing ? "pause.fill" : "play.fill")
+            Label(
+                L10n.text(playback.state == .playing ? .pauseAnimation : .playAnimation),
+                systemImage: playback.state == .playing ? "pause.fill" : "play.fill"
+            )
                 .font(MemeDockTypography.caption)
-                .padding(6)
-                .background(.thinMaterial, in: Circle())
+                .foregroundStyle(MemeDockPalette(scheme).secondary)
         }
         .buttonStyle(.plain)
         .help(L10n.text(playback.state == .playing ? .pauseAnimation : .playAnimation))

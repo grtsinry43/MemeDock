@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Surface and type roles come from the Android theme. Accent is confined to
-/// actions and selection; content uses neutral surfaces and real artwork.
+/// Surface and type roles come from the Android theme. Desktop navigation and
+/// action emphasis use neutral contrast; brand blue is reserved for the caret.
 struct MemeDockPalette {
     let canvas: Color
     let raised: Color
@@ -56,6 +56,7 @@ struct MemeDockPalette {
 enum MemeDockGeometry {
     static let badge: CGFloat = 6
     static let control: CGFloat = 10
+    static let controlHeight: CGFloat = 36
     static let message: CGFloat = 16
     static let group: CGFloat = 20
     static let dialog: CGFloat = 10
