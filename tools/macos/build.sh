@@ -76,6 +76,10 @@ binary=$(swift build "${swift_args[@]}" --show-bin-path)/MemeDock
 bundle="$apps/Bundle/MemeDock.app"
 rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Frameworks" "$bundle/Contents/Resources"
+echo "==> App icon"
+# Info.plist names AppIcon, and the artwork comes from the shared brand mark
+# rather than a macOS-only copy of it.
+bash "$root/tools/macos/make-icns.sh" "$bundle/Contents/Resources/AppIcon.icns"
 cp "$binary" "$bundle/Contents/MacOS/MemeDock"
 cp "$work/libmemedock_ffi.dylib" "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"
 # Cargo records the absolute build path as the dylib's install name, so the
