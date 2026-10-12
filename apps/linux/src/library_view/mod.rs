@@ -1212,7 +1212,11 @@ fn update_batch(session: &Rc<RefCell<Session>>) {
     // Above the core's per-call limit the dialog could only fail, so the bar
     // says why it refuses instead of letting the failure arrive as a toast.
     state.batch.set_sensitive(
-        !selection.busy && crate::batch::select_all_scope(count) != crate::batch::Scope::OverLimit,
+        !selection.busy
+            && !matches!(
+                crate::batch::select_all_scope(count),
+                crate::batch::Scope::OverLimit(_)
+            ),
     );
     state.select.set_label(i18n::text(if selection.selecting {
         Key::Done

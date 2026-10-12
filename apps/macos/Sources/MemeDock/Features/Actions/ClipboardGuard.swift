@@ -54,7 +54,7 @@ final class ClipboardGuard: ObservableObject {
     private func startWatching() {
         timer?.invalidate()
         let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.check() }
+            Task { @MainActor [weak self] in self?.check() }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer

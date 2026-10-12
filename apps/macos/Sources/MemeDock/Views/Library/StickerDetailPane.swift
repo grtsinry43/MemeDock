@@ -315,8 +315,8 @@ struct StickerDetailPane: View {
 }
 
 /// The stored original at its real size. An animated GIF or WebP is played (see
-/// `AnimatedPlayback`); everything else is decoded once off the main thread,
-/// because an original can be several megabytes.
+/// `AnimatedPlayback`). Still-image file reads happen off the main thread;
+/// AppKit image creation and view updates stay on the main actor.
 private struct OriginalPreview: View {
     let path: String?
     let fallback: NSImage?
@@ -401,14 +401,26 @@ private struct OriginalPreview: View {
         }
     }
 
+    @MainActor
     private func load() async {
+        guard !Task.isCancelled else { return }
         playback.load(path: path, animated: animated, mime: mime)
         still = nil
         // The player supplies an animation's frames, so only still images are
         // decoded here.
         guard let path, !plays else { return }
-        still = await Task.detached(priority: .userInitiated) {
-            NSImage(contentsOfFile: path)
-        }.value
+        let read = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            let data = try Data(contentsOf: URL(fileURLWithPath: path))
+            try Task.checkCancellation()
+            return data
+        }
+        let data = try? await withTaskCancellationHandler {
+            try await read.value
+        } onCancel: {
+            read.cancel()
+        }
+        guard !Task.isCancelled else { return }
+        still = data.flatMap { NSImage(data: $0) }
     }
 }
