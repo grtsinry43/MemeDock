@@ -26,56 +26,71 @@ struct LibraryWindow: View {
     }
 
     var body: some View {
+        splitView
+            .focusedSceneValue(\.librarySearchFocus, { searchFocused = true })
+            .toolbar(removing: .sidebarToggle)
+            .toolbar { sidebarToolbar }
+            .toolbarBackground(.hidden, for: .windowToolbar)
+            // What makes ⌘C and ⌘A land on the library instead of nowhere.
+            .background { LibraryResponderInstaller(model: model) }
+            // Where the settings window finds this one when it has to bring it
+            // forward, and what lets it ask for a section at all.
+            .background { HostWindowReader(host: navigation.library) }
+            .onChange(of: navigation.request) { _, request in
+                guard let request else { return }
+                model.select(request.section)
+            }
+            .task { await model.start() }
+            .onDisappear { model.shutdown() }
+    }
+
+    private var splitView: some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
             LibrarySidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 300)
                 .toolbar(removing: .sidebarToggle)
         } detail: {
-            VStack(spacing: 0) {
-                header
-                HStack(spacing: 0) {
-                    StickerGrid(model: model)
-                    // One column, one job: picking a batch takes it while it lasts,
-                    // so an action can never land on the single open sticker by
-                    // mistake.
-                    if model.selecting {
-                        BatchPane(model: model)
-                            .frame(width: 320)
-                            .transition(.opacity)
-                    } else if detail.id != nil || detail.loading || detail.failure != nil {
-                        StickerDetailPane(model: model)
-                            .frame(width: 320)
-                            .transition(.opacity)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .background(MemeDockPalette(scheme).canvas)
-            .toolbar(removing: .sidebarToggle)
-            .animation(reduceMotion ? nil : MemeDockMotion.fade, value: model.selecting)
+            detailColumn
         }
-        .focusedSceneValue(\.librarySearchFocus, { searchFocused = true })
+    }
+
+    private var detailColumn: some View {
+        VStack(spacing: 0) {
+            header
+            mainContent
+        }
+        .background(MemeDockPalette(scheme).canvas)
         .toolbar(removing: .sidebarToggle)
-        .toolbar {
-            if #available(macOS 26.0, *) {
-                ToolbarItem(placement: .navigation) { sidebarToggle }
-                    .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .navigation) { sidebarToggle }
+        .animation(reduceMotion ? nil : MemeDockMotion.fade, value: model.selecting)
+    }
+
+    private var mainContent: some View {
+        HStack(spacing: 0) {
+            StickerGrid(model: model)
+            // One column, one job: picking a batch takes it while it lasts,
+            // so an action can never land on the single open sticker by
+            // mistake.
+            if model.selecting {
+                BatchPane(model: model)
+                    .frame(width: 320)
+                    .transition(.opacity)
+            } else if detail.id != nil || detail.loading || detail.failure != nil {
+                StickerDetailPane(model: model)
+                    .frame(width: 320)
+                    .transition(.opacity)
             }
         }
-        .toolbarBackground(.hidden, for: .windowToolbar)
-        // What makes ⌘C and ⌘A land on the library instead of nowhere.
-        .background { LibraryResponderInstaller(model: model) }
-        // Where the settings window finds this one when it has to bring it
-        // forward, and what lets it ask for a section at all.
-        .background { HostWindowReader(host: navigation.library) }
-        .onChange(of: navigation.request) { _, request in
-            guard let request else { return }
-            model.select(request.section)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ToolbarContentBuilder
+    private var sidebarToolbar: some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .navigation) { sidebarToggle }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .navigation) { sidebarToggle }
         }
-        .task { await model.start() }
-        .onDisappear { model.shutdown() }
     }
 
     private var search: Binding<String> {
