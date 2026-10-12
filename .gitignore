@@ -23,8 +23,10 @@ local.properties
 **/.externalNativeBuild/
 *.apk
 *.aab
+*.dmg
 /apps/android/app/release/
 /packaging/arch/**/src/
+__pycache__/
 /packaging/arch/**/pkg/
 /packaging/arch/**/*.tar.*
 /packaging/arch/**/memedock-*-SHA256SUMS

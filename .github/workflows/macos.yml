@@ -157,6 +157,49 @@ jobs:
             "$distribution/MemeDock-$VERSION-macos-arm64.zip"
           cd "$distribution"
           shasum -a 256 ./*.zip > SHA256SUMS
+      - name: Build the installer disk image
+        run: |
+          # The zip above is the canonical artifact, matching the other platforms.
+          # The dmg is what somebody on macOS expects to double-click, so it ships
+          # beside it. Its window layout is written by dmgbuild straight into the
+          # image's .DS_Store, which is why it can be laid out on a runner that has
+          # no Finder session.
+          distribution="$GITHUB_WORKSPACE/target/distribution/macos"
+          bash packaging/macos/make-dmg.sh \
+            apps/macos/Bundle/MemeDock.app \
+            "$distribution/MemeDock-${{ steps.version.outputs.version }}-macos-arm64.dmg" \
+            "MemeDock Installer"
+          cd "$distribution"
+          # The checksum file is rewritten so the dmg is covered too.
+          shasum -a 256 ./*.zip ./*.dmg > SHA256SUMS
+          cat SHA256SUMS
+      - name: Verify the disk image
+        run: |
+          # A dmg can be produced and be empty: dmgbuild copies into a mounted image,
+          # and if that mount is refused the file still lands on disk. Assert the
+          # payload is actually inside rather than trusting the build's exit status.
+          distribution="$GITHUB_WORKSPACE/target/distribution/macos"
+          dmg=$(ls "$distribution"/*.dmg)
+          # hdiutil reports the partition scheme and the volume as two entities, and
+          # only one of them carries a mount point, so it is looked for rather than
+          # taken from a fixed index.
+          plist=$(hdiutil attach -nobrowse -readonly -plist "$dmg" \
+            | plutil -extract system-entities json -o - -)
+          mount=$(printf '%s' "$plist" | /usr/bin/python3 -c \
+            'import json,sys; print(next((e["mount-point"] for e in json.load(sys.stdin) if "mount-point" in e), ""))')
+          if [[ -z $mount ]]; then
+            echo "Could not read a mount point out of the image plist" >&2
+            exit 1
+          fi
+          trap 'hdiutil detach -quiet "$mount"' EXIT
+          test -d "$mount/MemeDock.app"
+          test -L "$mount/Applications"
+          test -f "$mount/.background.png"
+          # The window's layout lives here; without it the volume opens on the
+          # system's default icon view instead of the one the background implies.
+          test -f "$mount/.DS_Store"
+          codesign --verify --strict "$mount/MemeDock.app"
+          ls -la "$mount"
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -70,7 +70,8 @@ jobs:
           # above merges them into this directory, so the release checksums are
           # regenerated here from the assets that are actually uploaded.
           assets=(./*.apk ./*.pkg.tar.zst ./*.tar.gz ./MemeDock-*-linux-x86_64.tar.zst
-                  ./MemeDock-*-macos-arm64.zip ./*.PKGBUILD ./*.SRCINFO)
+                  ./MemeDock-*-macos-arm64.zip ./MemeDock-*-macos-arm64.dmg
+                  ./*.PKGBUILD ./*.SRCINFO)
           sha256sum -- "${assets[@]}" | sed 's|  ./|  |' > SHA256SUMS
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > release-state; then
             test "$(cat release-state)" = true
