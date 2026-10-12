@@ -3,6 +3,10 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 directory="$root/target/native-media/test-fixtures"
 mkdir -p "$directory"
+# Darwin ships shasum rather than sha256sum; both print "<hash>  <file>".
+if ! command -v sha256sum >/dev/null 2>&1; then
+  sha256sum() { shasum -a 256 "$@"; }
+fi
 fetch() {
   local name=$1 hash=$2 url=$3
   if [[ ! -f "$directory/$name" ]]; then

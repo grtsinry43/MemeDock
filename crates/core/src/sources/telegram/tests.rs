@@ -34,8 +34,20 @@ impl Server {
                         std::thread::sleep(Duration::from_millis(2));
                         continue;
                     }
-                    Err(_) => break,
+                    // A client that disappears between its handshake and the
+                    // accept must not take the server down: the running test
+                    // still expects answers for its later requests.
+                    Err(_) => {
+                        std::thread::sleep(Duration::from_millis(2));
+                        continue;
+                    }
                 };
+                // The listener is polled so this thread can notice `stop`, but
+                // the accepted socket has to block: macOS lets it inherit the
+                // listener's non-blocking flag, and reading before a request
+                // that is still in flight has arrived would then fail with
+                // `WouldBlock` and drop a live connection.
+                let _ = stream.set_nonblocking(false);
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let mut request = Vec::new();
                 let mut buffer = [0u8; 4096];

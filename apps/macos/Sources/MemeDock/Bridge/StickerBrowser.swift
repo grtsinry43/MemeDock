@@ -8,6 +8,14 @@ enum LibraryFilter: Equatable, Hashable {
     case recentlyUsed
     case deleted
     case collection(String)
+    case tag(String)
+
+    /// Collection order only means something inside a collection, so every
+    /// other section falls back to the most recent first.
+    var allowsCollectionOrder: Bool {
+        if case .collection = self { return true }
+        return false
+    }
 }
 
 /// Paging query state for the grid. Searches are debounced, and responses from
@@ -43,8 +51,10 @@ final class StickerBrowser: ObservableObject {
     }
 
     var effectiveSort: StickerSort {
-        if case .collection = filter { return sort }
-        return sort == .collectionOrder ? .recent : sort
+        guard filter.allowsCollectionOrder else {
+            return sort == .collectionOrder ? .recent : sort
+        }
+        return sort
     }
 
     func startIfNeeded() {
@@ -97,7 +107,9 @@ final class StickerBrowser: ObservableObject {
 
     private func load(more: Bool) {
         guard let library = session.library else { return }
-        pageTask?.cancel()
+        // Same as import: the previous page's outcome arrives on its own
+        // progress stream, so the unified cancel reply carries nothing extra.
+        _ = pageTask?.cancel()
         if !more {
             isLoading = true
             isLoadingMore = false
@@ -111,7 +123,7 @@ final class StickerBrowser: ObservableObject {
             requestId: requestId,
             text: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
             collectionId: collectionId,
-            tagIds: [],
+            tagIds: tagIds,
             starred: filter == .starred ? true : nil,
             deleted: filter == .deleted,
             sort: effectiveSort,
@@ -168,6 +180,11 @@ final class StickerBrowser: ObservableObject {
         return nil
     }
 
+    private var tagIds: [String] {
+        if case let .tag(id) = filter { return [id] }
+        return []
+    }
+
     private func refresh(_ stickerId: String, reloadRow: Bool) {
         Task { [weak self] in
             guard let self else { return }
@@ -210,6 +227,8 @@ final class StickerBrowser: ObservableObject {
             return !deleted && detail.sticker.starred
         case let .collection(id):
             return !deleted && detail.collection?.id == id
+        case let .tag(id):
+            return !deleted && detail.tags.contains { $0.id == id }
         }
     }
 }

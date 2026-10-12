@@ -29,6 +29,21 @@ enum L10nKey: String {
     case errorAlreadyOpen, errorClosed, errorBusy, errorCancelled, errorNotFound, errorEntityDeleted
     case errorConflict, errorUnsupportedSchema, errorCorruptData, errorPermissionDenied
     case errorStorageFull, errorIo, errorDatabase, errorInternal, errorUnknown
+    case libraryAdd, newCollection, newTag, moveUp, moveDown, clearSearch, failedToLoad
+    case libraryEmpty, libraryEmptyHint, starredEmpty, starredEmptyHint, tagEmpty, tagEmptyHint
+    case trashEmpty, trashEmptyHint, collectionEmpty, collectionEmptyHint, noMatchesHint
+    case selectItems, selectAll, selectedCount, batchOrganize, assignCollection, clearCollection
+    case addTags, removeTags, star, unstar, batchResult, batchRunning
+    case details, fileInfo, organization, noCollection, addNote, firstFrame, restoreOrganization
+    case deleteStickerTitle, deletedSticker, restoreStickerTitle, restoreHint, restored
+    case telegramToken, telegramTokenHint, rememberToken, clearToken, tokenFailed, tokenInvalid
+    case stickerPack, viewStickers, chooseStickers, selectNew, clearSelection, importSelected
+    case changePack, alreadyImported, inTrash, packMissing
+    case importReadingFiles, importRetryFailed, importPendingRestore
+    case createBackup, restoreBackup, backupHint, backupPreview, merge, replace, replaceHint
+    case backupSaved, backupRestored, archiveContains
+    case backupMergeHint, backupMergeSummary
+    case noHome
 }
 
 enum L10n {
@@ -90,6 +105,49 @@ enum L10n {
         .errorStorageFull: "Storage is full", .errorIo: "The file could not be read or written",
         .errorDatabase: "The library database failed", .errorInternal: "Something went wrong",
         .errorUnknown: "Something went wrong",
+        .libraryAdd: "Add", .newCollection: "New collection", .newTag: "New tag",
+        .moveUp: "Move up", .moveDown: "Move down", .clearSearch: "Clear search",
+        .failedToLoad: "Could not load this section",
+        .libraryEmpty: "No stickers yet", .libraryEmptyHint: "Import images to start your library",
+        .starredEmpty: "No starred stickers", .starredEmptyHint: "Star a sticker to keep it here",
+        .tagEmpty: "No stickers use this tag", .tagEmptyHint: "Add the tag to a sticker to see it here",
+        .trashEmpty: "The trash is empty",
+        .trashEmptyHint: "Deleted stickers stay here until you restore them",
+        .collectionEmpty: "This collection is empty",
+        .collectionEmptyHint: "Select stickers and add them to this collection",
+        .noMatchesHint: "Try a different search term",
+        .selectItems: "Select", .selectAll: "Select all", .selectedCount: "%d selected",
+        .batchOrganize: "Organise selected", .assignCollection: "Add to collection",
+        .clearCollection: "Remove from collection", .addTags: "Add tags", .removeTags: "Remove tags",
+        .star: "Star", .unstar: "Remove star",
+        .batchResult: "Updated %d, %d failed, %d skipped", .batchRunning: "Working on %d stickers",
+        .details: "Details", .fileInfo: "File", .organization: "Organisation",
+        .noCollection: "No collection", .addNote: "Add a note", .firstFrame: "First frame only",
+        .restoreOrganization: "Restore its previous collection and tags",
+        .deleteStickerTitle: "Move to trash", .deletedSticker: "Moved to trash",
+        .restoreStickerTitle: "Restore sticker",
+        .restoreHint: "Its collection and tags were not kept",
+        .restored: "Restored",
+        .telegramToken: "Bot token", .telegramTokenHint: "Create a bot with @BotFather and paste its token here",
+        .rememberToken: "Remember in the keychain", .clearToken: "Forget the saved token",
+        .tokenFailed: "The token could not be read from or written to the keychain",
+        .tokenInvalid: "Telegram rejected this token", .packMissing: "That sticker pack was not found",
+        .stickerPack: "Sticker pack", .viewStickers: "Load stickers", .chooseStickers: "Choose stickers",
+        .selectNew: "Select the new ones", .clearSelection: "Clear selection",
+        .importSelected: "Import selected", .changePack: "Use another pack",
+        .alreadyImported: "Already in the library", .inTrash: "In the trash",
+        .importReadingFiles: "Reading the dropped files",
+        .importRetryFailed: "Retry the failed files",
+        .importPendingRestore: "%d waiting to be restored",
+        .createBackup: "Create a backup", .restoreBackup: "Restore from a backup",
+        .backupHint: "A backup holds the whole library in one file",
+        .backupPreview: "Backup contents", .merge: "Merge", .replace: "Replace",
+        .replaceHint: "Replacing removes everything the library holds now, and a safety snapshot of it is kept in the library folder",
+        .backupMergeHint: "Only what the library does not have is added, and the current organization is kept. Stickers in the trash are not restored",
+        .backupMergeSummary: "%d to be added, %d already present",
+        .backupSaved: "Backup saved", .backupRestored: "Backup restored",
+        .archiveContains: "%d stickers, %d collections, %d tags",
+        .noHome: "The home folder could not be located",
     ]
 
     private static let chinese: [L10nKey: String] = [
@@ -150,6 +208,47 @@ enum L10n {
         .errorStorageFull: "存储空间已满", .errorIo: "文件读写失败",
         .errorDatabase: "素材库数据库出错", .errorInternal: "出现异常",
         .errorUnknown: "出现异常",
+        .libraryAdd: "添加", .newCollection: "新建合集", .newTag: "新建标签",
+        .moveUp: "上移", .moveDown: "下移", .clearSearch: "清空搜索",
+        .failedToLoad: "无法加载该区域",
+        .libraryEmpty: "暂无表情", .libraryEmptyHint: "导入图片来建立素材库",
+        .starredEmpty: "没有已收藏的表情", .starredEmptyHint: "给表情加星标后会显示在这里",
+        .tagEmpty: "没有使用该标签的表情", .tagEmptyHint: "给表情添加该标签后会显示在这里",
+        .trashEmpty: "回收站是空的", .trashEmptyHint: "删除的表情会留在这里，直到你恢复",
+        .collectionEmpty: "该合集是空的", .collectionEmptyHint: "选择表情后加入该合集",
+        .noMatchesHint: "换个关键词试试",
+        .selectItems: "选择", .selectAll: "全选", .selectedCount: "已选 %d 张",
+        .batchOrganize: "批量整理", .assignCollection: "加入合集",
+        .clearCollection: "移出合集", .addTags: "添加标签", .removeTags: "移除标签",
+        .star: "加星标", .unstar: "取消星标",
+        .batchResult: "已更新 %d 张，失败 %d 张，跳过 %d 张", .batchRunning: "正在处理 %d 张",
+        .details: "详细信息", .fileInfo: "文件", .organization: "整理",
+        .noCollection: "未加入合集", .addNote: "添加备注", .firstFrame: "仅首帧",
+        .restoreOrganization: "恢复原先的合集与标签",
+        .deleteStickerTitle: "移至回收站", .deletedSticker: "已移至回收站",
+        .restoreStickerTitle: "恢复表情",
+        .restoreHint: "恢复后不会带回原有的合集与标签",
+        .restored: "已恢复",
+        .telegramToken: "机器人 Token", .telegramTokenHint: "用 @BotFather 创建机器人，把它的 Token 粘贴到这里",
+        .rememberToken: "记住 Token（钥匙串）", .clearToken: "清除已保存的 Token",
+        .tokenFailed: "无法从钥匙串读取或写入 Token",
+        .tokenInvalid: "Telegram 拒绝了这个 Token", .packMissing: "未找到该贴纸包",
+        .stickerPack: "贴纸包", .viewStickers: "查看贴纸", .chooseStickers: "选择贴纸",
+        .selectNew: "选择新增项", .clearSelection: "清空选择",
+        .importSelected: "导入所选", .changePack: "更换贴纸包",
+        .alreadyImported: "素材库中已有", .inTrash: "在回收站中",
+        .importReadingFiles: "正在读取拖入的文件",
+        .importRetryFailed: "重试失败的文件",
+        .importPendingRestore: "%d 张待恢复",
+        .createBackup: "创建备份", .restoreBackup: "从备份恢复",
+        .backupHint: "备份会把整个素材库打包成一个文件",
+        .backupPreview: "备份内容", .merge: "合并", .replace: "替换",
+        .replaceHint: "替换会清除素材库中现有的全部内容，同时会在素材库目录里保留一份安全快照",
+        .backupMergeHint: "仅导入本地不存在的内容，保留现有整理结构。回收站中的表情不会恢复",
+        .backupMergeSummary: "将新增 %d 项，跳过 %d 项已存在内容",
+        .backupSaved: "已导出备份", .backupRestored: "已从备份恢复",
+        .archiveContains: "%d 张表情、%d 个合集、%d 个标签",
+        .noHome: "无法定位用户主目录",
     ]
 
     /// Set by `Preferences` so views read the active language at render time.

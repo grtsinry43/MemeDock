@@ -41,18 +41,41 @@ extension LibrarySession {
             .awaitResult()
     }
 
-    /// Passing `nil` for `tags` keeps the current tag set; an empty array clears
-    /// it. The same applies to `collection`.
+    /// How a call treats the sticker's collection.
+    enum CollectionAssignment {
+        /// Leave the current collection alone.
+        case unchanged
+        /// Take the sticker out of its collection.
+        case cleared
+        case assign(EntityReference)
+    }
+
+    /// Passing `nil` for `tags` keeps the current tag set while an empty array
+    /// clears it. The collection needs an explicit instruction because leaving
+    /// it alone and clearing it are different requests.
     @discardableResult
     func setOrganization(
         sticker: EntityReference,
-        collection: EntityReference?,
-        tags: [EntityReference]?
+        collection: CollectionAssignment = .unchanged,
+        tags: [EntityReference]? = nil
     ) async throws -> Bool {
-        try await requireLibrary().setStickerOrganization(
+        let change: Bool
+        let reference: EntityReference?
+        switch collection {
+        case .unchanged:
+            change = false
+            reference = nil
+        case .cleared:
+            change = true
+            reference = nil
+        case let .assign(target):
+            change = true
+            reference = target
+        }
+        return try await requireLibrary().setStickerOrganization(
             target: sticker,
-            changeCollection: collection != nil,
-            collection: collection,
+            changeCollection: change,
+            collection: reference,
             tags: tags
         ).awaitResult()
     }
@@ -80,6 +103,32 @@ extension LibrarySession {
     @discardableResult
     func record(_ stickerId: String, action: UsageAction) async throws -> UsageMetadata {
         try await requireLibrary().recordUse(id: stickerId, action: action).awaitResult()
+    }
+
+    func renameTag(_ reference: EntityReference, name: String) async throws -> TagMetadata {
+        try await requireLibrary().renameTag(target: reference, name: name).awaitResult()
+    }
+
+    func deleteTag(_ reference: EntityReference) async throws -> TagMetadata {
+        try await requireLibrary().deleteTag(target: reference).awaitResult()
+    }
+
+    /// A restore has to name the revision the entity had while deleted, which is
+    /// the revision it still carries in the trash.
+    func restoreTag(_ reference: EntityReference, deletedRevision: Int64) async throws -> TagMetadata {
+        try await requireLibrary()
+            .restoreTag(target: reference, deletedRevision: deletedRevision)
+            .awaitResult()
+    }
+
+    func restoreCollection(_ reference: EntityReference, deletedRevision: Int64) async throws -> CollectionMetadata {
+        try await requireLibrary()
+            .restoreCollection(target: reference, deletedRevision: deletedRevision)
+            .awaitResult()
+    }
+
+    func restoreSuggestions(_ stickerId: String) async throws -> RestoreSuggestions {
+        try await requireLibrary().restoreSuggestions(id: stickerId).awaitResult()
     }
 
     func requireLibrary() throws -> LibraryHandle {

@@ -41,8 +41,13 @@ jobs:
     uses: ./.github/workflows/linux.yml
     with:
       release: true
+  macos:
+    needs: version
+    uses: ./.github/workflows/macos.yml
+    with:
+      release: true
   draft:
-    needs: [version, android, linux]
+    needs: [version, android, linux, macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -61,8 +66,11 @@ jobs:
           RELEASE_VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
+          # Every platform bundle publishes its own SHA256SUMS; the download
+          # above merges them into this directory, so the release checksums are
+          # regenerated here from the assets that are actually uploaded.
           assets=(./*.apk ./*.pkg.tar.zst ./*.tar.gz ./MemeDock-*-linux-x86_64.tar.zst
-                  ./*.PKGBUILD ./*.SRCINFO)
+                  ./MemeDock-*-macos-arm64.zip ./*.PKGBUILD ./*.SRCINFO)
           sha256sum -- "${assets[@]}" | sed 's|  ./|  |' > SHA256SUMS
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > release-state; then
             test "$(cat release-state)" = true

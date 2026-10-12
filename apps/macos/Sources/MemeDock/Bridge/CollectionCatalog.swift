@@ -59,6 +59,14 @@ final class CollectionCatalog: ObservableObject {
         await load()
     }
 
+    func restore(_ collection: CollectionMetadata) async throws {
+        _ = try await session.restoreCollection(
+            reference(of: collection),
+            deletedRevision: collection.lifecycle.revision
+        )
+        await load()
+    }
+
     func move(_ collection: CollectionMetadata, before: String?) async throws {
         _ = try await session.moveCollection(reference(of: collection), before: before)
         await load()

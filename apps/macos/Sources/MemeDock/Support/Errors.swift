@@ -47,7 +47,7 @@ struct AppFailure: LocalizedError {
 func describe(_ error: Error) -> String {
     if let bridge = error as? BridgeError {
         switch bridge {
-        case let .failure(code, _):
+        case let .Failure(code, _):
             return code.message
         }
     }

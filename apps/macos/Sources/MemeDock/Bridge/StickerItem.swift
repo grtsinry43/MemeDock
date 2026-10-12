@@ -47,4 +47,19 @@ struct StickerItem: Identifiable, Equatable {
         thumbnailPath = resource.thumbnailPath
         lastError = resource.lastError
     }
+
+    /// The detail pane holds a `StickerDetail` while the action helpers want the
+    /// grid cell shape. Only identity, animation, and MIME type matter to them,
+    /// and the detail carries no thumbnail because it renders the real image.
+    init(detail: StickerDetail) {
+        self.init(
+            sticker: detail.sticker,
+            resource: StickerResource(
+                asset: detail.asset,
+                thumbnailStatus: .missing,
+                thumbnailPath: nil,
+                lastError: nil
+            )
+        )
+    }
 }

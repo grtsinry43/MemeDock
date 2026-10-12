@@ -59,7 +59,10 @@ final class ImportCoordinator: ObservableObject {
 
     func cancel() {
         cancelRequested = true
-        currentTask?.cancel()
+        // `commitInProgress` and `finished` are not failures: the outcome is
+        // observed through the task's progress stream, so the reply is dropped
+        // here just as the Android and Linux clients do.
+        _ = currentTask?.cancel()
     }
 
     func presentPicker(collectionId: String?) {
@@ -134,7 +137,7 @@ final class ImportCoordinator: ObservableObject {
                 }
             } catch {
                 if let bridge = error as? BridgeError,
-                   case let .failure(code: code, detail: _) = bridge,
+                   case let .Failure(code: code, detail: _) = bridge,
                    code == .cancelled {
                     stopped = true
                     break

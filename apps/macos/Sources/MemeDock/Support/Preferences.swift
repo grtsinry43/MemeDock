@@ -56,6 +56,10 @@ enum LanguageMode: String, CaseIterable, Identifiable {
 
 /// User choices that live outside the library database. They are stored in
 /// user defaults, so they survive library deletion and stay per-user.
+///
+/// Every change is applied here as well as stored, so the appearance and the
+/// language hold whether the settings window is opened next to the library or
+/// on its own; views only need to observe this object to be re-rendered.
 @MainActor
 final class Preferences: ObservableObject {
     static let shared = Preferences()
@@ -67,16 +71,29 @@ final class Preferences: ObservableObject {
 
     private let defaults: UserDefaults
     @Published var appearance: AppearanceMode {
-        didSet { persist() }
+        didSet {
+            persist()
+            apply()
+        }
     }
     @Published var language: LanguageMode {
-        didSet { persist() }
+        didSet {
+            persist()
+            apply()
+        }
     }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.appearance = AppearanceMode(rawValue: defaults.string(forKey: Key.appearance) ?? "") ?? .system
         self.language = LanguageMode(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
+    }
+
+    /// Applies to the running app. The language is read at render time, so no
+    /// relaunch is involved: the published change re-renders every window.
+    func apply() {
+        NSApp.appearance = appearance.appearance
+        L10n.language = language.resolved
     }
 
     private func persist() {

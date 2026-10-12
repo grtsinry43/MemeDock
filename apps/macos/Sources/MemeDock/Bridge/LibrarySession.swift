@@ -26,7 +26,13 @@ final class LibrarySession: ObservableObject {
     @Published private(set) var phase: LibraryPhase = .opening
     @Published private(set) var statistics: SpaceStatistics?
     @Published private(set) var identity: LibraryIdentity?
-    @Published private(set) var event: SessionEvent?
+
+    /// Every notification from the core, in order. A published property would
+    /// drop two identical events in a row, and a missed one leaves the sidebar
+    /// showing stale names.
+    var events: AnyPublisher<SessionEvent, Never> { changes.eraseToAnyPublisher() }
+
+    private let changes = PassthroughSubject<SessionEvent, Never>()
 
     private(set) var library: LibraryHandle?
     private(set) var limits: ResourceConfiguration?
@@ -79,6 +85,21 @@ final class LibrarySession: ObservableObject {
         phase = .closed
     }
 
+    /// A replacement restore leaves a different library at the same path, so
+    /// the core instance is closed and opened again - the same reconnect the
+    /// Linux client performs after a replacement.
+    func reopen() async {
+        await shutdown()
+        await start()
+        announceReload()
+    }
+
+    /// Asks every model to rebuild from the library. A restore changes things
+    /// the core does not report one by one, so the readers are told directly.
+    func announceReload() {
+        changes.send(.reload)
+    }
+
     func refreshStatistics() async {
         guard let library, let task = try? library.spaceStatistics() else { return }
         statistics = try? await task.awaitResult()
@@ -123,17 +144,17 @@ final class LibrarySession: ObservableObject {
                     case .closed:
                         return
                     case .collectionsChanged:
-                        self.event = .collections
+                        self.changes.send(.collections)
                     case .tagsChanged:
-                        self.event = .tags
+                        self.changes.send(.tags)
                     case let .stickerChanged(_, stickerId):
-                        self.event = .sticker(stickerId)
+                        self.changes.send(.sticker(stickerId))
                     case let .thumbnailChanged(_, stickerId):
-                        self.event = .thumbnail(stickerId)
+                        self.changes.send(.thumbnail(stickerId))
                     case let .usageChanged(_, stickerId):
-                        self.event = .usage(stickerId)
+                        self.changes.send(.usage(stickerId))
                     case .reloadRequired:
-                        self.event = .reload
+                        self.changes.send(.reload)
                     }
                 }
             }
