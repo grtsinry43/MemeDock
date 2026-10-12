@@ -63,9 +63,11 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showTelegram) {
             TelegramImportView(coordinator: telegram)
+                .presentationCornerRadius(MemeDockGeometry.dialog)
         }
         .sheet(isPresented: $showBackup) {
             BackupView(coordinator: backups)
+                .presentationCornerRadius(MemeDockGeometry.dialog)
         }
         .task {
             guard libraryReady else { return }
@@ -168,7 +170,7 @@ struct SettingsView: View {
             Button(L10n.text(.telegram)) { showTelegram = true }
                 .disabled(!libraryReady)
             Text(L10n.text(.telegramTokenHint))
-                .font(.callout)
+                .font(MemeDockTypography.body)
                 .foregroundStyle(.secondary)
         }
     }
@@ -180,7 +182,7 @@ struct SettingsView: View {
             Button(L10n.text(.backup)) { showBackup = true }
                 .disabled(!libraryReady)
             Text(L10n.text(.backupHint))
-                .font(.callout)
+                .font(MemeDockTypography.body)
                 .foregroundStyle(.secondary)
         }
     }

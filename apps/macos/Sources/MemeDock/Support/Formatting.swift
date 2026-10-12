@@ -23,14 +23,14 @@ enum Format {
         bytes.string(fromByteCount: Int64(clamping: value))
     }
 
-    static func timestamp(_ seconds: Int64) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(seconds))
+    static func timestamp(_ milliseconds: Int64) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
         return day.string(from: date)
     }
 
     /// Relative last-use text, falling back to the absolute date beyond a week.
-    static func relative(_ seconds: Int64) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(seconds))
+    static func relative(_ milliseconds: Int64) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
         if Date().timeIntervalSince(date) < 7 * 24 * 3600 {

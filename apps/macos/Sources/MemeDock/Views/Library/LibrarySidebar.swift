@@ -61,24 +61,34 @@ struct LibrarySidebar: View {
     }
 
     var body: some View {
-        List(selection: selection) {
-            Section {
-                sectionRow(.all, .all, "square.grid.2x2")
-                sectionRow(.starred, .starred, "star")
-                sectionRow(.recentlyUsed, .recentlyUsed, "clock")
+        VStack(alignment: .leading, spacing: 8) {
+            Text("MemeDock")
+                .font(MemeDockTypography.sectionTitle)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 8)
+            List(selection: selection) {
+                Section {
+                    sectionRow(.all, .all, "square.grid.2x2")
+                    sectionRow(.starred, .starred, "star")
+                    sectionRow(.recentlyUsed, .recentlyUsed, "clock")
+                }
+                collectionsSection
+                tagsSection
+                Section {
+                    sectionRow(.deleted, .trash, "trash")
+                }
             }
-            collectionsSection
-            tagsSection
-            Section {
-                sectionRow(.deleted, .trash, "trash")
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .font(MemeDockTypography.body)
+            .alert(L10n.text(naming?.title ?? .rename), isPresented: namingPresented) {
+                TextField(L10n.text(naming?.prompt ?? .collections), text: $draft)
+                Button(L10n.text(.cancel), role: .cancel) { naming = nil }
+                Button(L10n.text(.confirm)) { commitName() }
             }
         }
-        .listStyle(.sidebar)
-        .alert(L10n.text(naming?.title ?? .rename), isPresented: namingPresented) {
-            TextField(L10n.text(naming?.prompt ?? .collections), text: $draft)
-            Button(L10n.text(.cancel), role: .cancel) { naming = nil }
-            Button(L10n.text(.confirm)) { commitName() }
-        }
+        .background(MemeDockGlass(sidebar: true))
     }
 
     private var selection: Binding<LibraryFilter?> {

@@ -82,6 +82,12 @@ echo "==> App icon"
 bash "$root/tools/macos/make-icns.sh" "$bundle/Contents/Resources/AppIcon.icns"
 cp "$binary" "$bundle/Contents/MacOS/MemeDock"
 cp "$work/libmemedock_ffi.dylib" "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"
+# Reuse the existing variable Latin font and its license. Chinese text cascades
+# to macOS PingFang rather than bundling the Android Chinese font.
+cp "$root/apps/android/app/src/main/res/font/memedock_quicksand.ttf" \
+  "$bundle/Contents/Resources/MemeDockQuicksand.ttf"
+cp "$root/apps/android/app/src/main/assets/font_licenses/quicksand-OFL.txt" \
+  "$bundle/Contents/Resources/Quicksand-OFL.txt"
 # Cargo records the absolute build path as the dylib's install name, so the
 # copied executable would keep loading from target/ and ignore the bundled
 # copy. Repoint both sides at the rpath the linker settings already provide.

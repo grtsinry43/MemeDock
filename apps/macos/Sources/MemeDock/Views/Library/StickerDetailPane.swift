@@ -6,6 +6,7 @@ import SwiftUI
 /// can be done with it. Edits go through the core and come back as the stored
 /// value, so a rejected name or a stale generation is visible instead of assumed.
 struct StickerDetailPane: View {
+    @Environment(\.colorScheme) private var scheme
     @ObservedObject var model: LibraryModel
     @ObservedObject private var detail: StickerDetailModel
     @ObservedObject private var collections: CollectionCatalog
@@ -34,7 +35,7 @@ struct StickerDetailPane: View {
             header
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: MemeDockGeometry.sectionGap) {
                     if let sticker = detail.sticker {
                         preview(sticker)
                         fileSection(sticker)
@@ -52,9 +53,10 @@ struct StickerDetailPane: View {
                             .padding(.vertical, 40)
                     }
                 }
-                .padding(16)
+                .padding(MemeDockGeometry.pageInset)
             }
         }
+        .background(MemeDockPalette(scheme).raised)
         .task(id: detail.id) { syncFields() }
         .onChange(of: detail.sticker) { syncFields() }
         .onChange(of: editing) { previous, _ in
@@ -71,7 +73,7 @@ struct StickerDetailPane: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text(L10n.text(.details))
-                .font(.headline)
+                .font(MemeDockTypography.rowTitle)
             Spacer()
             if let sticker = detail.sticker {
                 Button {
@@ -79,7 +81,7 @@ struct StickerDetailPane: View {
                     run { await detail.patch(starred: starred) }
                 } label: {
                     Image(systemName: sticker.sticker.starred ? "star.fill" : "star")
-                        .foregroundStyle(sticker.sticker.starred ? Color.yellow : Color.secondary)
+                        .foregroundStyle(sticker.sticker.starred ? MemeDockPalette(scheme).star : MemeDockPalette(scheme).secondary)
                 }
                 .buttonStyle(.borderless)
                 .help(L10n.text(sticker.sticker.starred ? .unstar : .star))
@@ -94,12 +96,13 @@ struct StickerDetailPane: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .background(MemeDockGlass())
     }
 
     private func preview(_ sticker: StickerDetail) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(.quaternary)
+            RoundedRectangle(cornerRadius: MemeDockGeometry.control)
+                .fill(MemeDockPalette(scheme).canvas)
             OriginalPreview(
                 path: sticker.originalPath,
                 fallback: previewFallback(sticker),
@@ -118,7 +121,7 @@ struct StickerDetailPane: View {
     private func fileSection(_ sticker: StickerDetail) -> some View {
         section(L10n.text(.fileInfo)) {
             TextField(L10n.text(.title), text: $title)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(MemeDockFieldStyle())
                 .focused($editing, equals: .title)
                 .onSubmit { commitTitle(sticker) }
             LabeledContent(L10n.text(.originalName), value: sticker.sticker.originalName)
@@ -139,7 +142,7 @@ struct StickerDetailPane: View {
             tagPicker(sticker)
             TextField(L10n.text(.addNote), text: $note, axis: .vertical)
                 .lineLimit(2 ... 6)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(MemeDockFieldStyle())
                 .focused($editing, equals: .note)
                 .onSubmit { commitNote(sticker) }
         }
@@ -180,7 +183,7 @@ struct StickerDetailPane: View {
             }
             if !sticker.tags.isEmpty {
                 Text(sticker.tags.map(\.name).joined(separator: "、"))
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .foregroundStyle(.secondary)
             }
         }
@@ -189,7 +192,7 @@ struct StickerDetailPane: View {
     private var trashSection: some View {
         section(L10n.text(.trash)) {
             Text(L10n.text(.restoreHint))
-                .font(.callout)
+                .font(MemeDockTypography.body)
                 .foregroundStyle(.secondary)
             Button(L10n.text(.restoreStickerTitle)) {
                 run { await detail.restore() }
@@ -246,7 +249,8 @@ struct StickerDetailPane: View {
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(MemeDockTypography.sectionLabel)
+                .foregroundStyle(MemeDockPalette(scheme).secondary)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -257,7 +261,7 @@ struct StickerDetailPane: View {
             Image(systemName: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
             Text(message)
-                .font(.callout)
+                .font(MemeDockTypography.body)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
@@ -339,11 +343,11 @@ private struct OriginalPreview: View {
         .overlay(alignment: .bottom) {
             if let note {
                 Text(note)
-                    .font(.caption2)
+                    .font(MemeDockTypography.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.thinMaterial, in: Capsule())
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: MemeDockGeometry.badge))
                     .padding(8)
             }
         }
@@ -380,7 +384,7 @@ private struct OriginalPreview: View {
             playback.toggle()
         } label: {
             Image(systemName: playback.state == .playing ? "pause.fill" : "play.fill")
-                .font(.caption)
+                .font(MemeDockTypography.caption)
                 .padding(6)
                 .background(.thinMaterial, in: Circle())
         }

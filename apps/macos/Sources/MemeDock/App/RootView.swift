@@ -4,6 +4,7 @@ import SwiftUI
 /// Window root. It routes on the session phase so a slow or failed library open
 /// is visible instead of showing an empty grid.
 struct RootView: View {
+    @Environment(\.colorScheme) private var scheme
     @ObservedObject var session: LibrarySession
     @ObservedObject var status: StatusCenter
     /// Handed to the library window, which is the only view that can answer what
@@ -30,6 +31,11 @@ struct RootView: View {
 
     var body: some View {
         content
+            .font(MemeDockTypography.body)
+            .foregroundStyle(MemeDockPalette(scheme).text)
+            .tint(MemeDockPalette(scheme).accent)
+            .buttonStyle(MemeDockButtonStyle())
+            .background(MemeDockPalette(scheme).canvas)
             .frame(minWidth: 720, minHeight: 480)
             .overlay(alignment: .bottom) { StatusBanner(status: status) }
             .task { await session.start() }
@@ -85,18 +91,37 @@ private struct FailureView: View {
 /// Also shown in the settings window, which runs whole-library actions of its
 /// own and needs the same feedback.
 struct StatusBanner: View {
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var status: StatusCenter
 
     var body: some View {
-        if let message = status.message {
-            Text(message)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().strokeBorder(.separator))
-                .foregroundStyle(status.isFailure ? Color.red : Color.primary)
-                .padding(.bottom, 18)
-                .transition(.opacity)
+        Group {
+            if let message = status.message {
+                let palette = MemeDockPalette(scheme)
+                HStack(spacing: 12) {
+                    Image(systemName: status.isFailure ? "exclamationmark.circle" : "checkmark.circle")
+                        .foregroundStyle(status.isFailure ? palette.error : palette.success)
+                    Text(message)
+                        .font(MemeDockTypography.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button { status.clear() } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.text(.close))
+                }
+                .foregroundStyle(palette.onInverse)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: 560)
+                .background(palette.inverse, in: RoundedRectangle(cornerRadius: MemeDockGeometry.message))
+                .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .animation(reduceMotion ? nil : MemeDockMotion.feedback, value: status.message)
     }
 }

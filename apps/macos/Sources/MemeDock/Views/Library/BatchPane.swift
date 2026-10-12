@@ -7,6 +7,7 @@ import SwiftUI
 /// through a single batch call, and never for the one sticker that happened to
 /// be open.
 struct BatchPane: View {
+    @Environment(\.colorScheme) private var scheme
     @ObservedObject var model: LibraryModel
     @ObservedObject private var selection: StickerSelection
     @ObservedObject private var browser: StickerBrowser
@@ -26,7 +27,7 @@ struct BatchPane: View {
             header
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: MemeDockGeometry.sectionGap) {
                     countSection
                     Divider()
                     if trashed {
@@ -43,12 +44,14 @@ struct BatchPane: View {
                 .padding(16)
             }
         }
+        .font(MemeDockTypography.body)
+        .background(MemeDockPalette(scheme).raised)
     }
 
     private var header: some View {
         HStack(spacing: 8) {
             Text(L10n.text(.batchOrganize))
-                .font(.headline)
+                .font(MemeDockTypography.rowTitle)
             Spacer()
             Button {
                 model.setSelecting(false)
@@ -60,6 +63,7 @@ struct BatchPane: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .background(MemeDockGlass())
     }
 
     /// The count line carries what the run is allowed to cover: the core refuses
@@ -73,24 +77,24 @@ struct BatchPane: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(L10n.text(.batchRunning, selection.count))
-                        .font(.callout)
+                        .font(MemeDockTypography.body)
                         .foregroundStyle(.secondary)
                 }
             } else {
                 Text(L10n.text(.selectedCount, selection.count))
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .monospacedDigit()
                 if selection.count == 0 {
                     Text(L10n.text(.selectionHint))
-                        .font(.callout)
+                        .font(MemeDockTypography.body)
                         .foregroundStyle(.secondary)
                 } else if overLimit {
                     Text(L10n.text(.selectionOverLimit, selection.count, StickerSelection.limit))
-                        .font(.callout)
+                        .font(MemeDockTypography.body)
                         .foregroundStyle(.orange)
                 } else if browser.hasMore {
                     Text(L10n.text(.selectionLoadedOnly))
-                        .font(.callout)
+                        .font(MemeDockTypography.body)
                         .foregroundStyle(.secondary)
                 }
             }

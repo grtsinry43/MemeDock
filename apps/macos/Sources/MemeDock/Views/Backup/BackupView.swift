@@ -5,6 +5,7 @@ import SwiftUI
 /// file. Restoring shows what the archive holds and what it would do before
 /// anything is written, and the two modes are chosen here.
 struct BackupView: View {
+    @Environment(\.colorScheme) private var scheme
     @ObservedObject var coordinator: BackupCoordinator
 
     @Environment(\.dismiss) private var dismiss
@@ -13,9 +14,9 @@ struct BackupView: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(L10n.text(.backup))
-                    .font(.headline)
+                    .font(MemeDockTypography.sectionTitle)
                 Text(L10n.text(.backupHint))
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 12) {
                     Button(L10n.text(.createBackup)) {
@@ -33,7 +34,7 @@ struct BackupView: View {
                         Image(systemName: "checkmark.circle")
                             .foregroundStyle(.green)
                         Text(savedPath)
-                            .font(.callout)
+                            .font(MemeDockTypography.body)
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .textSelection(.enabled)
@@ -54,6 +55,11 @@ struct BackupView: View {
             footer
         }
         .frame(width: 580)
+        .font(MemeDockTypography.body)
+        .foregroundStyle(MemeDockPalette(scheme).text)
+        .tint(MemeDockPalette(scheme).accent)
+        .buttonStyle(MemeDockButtonStyle())
+        .background(MemeDockPalette(scheme).canvas)
         // A preview holds a staged copy inside the library, so leaving the
         // sheet by any route has to hand it back.
         .onDisappear {
@@ -64,9 +70,9 @@ struct BackupView: View {
     private func preview(_ inspection: ArchiveSummary) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(L10n.text(.backupPreview))
-                .font(.headline)
+                .font(MemeDockTypography.rowTitle)
             Text(L10n.text(.archiveContains, inspection.stickers, inspection.collections, inspection.tags))
-                .font(.callout)
+                .font(MemeDockTypography.body)
                 .foregroundStyle(.secondary)
 
             Picker("", selection: $coordinator.mode) {
@@ -78,13 +84,13 @@ struct BackupView: View {
             .disabled(coordinator.isBusy)
 
             Text(coordinator.mode == .merge ? L10n.text(.backupMergeHint) : L10n.text(.replaceHint))
-                .font(.callout)
+                .font(MemeDockTypography.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if coordinator.mode == .merge {
                 Text(L10n.text(.backupMergeSummary, inspection.added, inspection.preserved))
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .monospacedDigit()
             }
         }
@@ -98,18 +104,18 @@ struct BackupView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(L10n.text(.applying))
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .foregroundStyle(.secondary)
             }
 
             if let message = coordinator.failure {
                 Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .foregroundStyle(.orange)
                     .lineLimit(2)
             } else if let restored = coordinator.restored {
                 Text(resultText(restored))
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
@@ -127,9 +133,11 @@ struct BackupView: View {
                 Task { await coordinator.restore() }
             }
             .keyboardShortcut(.defaultAction)
+            .buttonStyle(MemeDockButtonStyle(kind: .primary))
             .disabled(!coordinator.hasPreview || coordinator.isBusy)
         }
         .padding(16)
+        .background(MemeDockGlass())
     }
 
     /// A merge reports what it moved in; a replace leaves the library holding

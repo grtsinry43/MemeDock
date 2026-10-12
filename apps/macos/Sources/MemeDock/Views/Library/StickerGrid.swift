@@ -5,6 +5,7 @@ import SwiftUI
 /// The grid of the current section. Paging belongs to the browser: a row near
 /// the end asks for the next page, so scrolling keeps flowing.
 struct StickerGrid: View {
+    @Environment(\.colorScheme) private var scheme
     @ObservedObject var model: LibraryModel
     @ObservedObject private var browser: StickerBrowser
     @ObservedObject private var selection: StickerSelection
@@ -91,12 +92,12 @@ struct StickerGrid: View {
                 ProgressView(value: Double(progress.index), total: Double(max(progress.total, 1)))
                     .progressViewStyle(.linear)
                 Text(progress.name)
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundStyle(.secondary)
                 Text("\(progress.index)/\(progress.total)")
-                    .font(.callout)
+                    .font(MemeDockTypography.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             } else {
@@ -108,8 +109,7 @@ struct StickerGrid: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        .background(MemeDockGlass())
     }
 
     private var emptyState: some View {
@@ -118,14 +118,15 @@ struct StickerGrid: View {
                 .font(.system(size: 34))
                 .foregroundStyle(.tertiary)
             Text(L10n.text(title))
-                .font(.headline)
+                .font(MemeDockTypography.sectionTitle)
             Text(L10n.text(hint))
-                .font(.callout)
+                .font(MemeDockTypography.body)
                 .foregroundStyle(.secondary)
             if allowsImport {
                 Button(L10n.text(.libraryAdd)) {
                     imports.presentPicker(collectionId: model.importCollectionId)
                 }
+                .buttonStyle(MemeDockButtonStyle(kind: .quiet))
             }
         }
         .multilineTextAlignment(.center)
@@ -143,7 +144,7 @@ struct StickerGrid: View {
             Button(L10n.text(.retry)) { browser.loadMore() }
                 .controlSize(.small)
         }
-        .font(.callout)
+        .font(MemeDockTypography.body)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
     }
@@ -154,9 +155,9 @@ struct StickerGrid: View {
                 .font(.system(size: 34))
                 .foregroundStyle(.orange)
             Text(L10n.text(.failedToLoad))
-                .font(.headline)
+                .font(MemeDockTypography.sectionTitle)
             Text(message)
-                .font(.callout)
+                .font(MemeDockTypography.body)
                 .foregroundStyle(.secondary)
             Button(L10n.text(.retry)) { browser.reload() }
         }
@@ -217,6 +218,9 @@ struct StickerGrid: View {
 /// One sticker in the grid. It reads its thumbnail from the store so a
 /// regenerated thumbnail reaches the cell that asked for it.
 private struct StickerCell: View {
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
     let item: StickerItem
     let selected: Bool
     let focused: Bool
@@ -228,19 +232,22 @@ private struct StickerCell: View {
             preview
             if !item.sticker.title.isEmpty {
                 Text(item.sticker.title)
-                    .font(.caption)
+                    .font(MemeDockTypography.caption)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundStyle(.secondary)
             }
         }
         .padding(6)
-        .background(background, in: RoundedRectangle(cornerRadius: 10))
+        .background(background, in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
         .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(focused ? Color.accentColor : .clear, lineWidth: 2)
+            RoundedRectangle(cornerRadius: MemeDockGeometry.control)
+                .strokeBorder(focused ? MemeDockPalette(scheme).accent.opacity(0.65) : .clear, lineWidth: 1.5)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .contentShape(RoundedRectangle(cornerRadius: MemeDockGeometry.control))
+        .onHover { hovering = $0 }
+        .animation(reduceMotion ? nil : MemeDockMotion.feedback, value: hovering)
+        .animation(reduceMotion ? nil : MemeDockMotion.feedback, value: selected)
         .onTapGesture { model.click(item) }
         .contextMenu { menu }
         .help(item.sticker.title.isEmpty ? item.sticker.originalName : item.sticker.title)
@@ -248,8 +255,8 @@ private struct StickerCell: View {
 
     private var preview: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(.quaternary)
+            RoundedRectangle(cornerRadius: MemeDockGeometry.control)
+                .fill(MemeDockPalette(scheme).input.opacity(0.45))
             if let image = thumbnails.image(for: item) {
                 Image(nsImage: image)
                     .resizable()
@@ -264,7 +271,7 @@ private struct StickerCell: View {
                     .controlSize(.small)
             }
         }
-        .frame(height: 84)
+        .frame(height: 96)
         .overlay(alignment: .topTrailing) { badges }
         .opacity(item.isDeleted ? 0.5 : 1)
         .task(id: loadKey) { thumbnails.load(item) }
@@ -273,10 +280,10 @@ private struct StickerCell: View {
     private var badges: some View {
         HStack(spacing: 3) {
             if item.sticker.starred {
-                badge("star.fill", .yellow)
+                badge("star.fill", MemeDockPalette(scheme).star)
             }
             if item.animated {
-                badge("bolt.fill", .accentColor)
+                badge("play.fill", MemeDockPalette(scheme).secondary)
             }
             if item.isDeleted {
                 badge("trash.fill", .secondary)
@@ -290,12 +297,13 @@ private struct StickerCell: View {
             .font(.system(size: 9, weight: .bold))
             .foregroundStyle(color)
             .padding(3)
-            .background(.regularMaterial, in: Circle())
     }
 
     private var background: AnyShapeStyle {
-        if selected { return AnyShapeStyle(Color.accentColor.opacity(0.22)) }
-        return AnyShapeStyle(.quaternary.opacity(0.4))
+        let palette = MemeDockPalette(scheme)
+        if selected { return AnyShapeStyle(palette.accent.opacity(0.12)) }
+        if hovering { return AnyShapeStyle(palette.input) }
+        return AnyShapeStyle(Color.clear)
     }
 
     /// Asking again is cheap and is what picks up a thumbnail that was

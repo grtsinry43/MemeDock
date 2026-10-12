@@ -3,6 +3,10 @@ import SwiftUI
 
 @main
 struct MemeDockApp: App {
+    init() {
+        MemeDockTypography.registerFonts()
+    }
+
     /// The delegate owns the session because it also owns shutdown: the window
     /// can disappear before the core has closed, so quitting is deferred until
     /// the library releases its database.
@@ -20,6 +24,7 @@ struct MemeDockApp: App {
         .defaultSize(width: 1080, height: 720)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            LibraryCommands()
         }
 
         // Appearance, language, the library's own facts and the operations that
@@ -32,6 +37,8 @@ struct MemeDockApp: App {
                 status: delegate.status,
                 navigation: delegate.navigation
             )
+            .font(MemeDockTypography.body)
+            .buttonStyle(MemeDockButtonStyle())
         }
     }
 }

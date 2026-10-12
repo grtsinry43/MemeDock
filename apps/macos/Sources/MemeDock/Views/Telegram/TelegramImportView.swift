@@ -5,6 +5,7 @@ import SwiftUI
 /// the import itself on the bottom bar. Nothing is committed until the user
 /// asks for it, so the sheet is also where a pack is reviewed and dropped.
 struct TelegramImportView: View {
+    @Environment(\.colorScheme) private var scheme
     @ObservedObject var coordinator: TelegramCoordinator
     @ObservedObject private var previews: TelegramPreviewStore
 
@@ -39,6 +40,11 @@ struct TelegramImportView: View {
         }
         .frame(width: 720)
         .frame(minHeight: 420, idealHeight: 620)
+        .font(MemeDockTypography.body)
+        .foregroundStyle(MemeDockPalette(scheme).text)
+        .tint(MemeDockPalette(scheme).accent)
+        .buttonStyle(MemeDockButtonStyle())
+        .background(MemeDockPalette(scheme).canvas)
         .task { await coordinator.start() }
         // Closing with escape has to stop the work just like the close button.
         .onDisappear { coordinator.dismiss() }
@@ -47,9 +53,9 @@ struct TelegramImportView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(L10n.text(.telegram))
-                .font(.headline)
+                .font(MemeDockTypography.sectionTitle)
             Text(L10n.text(.telegramTokenHint))
-                .font(.callout)
+                .font(MemeDockTypography.body)
                 .foregroundStyle(.secondary)
         }
     }
@@ -57,7 +63,7 @@ struct TelegramImportView: View {
     private var tokenFields: some View {
         VStack(alignment: .leading, spacing: 8) {
             SecureField(L10n.text(.telegramToken), text: $coordinator.token)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(MemeDockFieldStyle())
                 .disabled(coordinator.isBusy)
             HStack(spacing: 12) {
                 Toggle(L10n.text(.rememberToken), isOn: $coordinator.remember)
@@ -66,14 +72,14 @@ struct TelegramImportView: View {
                 }
                 .disabled(coordinator.isBusy || coordinator.token.isEmpty)
             }
-            .font(.callout)
+            .font(MemeDockTypography.body)
         }
     }
 
     private var packFields: some View {
         HStack(spacing: 8) {
             TextField(L10n.text(.stickerPack), text: $coordinator.packQuery)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(MemeDockFieldStyle())
                 .disabled(coordinator.isBusy)
                 .onSubmit { Task { await coordinator.loadPack() } }
             Button(coordinator.metadata == nil ? L10n.text(.viewStickers) : L10n.text(.chooseStickers)) {
@@ -87,13 +93,13 @@ struct TelegramImportView: View {
         HStack(spacing: 12) {
             if let title = coordinator.metadata?.title, !title.isEmpty {
                 Text(title)
-                    .font(.headline)
+                    .font(MemeDockTypography.rowTitle)
                     .lineLimit(1)
             }
             Spacer()
             if !coordinator.selected.isEmpty {
                 Text(L10n.text(.selectedCount, coordinator.selected.count))
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .foregroundStyle(.secondary)
             }
             Button(L10n.text(.selectNew)) { coordinator.selectNew() }
@@ -131,8 +137,8 @@ struct TelegramImportView: View {
         } label: {
             VStack(spacing: 4) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(.quaternary)
+                    RoundedRectangle(cornerRadius: MemeDockGeometry.control)
+                        .fill(MemeDockPalette(scheme).input.opacity(0.45))
                     if let image = previews.image(for: sticker.id) {
                         Image(nsImage: image)
                             .resizable()
@@ -149,8 +155,8 @@ struct TelegramImportView: View {
                 }
                 .frame(height: 88)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 2)
+                    RoundedRectangle(cornerRadius: MemeDockGeometry.control)
+                        .strokeBorder(selected ? MemeDockPalette(scheme).accent : .clear, lineWidth: 1.5)
                 }
                 .overlay(alignment: .topTrailing) {
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
@@ -160,11 +166,11 @@ struct TelegramImportView: View {
                 }
 
                 Text(sticker.emoji ?? L10n.text(.stickers))
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .lineLimit(1)
                 if let badge = badge(sticker) {
                     Text(badge)
-                        .font(.caption2)
+                        .font(MemeDockTypography.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -203,25 +209,25 @@ struct TelegramImportView: View {
                 )
                 .frame(width: 160)
                 Text("\(counts.done)/\(counts.total)")
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             } else if coordinator.phase == .loading {
                 ProgressView()
                     .controlSize(.small)
                 Text(L10n.text(.applying))
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .foregroundStyle(.secondary)
             }
 
             if let message = coordinator.failure {
                 Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .foregroundStyle(.orange)
                     .lineLimit(2)
             } else if let summary = coordinator.summary {
                 Text(summary)
-                    .font(.callout)
+                    .font(MemeDockTypography.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
@@ -239,8 +245,10 @@ struct TelegramImportView: View {
                 Task { await coordinator.importSelected() }
             }
             .keyboardShortcut(.defaultAction)
+            .buttonStyle(MemeDockButtonStyle(kind: .primary))
             .disabled(coordinator.selected.isEmpty || coordinator.isBusy)
         }
         .padding(16)
+        .background(MemeDockGlass())
     }
 }
