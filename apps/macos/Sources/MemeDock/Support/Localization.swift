@@ -36,6 +36,7 @@ enum L10nKey: String {
     case selectionHint, selectionLoadedOnly, selectionOverLimit
     case addTags, removeTags, star, unstar, batchResult, batchRunning
     case details, fileInfo, organization, noCollection, addNote, firstFrame, restoreOrganization
+    case pauseAnimation, playAnimation, animatedFirstFrame
     case deleteStickerTitle, deletedSticker, restoreStickerTitle, restoreHint, restored
     case telegramToken, telegramTokenHint, rememberToken, clearToken, tokenFailed, tokenInvalid
     case stickerPack, viewStickers, chooseStickers, selectNew, clearSelection, importSelected
@@ -126,6 +127,8 @@ enum L10n {
         .batchResult: "Updated %d, %d failed, %d skipped", .batchRunning: "Working on %d stickers",
         .details: "Details", .fileInfo: "File", .organization: "Organisation",
         .noCollection: "No collection", .addNote: "Add a note", .firstFrame: "First frame only",
+        .pauseAnimation: "Pause", .playAnimation: "Play",
+        .animatedFirstFrame: "Only the first frame is previewed. Animation will be preserved when shared.",
         .restoreOrganization: "Restore its previous collection and tags",
         .deleteStickerTitle: "Move to trash", .deletedSticker: "Moved to trash",
         .restoreStickerTitle: "Restore sticker",
@@ -229,6 +232,8 @@ enum L10n {
         .batchResult: "已更新 %d 张，失败 %d 张，跳过 %d 张", .batchRunning: "正在处理 %d 张",
         .details: "详细信息", .fileInfo: "文件", .organization: "整理",
         .noCollection: "未加入合集", .addNote: "添加备注", .firstFrame: "仅首帧",
+        .pauseAnimation: "暂停", .playAnimation: "播放",
+        .animatedFirstFrame: "当前仅显示首帧预览，发送时仍为动图",
         .restoreOrganization: "恢复原先的合集与标签",
         .deleteStickerTitle: "移至回收站", .deletedSticker: "已移至回收站",
         .restoreStickerTitle: "恢复表情",

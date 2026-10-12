@@ -100,7 +100,12 @@ struct StickerDetailPane: View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
                 .fill(.quaternary)
-            OriginalPreview(path: sticker.originalPath, fallback: previewFallback(sticker))
+            OriginalPreview(
+                path: sticker.originalPath,
+                fallback: previewFallback(sticker),
+                animated: sticker.asset.animated,
+                mime: sticker.asset.mime
+            )
         }
         .frame(height: 190)
     }
@@ -309,43 +314,100 @@ struct StickerDetailPane: View {
     }
 }
 
-/// The stored original at its real size. Decoding happens off the main thread
-/// because an original can be several megabytes, and it is cached per path so
-/// reopening the same sticker does not decode it again.
+/// The stored original at its real size. An animated GIF or WebP is played (see
+/// `AnimatedPlayback`); everything else is decoded once off the main thread,
+/// because an original can be several megabytes.
 private struct OriginalPreview: View {
     let path: String?
     let fallback: NSImage?
+    let animated: Bool
+    let mime: String
 
-    @State private var image: NSImage?
+    @StateObject private var playback = AnimatedPlayback()
+    @State private var still: NSImage?
+
+    private var plays: Bool { AnimatedPlayback.plays(animated: animated, mime: mime) }
 
     var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .padding(6)
-            } else if let fallback {
-                Image(nsImage: fallback)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .padding(6)
-            } else {
-                Image(systemName: "photo")
-                    .foregroundStyle(.tertiary)
+        ZStack(alignment: .topTrailing) {
+            picture
+            if plays {
+                control
+                    .padding(8)
             }
         }
-        .task(id: path) { await decode() }
+        .overlay(alignment: .bottom) {
+            if let note {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(8)
+            }
+        }
+        .task(id: path) { await load() }
+        .onDisappear { playback.stop() }
     }
 
-    private func decode() async {
-        guard let path else {
-            image = nil
-            return
+    @ViewBuilder
+    private var picture: some View {
+        // Until the first frame arrives the thumbnail stands in, which is what
+        // the Linux client shows before its playback starts too.
+        if let frame = playback.frame {
+            rendered(frame)
+        } else if let still {
+            rendered(still)
+        } else if let fallback {
+            rendered(fallback)
+        } else {
+            Image(systemName: "photo")
+                .foregroundStyle(.tertiary)
         }
-        image = await Task.detached(priority: .userInitiated) {
+    }
+
+    private func rendered(_ image: NSImage) -> some View {
+        Image(nsImage: image)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .padding(6)
+    }
+
+    private var control: some View {
+        Button {
+            playback.toggle()
+        } label: {
+            Image(systemName: playback.state == .playing ? "pause.fill" : "play.fill")
+                .font(.caption)
+                .padding(6)
+                .background(.thinMaterial, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help(L10n.text(playback.state == .playing ? .pauseAnimation : .playAnimation))
+    }
+
+    /// What the pane cannot show: a PNG animation, which is only ever a still
+    /// frame, and the two ways decoding a real animation can fail.
+    private var note: String? {
+        if AnimatedPlayback.isStillAnimation(animated: animated, mime: mime) {
+            return L10n.text(.animatedFirstFrame)
+        }
+        switch playback.state {
+        case .broken: return L10n.text(.thumbnailFailed)
+        case .limit: return L10n.text(.errorResourceLimit)
+        case .idle, .playing, .paused: return nil
+        }
+    }
+
+    private func load() async {
+        playback.load(path: path, animated: animated, mime: mime)
+        still = nil
+        // The player supplies an animation's frames, so only still images are
+        // decoded here.
+        guard let path, !plays else { return }
+        still = await Task.detached(priority: .userInitiated) {
             NSImage(contentsOfFile: path)
         }.value
     }
