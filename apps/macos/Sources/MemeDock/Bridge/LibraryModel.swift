@@ -20,8 +20,9 @@ final class LibraryModel: ObservableObject {
     let detail: StickerDetailModel
 
     /// While on, a click extends the batch selection instead of only moving the
-    /// detail pane: choosing many and inspecting one are different jobs.
-    @Published var selecting = false
+    /// detail pane: choosing many and inspecting one are different jobs, and the
+    /// right column shows only one of them at a time.
+    @Published private(set) var selecting = false
 
     private var subscriptions: Set<AnyCancellable> = []
     private var started = false
@@ -73,14 +74,57 @@ final class LibraryModel: ObservableObject {
     func click(_ item: StickerItem) {
         if selecting || NSEvent.modifierFlags.contains(.command) {
             selection.toggle(item)
+            // One picked sticker can still be the one being inspected; from the
+            // second on the batch pane takes the column over.
+            if selection.count > 1 {
+                setSelecting(true)
+            }
             return
         }
         selection.clear()
         Task { await detail.load(id: item.id) }
     }
 
+    /// Turns the picking mode on or off. Leaving it drops the selection: one
+    /// that is no longer shown anywhere would keep rows tinted with nothing
+    /// left to act on.
+    func setSelecting(_ on: Bool) {
+        guard selecting != on else { return }
+        selecting = on
+        if !on {
+            selection.clear()
+        }
+    }
+
+    /// A select-all is a batch in the making, so it opens the picking mode even
+    /// when it only covers a single loaded sticker.
     func selectAll() {
+        guard !browser.items.isEmpty else { return }
         selection.select(browser.items)
+        setSelecting(true)
+    }
+
+    /// Whether a select-all has anything to pick up right now. The batch calls
+    /// ask the same of the pane's own button, and a call already in flight would
+    /// only be handed a second batch to carry.
+    var canSelectAll: Bool {
+        !selection.running && !browser.items.isEmpty
+    }
+
+    /// The sticker 拷贝 acts on: the one the detail column has open, which is the
+    /// only row the library treats as focused. A trashed sticker is on its way
+    /// out, and while a batch is being picked the right column belongs to the
+    /// selection rather than to one sticker, so neither leaves anything to copy.
+    var copyTarget: StickerItem? {
+        guard !selecting, browser.filter != .deleted else { return nil }
+        return detail.item
+    }
+
+    /// Copies `copyTarget`. The row in the grid is what a click opens, so this is
+    /// the one-sticker copy the detail column already offers by button.
+    func copyFocused() async {
+        guard let item = copyTarget else { return }
+        await perform(status) { try await self.actions.copyImage(item) }
     }
 
     /// Grid operations act on a row rather than the opened detail, so they go

@@ -33,6 +33,7 @@ enum L10nKey: String {
     case libraryEmpty, libraryEmptyHint, starredEmpty, starredEmptyHint, tagEmpty, tagEmptyHint
     case trashEmpty, trashEmptyHint, collectionEmpty, collectionEmptyHint, noMatchesHint
     case selectItems, selectAll, selectedCount, batchOrganize, assignCollection, clearCollection
+    case selectionHint, selectionLoadedOnly, selectionOverLimit
     case addTags, removeTags, star, unstar, batchResult, batchRunning
     case details, fileInfo, organization, noCollection, addNote, firstFrame, restoreOrganization
     case deleteStickerTitle, deletedSticker, restoreStickerTitle, restoreHint, restored
@@ -117,6 +118,9 @@ enum L10n {
         .collectionEmptyHint: "Select stickers and add them to this collection",
         .noMatchesHint: "Try a different search term",
         .selectItems: "Select", .selectAll: "Select all", .selectedCount: "%d selected",
+        .selectionHint: "Click stickers to add them to the selection",
+        .selectionLoadedOnly: "Select all covers loaded stickers only",
+        .selectionOverLimit: "%d selected, above the %d per batch limit",
         .batchOrganize: "Organise selected", .assignCollection: "Add to collection",
         .clearCollection: "Remove from collection", .addTags: "Add tags", .removeTags: "Remove tags",
         .star: "Star", .unstar: "Remove star",
@@ -218,6 +222,9 @@ enum L10n {
         .collectionEmpty: "该合集是空的", .collectionEmptyHint: "选择表情后加入该合集",
         .noMatchesHint: "换个关键词试试",
         .selectItems: "选择", .selectAll: "全选", .selectedCount: "已选 %d 张",
+        .selectionHint: "点击表情加入所选",
+        .selectionLoadedOnly: "全选仅含已加载的表情",
+        .selectionOverLimit: "已选 %d 张，超过单次 %d 张上限",
         .batchOrganize: "批量整理", .assignCollection: "加入合集",
         .clearCollection: "移出合集", .addTags: "添加标签", .removeTags: "移除标签",
         .star: "加星标", .unstar: "取消星标",

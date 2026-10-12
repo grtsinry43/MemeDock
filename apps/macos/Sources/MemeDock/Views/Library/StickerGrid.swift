@@ -53,7 +53,9 @@ struct StickerGrid: View {
                     StickerCell(
                         item: item,
                         selected: selection.isSelected(item.id),
-                        focused: detail.id == item.id,
+                        // While a batch is being picked the ring is nothing but
+                        // a second highlight on rows that are already tinted.
+                        focused: detail.id == item.id && !model.selecting,
                         model: model,
                         thumbnails: model.thumbnails
                     )

@@ -11,6 +11,11 @@ final class StickerSelection: ObservableObject {
     @Published private(set) var running = false
     @Published private(set) var failure: String?
 
+    /// Mirrors `memedock_core::batch::MAX_BATCH_ITEMS`: one call carries this
+    /// many stickers, so the pane states the limit up front instead of letting
+    /// the core refuse a selection that was already too large.
+    static let limit = 1000
+
     private let session: LibrarySession
     private let status: StatusCenter
     private var task: BatchTask?
@@ -59,9 +64,13 @@ final class StickerSelection: ObservableObject {
             task = batch
             let report = try await batch.awaitResult()
             status.show(Self.summary(of: report))
-            // The notification stream refreshes the grid. The selection is
-            // dropped because its rows may no longer exist.
-            clear()
+            // The notification stream refreshes the grid. A sticker the core
+            // settled leaves the selection because its row may no longer exist;
+            // one it failed or never reached stays picked, so the call can be
+            // repeated on that one alone.
+            for item in report.items where Self.settled(item.outcome) {
+                targets[item.id] = nil
+            }
         } catch {
             failure = describe(error)
             status.show(error)
@@ -77,6 +86,12 @@ final class StickerSelection: ObservableObject {
             target: item.reference,
             deletedRevision: item.isDeleted ? item.sticker.lifecycle.revision : nil
         )
+    }
+
+    /// What the core is done with: an unchanged row already held the state that
+    /// was asked for, so both it and an applied one can leave the selection.
+    private static func settled(_ outcome: BatchOutcome) -> Bool {
+        outcome == .applied || outcome == .unchanged
     }
 
     /// Reports what the core did. Rows it left `unchanged` already held the
