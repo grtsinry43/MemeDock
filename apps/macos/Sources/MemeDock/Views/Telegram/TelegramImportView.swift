@@ -183,7 +183,7 @@ struct TelegramImportView: View {
         }
         .buttonStyle(.plain)
         .disabled(!selectable || coordinator.isBusy)
-        .help(sticker.emoji ?? sticker.id)
+        .help(coordinator.itemErrors[sticker.id]?.message ?? sticker.emoji ?? sticker.id)
         .task {
             if sticker.hasPreview { previews.load(sticker.id) }
         }
@@ -225,15 +225,16 @@ struct TelegramImportView: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let summary = coordinator.summary {
+                Text(summary)
+                    .font(MemeDockTypography.body)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
             if let message = coordinator.failure {
                 Label(message, systemImage: "exclamationmark.triangle")
                     .font(MemeDockTypography.body)
                     .foregroundStyle(.orange)
-                    .lineLimit(2)
-            } else if let summary = coordinator.summary {
-                Text(summary)
-                    .font(MemeDockTypography.body)
-                    .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
 

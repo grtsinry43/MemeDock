@@ -396,6 +396,94 @@ async fn real_tgs_and_transparent_webm_convert_through_the_normal_import_transac
 }
 
 #[tokio::test]
+async fn webm_with_duplicate_timestamps_imports_and_preserves_duration() -> TestResult {
+    // Synthetic 2x2 red VP9 clip, not user media. Four frames at 0, 0, 40, 40 ms.
+    // Generated with FFmpeg: color=c=red:size=2x2:rate=25:duration=0.16,
+    // setpts=floor(N/2)/(25*TB), fps_mode=passthrough, libvpx-vp9 lossless.
+    let bytes = include_str!("fixtures/duplicate-timestamps.webm.hex")
+        .split_ascii_whitespace()
+        .map(|byte| u8::from_str_radix(byte, 16))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let remote = serde_json::json!({"name":"test_pack","title":"Repeated timestamps","stickers":[
+        {"file_id":"media","file_unique_id":"unique_media","width":2,"height":2,"is_animated":false,"is_video":true}
+    ]});
+    let server = Server::new(remote, BTreeMap::from([("media.webp".into(), bytes)]))?;
+    let directory = tempfile::tempdir()?;
+    let library = Library::open(crate::LibraryConfig::new(
+        directory.path().join("data"),
+        directory.path().join("cache"),
+        directory.path().join("share"),
+    ))
+    .await?;
+    let pack = pack(&library, &server).await?;
+    let report = library
+        .import_telegram(pack, vec![id("unique_media")?])?
+        .wait()
+        .await?;
+    assert_eq!(report.items[0].outcome, TelegramImportOutcome::Created);
+    let detail = library
+        .sticker_detail(report.items[0].sticker.ok_or("sticker missing")?)?
+        .wait()
+        .await?;
+    assert!(detail.asset.animated());
+    assert_eq!(
+        detail.asset.format(),
+        memedock_domain::asset::ImageFormat::WebP
+    );
+    let bytes = std::fs::read(detail.original_path.ok_or("original missing")?)?;
+    let frames: Vec<_> = webp_animation::Decoder::new(&bytes)?.into_iter().collect();
+    assert_eq!(frames.len(), 2);
+    assert_eq!(
+        frames
+            .iter()
+            .map(|frame| frame.timestamp())
+            .collect::<Vec<_>>(),
+        [40, 80]
+    );
+    assert_eq!(&bytes[38..44], &[0; 6]);
+    library.close().await?;
+    Ok(())
+}
+
+#[test]
+fn webm_backwards_timestamps_are_rejected() -> TestResult {
+    let mut bytes = include_str!("fixtures/duplicate-timestamps.webm.hex")
+        .split_ascii_whitespace()
+        .map(|byte| u8::from_str_radix(byte, 16))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    // The fixture's last two SimpleBlocks have a 40 ms relative timestamp.
+    // Move only the final block to 20 ms, keeping valid VP9 payloads and EBML sizes.
+    let blocks: Vec<_> = bytes
+        .windows(5)
+        .enumerate()
+        .filter_map(|(at, bytes)| (bytes == [0xa3, 0x92, 0x81, 0, 40]).then_some(at))
+        .collect();
+    assert_eq!(blocks.len(), 2);
+    bytes[blocks[1] + 4] = 20;
+    let input = tempfile::NamedTempFile::new()?;
+    std::fs::write(input.path(), bytes)?;
+    let output = tempfile::NamedTempFile::new()?;
+    let control = TaskControl::new(Arc::new(tokio::sync::Notify::new()));
+    let error = crate::images::telegram::convert(
+        TelegramFormat::Webm,
+        input.path(),
+        output.path(),
+        &control,
+        32 * 1024 * 1024,
+    )
+    .err()
+    .ok_or("backwards timestamp was accepted")?;
+    assert_eq!(error.code(), ErrorCode::InvalidImage);
+    assert!(
+        std::error::Error::source(&error)
+            .ok_or("diagnostic missing")?
+            .to_string()
+            .contains("timestamp moved backwards")
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn empty_selection_and_cancellation_leave_no_collection() -> TestResult {
     let server = Server::new(remote_pack(), BTreeMap::from([("a.webp".into(), png(10)?)]))?;
     let directory = tempfile::tempdir()?;

@@ -70,7 +70,7 @@ base="$root/target/native-media"
 work="$base/$target"
 prefix="$work/install"
 stamp=$(sha256sum "$0" | cut -d ' ' -f 1)
-fresh() { [[ -f "$work/complete" && $(cat "$work/complete") == "$stamp" && -f "$prefix/lib/libavcodec.a" ]]; }
+fresh() { [[ -f "$work/complete" && $(cat "$work/complete") == "$stamp" && -f "$prefix/lib/libavcodec.a" && -f "$prefix/lib/libavfilter.a" ]]; }
 # --verify reports whether the cached build is current and takes no lock, so the
 # pkg-config wrapper skips the mutex on the common "nothing changed" path.
 if [[ "$mode" == verify ]]; then
@@ -164,8 +164,9 @@ cd "$work/ffmpeg"
 "$base/sources/ffmpeg/configure" ${ffmpeg_args[@]+"${ffmpeg_args[@]}"} --prefix="$prefix" --cc="${CC:-cc}" --cxx="${CXX:-c++}" \
   --ar="${AR:-ar}" --ranlib="${RANLIB:-ranlib}" --strip="${STRIP:-strip}" --pkg-config="$pkg_config" --pkg-config-flags=--static \
   --disable-everything --disable-autodetect --disable-programs --disable-doc --disable-debug \
-  --disable-avdevice --disable-avfilter --disable-swresample --disable-network --disable-shared \
+  --disable-avdevice --disable-swresample --disable-network --disable-shared \
   --enable-static --enable-pic --enable-libvpx --enable-decoder=libvpx_vp8,libvpx_vp9 \
+  --enable-avfilter --enable-filter=fps \
   --enable-demuxer=matroska --enable-parser=vp8,vp9 --enable-protocol=file --disable-x86asm
 make -j4
 make install

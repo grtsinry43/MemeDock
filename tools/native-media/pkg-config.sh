@@ -2,7 +2,7 @@
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 case " $* " in
-  *rlottie*|*libwebp*|*libavformat*|*libavcodec*|*libavutil*|*libswscale*)
+  *rlottie*|*libwebp*|*libavformat*|*libavcodec*|*libavutil*|*libavfilter*|*libswscale*)
     target=${TARGET:-${HOST:-$(rustc -vV | sed -n 's/^host: //p')}}
     # pkg-config is invoked by the native crates before core's own build script.
     # Keep its stdout exclusively for pkg-config's machine-readable response.

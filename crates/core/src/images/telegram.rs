@@ -2,7 +2,7 @@
 use super::animated_webp::Sink;
 use crate::sources::telegram::TelegramFormat;
 use crate::{CoreError, ErrorCode, Result, tasks::TaskControl};
-use ffmpeg_next as ff;
+use ffmpeg_next::{self as ff, Rescale};
 use flate2::read::GzDecoder;
 use std::{fs::File, io::Read, path::Path};
 pub(super) type MediaResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -145,12 +145,11 @@ fn webm(
     let decoder_context = ff::codec::context::Context::from_parameters(stream.parameters())?;
     let mut decoder = decoder_context.decoder().open_as(codec)?.video()?;
     let (width, height) = (decoder.width(), decoder.height());
-    dimensions(width, height)?;
-    let fallback_ms = if rate.numerator() > 0 && rate.denominator() > 0 {
-        (1000.0 * f64::from(rate.denominator()) / f64::from(rate.numerator())).round() as i32
-    } else {
-        return Err("video frame rate missing".into());
-    };
+    let mut filter = fps_filter(width, height, base, rate)?;
+    let fallback = 1i64.rescale((rate.denominator(), rate.numerator()), base);
+    if fallback <= 0 {
+        return Err("invalid video frame duration".into());
+    }
     let mut sink = Sink::new(
         width,
         height,
@@ -159,14 +158,10 @@ fn webm(
         max_output_bytes.min(MAX_BYTES),
     )?;
     let mut scaler = None;
-    let mut first_ms = None;
-    if base.numerator() <= 0 || base.denominator() <= 0 || !(1..=1000).contains(&fallback_ms) {
-        return Err("invalid video time base".into());
-    }
-    let to_ms = |ticks: i64| -> i64 {
-        (ticks as f64 * f64::from(base.numerator()) * 1000.0 / f64::from(base.denominator()))
-            .round() as i64
-    };
+    let mut first_timestamp = None;
+    let mut last_timestamp = None;
+    let mut decoded_frames = 0;
+    let mut end_timestamp = 0;
     let mut drain = |decoder: &mut ff::decoder::Video| -> MediaResult<()> {
         let mut decoded = ff::util::frame::Video::empty();
         loop {
@@ -179,21 +174,32 @@ fn webm(
                 }) => break,
                 Err(e) => return Err(e.into()),
             }
+            // Bound input work even when the fps filter drops repeated timestamps.
+            if decoded_frames >= MAX_FRAMES {
+                return Err("frame budget exceeded".into());
+            }
+            decoded_frames += 1;
             if decoded.is_corrupt() || decoded.has_decode_errors() {
                 return Err("corrupt decoded frame".into());
             }
             if decoded.width() != width || decoded.height() != height {
                 return Err("dimensions changed".into());
             }
-            let ms = to_ms(decoded.timestamp().ok_or("frame timestamp missing")?);
-            let start_ms = i32::try_from(
-                ms.checked_sub(*first_ms.get_or_insert(ms))
-                    .ok_or("timestamp overflow")?,
-            )?;
-            let delta = i32::try_from(to_ms(decoded.packet().duration))?;
-            let end_ms = start_ms
-                .checked_add(if delta > 0 { delta } else { fallback_ms })
+            let timestamp = decoded.timestamp().ok_or("frame timestamp missing")?;
+            if last_timestamp.is_some_and(|last| timestamp < last) {
+                return Err("video timestamp moved backwards".into());
+            }
+            last_timestamp = Some(timestamp);
+            let start = timestamp
+                .checked_sub(*first_timestamp.get_or_insert(timestamp))
+                .ok_or("timestamp overflow")?;
+            let duration = decoded.packet().duration;
+            end_timestamp = start
+                .checked_add(if duration > 0 { duration } else { fallback })
                 .ok_or("duration overflow")?;
+            if start < 0 || end_timestamp.rescale(base, (1, 1000)) > i64::from(MAX_DURATION) {
+                return Err("animation duration exceeded".into());
+            }
             if scaler.is_none() {
                 scaler = Some(ff::software::scaling::context::Context::get(
                     decoded.format(),
@@ -210,17 +216,19 @@ fn webm(
                 .as_mut()
                 .ok_or("scaler missing")?
                 .run(&decoded, &mut frame)?;
-            let row_size = width as usize * 4;
-            let mut rgba = Vec::with_capacity(row_size * height as usize);
-            for row in frame.data(0).chunks(frame.stride(0)).take(height as usize) {
-                rgba.extend_from_slice(&row[..row_size]);
-            }
-            sink.add(&rgba, start_ms, end_ms)?;
+            frame.set_pts(Some(start));
+            filter
+                .get("in")
+                .ok_or("filter input missing")?
+                .source()
+                .add(&frame)?;
+            drain_fps(&mut filter, &mut sink, width, height)?;
         }
         Ok(())
     };
     let mut packet = ff::Packet::empty();
     loop {
+        control.check()?;
         match packet.read(&mut context) {
             Ok(()) if packet.stream() == index => {
                 decoder.send_packet(&packet)?;
@@ -233,5 +241,240 @@ fn webm(
     }
     decoder.send_eof()?;
     drain(&mut decoder)?;
+    // Explicit EOF time lets fps round the final interval in its output time base.
+    filter
+        .get("in")
+        .ok_or("filter input missing")?
+        .source()
+        .close(end_timestamp)?;
+    drain_fps(&mut filter, &mut sink, width, height)?;
     sink.finish()
+}
+
+fn fps_filter(
+    width: u32,
+    height: u32,
+    base: ff::Rational,
+    rate: ff::Rational,
+) -> MediaResult<ff::filter::Graph> {
+    dimensions(width, height)?;
+    if base.numerator() <= 0 || base.denominator() <= 0 {
+        return Err("invalid video time base".into());
+    }
+    if rate.numerator() <= 0 || rate.denominator() <= 0 {
+        return Err("video frame rate missing".into());
+    }
+    let frame_ms = 1i64.rescale((rate.denominator(), rate.numerator()), (1, 1000));
+    if !(1..=1000).contains(&frame_ms) {
+        return Err("invalid video frame rate".into());
+    }
+    let mut graph = ff::filter::Graph::new();
+    graph.add(
+        &ff::filter::find("buffer").ok_or("buffer filter missing")?,
+        "in",
+        &format!("video_size={width}x{height}:pix_fmt=rgba:time_base={base}:pixel_aspect=1/1:frame_rate={rate}"),
+    )?;
+    graph.add(
+        &ff::filter::find("buffersink").ok_or("buffersink filter missing")?,
+        "out",
+        "",
+    )?;
+    // Use the source rate, never a hardcoded 25 FPS. FFmpeg owns duplicate/drop
+    // decisions and EOF rounding; alpha stays RGBA throughout the filter graph.
+    graph.output("in", 0)?.input("out", 0)?.parse(&format!(
+        "fps=fps={rate}:start_time=0:round=near:eof_action=round"
+    ))?;
+    graph.validate()?;
+    Ok(graph)
+}
+
+fn drain_fps(
+    graph: &mut ff::filter::Graph,
+    sink: &mut Sink<'_>,
+    width: u32,
+    height: u32,
+) -> MediaResult<()> {
+    let mut output = graph.get("out").ok_or("filter output missing")?;
+    let base = output.sink().time_base();
+    let mut frame = ff::util::frame::Video::empty();
+    loop {
+        sink.check()?;
+        match output.sink().frame(&mut frame) {
+            Ok(()) => {}
+            Err(ff::Error::Eof)
+            | Err(ff::Error::Other {
+                errno: ff::error::EAGAIN,
+            }) => break,
+            Err(error) => return Err(error.into()),
+        }
+        if frame.width() != width
+            || frame.height() != height
+            || frame.format() != ff::format::Pixel::RGBA
+        {
+            return Err("unexpected filtered frame format".into());
+        }
+        let timestamp = frame.pts().ok_or("filtered timestamp missing")?;
+        // fps produces one output tick per frame. Rescale each endpoint so
+        // fractional rates do not accumulate millisecond rounding error.
+        let start = i32::try_from(timestamp.rescale(base, (1, 1000)))?;
+        let end = i32::try_from(
+            timestamp
+                .checked_add(1)
+                .ok_or("timestamp overflow")?
+                .rescale(base, (1, 1000)),
+        )?;
+        let row_size = width as usize * 4;
+        let mut rgba = Vec::with_capacity(row_size * height as usize);
+        for row in frame.data(0).chunks(frame.stride(0)).take(height as usize) {
+            rgba.extend_from_slice(&row[..row_size]);
+        }
+        sink.add(&rgba, start, end)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn fps_filter_preserves_last_pixels_alpha_and_duration_at_duplicate_times() -> MediaResult<()> {
+        ff::init()?;
+        let output = tempfile::NamedTempFile::new()?;
+        let control = TaskControl::new(Arc::new(tokio::sync::Notify::new()));
+        let mut sink = Sink::new(1, 1, &control, output.path(), MAX_BYTES)?;
+        let mut graph = fps_filter(1, 1, (1, 1000).into(), (25, 1).into())?;
+        let first = [10, 20, 30, 100];
+        let middle = [40, 50, 60, 150];
+        let last = [70, 80, 90, 200];
+        for (timestamp, pixels) in [
+            (0, [0; 4]),
+            (0, first),
+            (40, [0; 4]),
+            (40, middle),
+            (120, [0; 4]),
+            (120, last),
+        ] {
+            let mut frame = ff::util::frame::Video::new(ff::format::Pixel::RGBA, 1, 1);
+            frame.data_mut(0)[..4].copy_from_slice(&pixels);
+            frame.set_pts(Some(timestamp));
+            graph
+                .get("in")
+                .ok_or("filter input missing")?
+                .source()
+                .add(&frame)?;
+            drain_fps(&mut graph, &mut sink, 1, 1)?;
+        }
+        graph
+            .get("in")
+            .ok_or("filter input missing")?
+            .source()
+            .close(160)?;
+        drain_fps(&mut graph, &mut sink, 1, 1)?;
+        sink.finish()?;
+        let bytes = std::fs::read(output.path())?;
+        let decoded: Vec<_> = webp_animation::Decoder::new(&bytes)?.into_iter().collect();
+        assert_eq!(decoded.len(), 4);
+        for (frame, pixels) in decoded.iter().zip([first, middle, middle, last]) {
+            assert_eq!(frame.data(), pixels);
+        }
+        assert_eq!(
+            decoded
+                .iter()
+                .map(|frame| frame.timestamp())
+                .collect::<Vec<_>>(),
+            [40, 80, 120, 160]
+        );
+        assert_eq!(&bytes[38..44], &[0; 6]);
+        Ok(())
+    }
+
+    #[test]
+    fn fps_filter_uses_fractional_source_rate_and_flushes_last_frame() -> MediaResult<()> {
+        ff::init()?;
+        let output = tempfile::NamedTempFile::new()?;
+        let control = TaskControl::new(Arc::new(tokio::sync::Notify::new()));
+        let mut sink = Sink::new(1, 1, &control, output.path(), MAX_BYTES)?;
+        let mut graph = fps_filter(1, 1, (1, 30000).into(), (30000, 1001).into())?;
+        for timestamp in [0, 1001, 2002] {
+            let mut frame = ff::util::frame::Video::new(ff::format::Pixel::RGBA, 1, 1);
+            frame.data_mut(0)[..4].copy_from_slice(&[100, 150, 200, 255]);
+            frame.set_pts(Some(timestamp));
+            graph
+                .get("in")
+                .ok_or("filter input missing")?
+                .source()
+                .add(&frame)?;
+            drain_fps(&mut graph, &mut sink, 1, 1)?;
+        }
+        graph
+            .get("in")
+            .ok_or("filter input missing")?
+            .source()
+            .close(3003)?;
+        drain_fps(&mut graph, &mut sink, 1, 1)?;
+        sink.finish()?;
+        let bytes = std::fs::read(output.path())?;
+        let decoded: Vec<_> = webp_animation::Decoder::new(&bytes)?.into_iter().collect();
+        assert_eq!(
+            decoded
+                .iter()
+                .map(|frame| frame.timestamp())
+                .collect::<Vec<_>>(),
+            [33, 67, 100]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fps_filter_output_remains_bounded_and_cancellable() -> MediaResult<()> {
+        ff::init()?;
+        for (budget, cancel) in [(MAX_BYTES, false), (60, false), (MAX_BYTES, true)] {
+            let output = tempfile::NamedTempFile::new()?;
+            let control = TaskControl::new(Arc::new(tokio::sync::Notify::new()));
+            let mut sink = Sink::new(1, 1, &control, output.path(), budget)?;
+            let mut graph = fps_filter(1, 1, (1, 1000).into(), (100, 1).into())?;
+            let mut frame = ff::util::frame::Video::new(ff::format::Pixel::RGBA, 1, 1);
+            frame.data_mut(0)[..4].copy_from_slice(&[10, 20, 30, 255]);
+            frame.set_pts(Some(0));
+            graph
+                .get("in")
+                .ok_or("filter input missing")?
+                .source()
+                .add(&frame)?;
+            graph
+                .get("in")
+                .ok_or("filter input missing")?
+                .source()
+                .close(3000)?;
+            if cancel {
+                control.cancel();
+            }
+            let error = drain_fps(&mut graph, &mut sink, 1, 1)
+                .err()
+                .ok_or("filter escaped limits")?;
+            if cancel {
+                assert_eq!(
+                    error
+                        .downcast_ref::<CoreError>()
+                        .ok_or("missing core error")?
+                        .code(),
+                    ErrorCode::Cancelled
+                );
+            } else if budget == 60 {
+                assert_eq!(
+                    error
+                        .downcast_ref::<CoreError>()
+                        .ok_or("missing core error")?
+                        .code(),
+                    ErrorCode::ResourceLimit
+                );
+                assert!(output.path().metadata()?.len() <= budget);
+            } else {
+                assert_eq!(error.to_string(), "frame budget exceeded");
+            }
+        }
+        Ok(())
+    }
 }

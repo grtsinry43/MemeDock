@@ -25,6 +25,7 @@ final class TelegramCoordinator: ObservableObject {
     @Published private(set) var metadata: TelegramPackMetadata?
     @Published private(set) var states: [String: TelegramImportState] = [:]
     @Published private(set) var outcomes: [String: TelegramImportOutcome] = [:]
+    @Published private(set) var itemErrors: [String: ErrorCode] = [:]
     @Published private(set) var selected: Set<String> = []
     @Published private(set) var progress: TelegramImportReport?
     @Published private(set) var summary: String?
@@ -104,6 +105,7 @@ final class TelegramCoordinator: ObservableObject {
         failure = nil
         summary = nil
         outcomes.removeAll()
+        itemErrors.removeAll()
         phase = .loading
         cancelRequested = false
         defer {
@@ -145,6 +147,7 @@ final class TelegramCoordinator: ObservableObject {
         metadata = nil
         states.removeAll()
         outcomes.removeAll()
+        itemErrors.removeAll()
         selected = []
         progress = nil
         summary = nil
@@ -195,6 +198,7 @@ final class TelegramCoordinator: ObservableObject {
         failure = nil
         summary = nil
         outcomes.removeAll()
+        itemErrors.removeAll()
         phase = .importing
         cancelRequested = false
         let ids = selected.sorted()
@@ -255,6 +259,7 @@ final class TelegramCoordinator: ObservableObject {
         progress = report
         for item in report.items {
             outcomes[item.id] = item.outcome
+            itemErrors[item.id] = item.error
             switch item.outcome {
             case .created, .reused:
                 states[item.id] = .imported
@@ -267,6 +272,7 @@ final class TelegramCoordinator: ObservableObject {
         }
         let summary = Self.summary(for: report)
         self.summary = summary
+        failure = report.items.first(where: { $0.outcome == .failed })?.error?.message
         status.show(summary, isFailure: report.items.contains { $0.outcome == .failed })
         // The core reports no per-sticker change for a Telegram import, so the
         // grid is told to rebuild instead of waiting for an event that never

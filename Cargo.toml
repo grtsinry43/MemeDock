@@ -30,7 +30,7 @@ webpki-root-certs = "=1.0.9"
 flate2 = "=1.1.10"
 rlottie = { version = "=0.5.4", default-features = false, features = ["vendor-telegram"] }
 webp-animation = "=0.10.0"
-ffmpeg-next = { version = "=9.0.0", default-features = false, features = ["format", "software-scaling"] }
+ffmpeg-next = { version = "=9.0.0", default-features = false, features = ["format", "software-scaling", "filter"] }
 oo7 = { version = "=0.6.0", default-features = false, features = ["async-std", "native_crypto"] }
 
 [workspace.lints.rust]
