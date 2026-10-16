@@ -1,7 +1,7 @@
 use crate::{Result, StorageError};
 use memedock_domain::identity::OperationId;
 use std::{
-    fs::{self, File},
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -35,7 +35,7 @@ pub fn remove_archive_file(root: &Path, path: &Path) -> Result<()> {
     if fs::read_dir(parent)?.next().is_none() {
         fs::remove_dir(parent)?;
     }
-    File::open(root.join("archives"))?.sync_all()?;
+    super::sync_directory(&root.join("archives"))?;
     Ok(())
 }
 

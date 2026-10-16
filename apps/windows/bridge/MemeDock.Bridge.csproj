@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+    <NativeRoot>$(MSBuildThisFileDirectory)..\..\..\target\windows-native</NativeRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(NativeRoot)\generated\memedock_ffi.cs" Link="Generated\memedock_ffi.cs" />
+    <None Include="$(NativeRoot)\runtime\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(NativeRoot)\runtime\licenses\**\*" Link="licenses\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="RequireNativeBridge" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(NativeRoot)\generated\memedock_ffi.cs')" Text="Run tools/windows/build-bridge.ps1 before building the Windows client." />
+    <Error Condition="!Exists('$(NativeRoot)\runtime\memedock_ffi.dll')" Text="The production Rust DLL is missing. Run tools/windows/build-bridge.ps1." />
+  </Target>
+</Project>

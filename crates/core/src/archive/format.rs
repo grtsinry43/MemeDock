@@ -106,7 +106,9 @@ pub(crate) fn write(
         if byte_size > limits.max_archive_bytes {
             return Err(corrupt("archive exceeds byte limit"));
         }
-        File::open(path.parent().ok_or(corrupt("backup parent missing"))?)?.sync_all()?;
+        memedock_storage::files::sync_directory(
+            path.parent().ok_or(corrupt("backup parent missing"))?,
+        )?;
         Ok(BackupFile {
             path: path.to_owned(),
             byte_size,

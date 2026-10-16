@@ -27,7 +27,13 @@ async fn raw(path: &std::path::Path) -> TestResult<DatabaseConnection> {
 #[tokio::test]
 async fn restart_preserves_identity_models_and_log() -> TestResult {
     let dir = tempfile::tempdir()?;
-    let path = dir.path().join("库 ?#%.sqlite");
+    // '?' is a valid Unix filename character but prohibited by Windows.
+    let file_name = if cfg!(windows) {
+        "库 #%.sqlite"
+    } else {
+        "库 ?#%.sqlite"
+    };
+    let path = dir.path().join(file_name);
     let db = LibraryDatabase::open(&path).await?;
     let identity = db.identity();
     let (asset, sticker) = fixture(b"persist", "猫猫", 123)?;

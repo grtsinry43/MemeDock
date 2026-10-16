@@ -1,0 +1,15 @@
+[package]
+name = "memedock-windows-interop-probe"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.1"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+uniffi.workspace = true
+
+[lints]
+workspace = true

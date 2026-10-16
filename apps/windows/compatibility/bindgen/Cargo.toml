@@ -1,0 +1,18 @@
+[package]
+name = "memedock-windows-bindgen"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.1"
+publish = false
+
+[dependencies]
+# PR #176: reviewed source identity, never a moving branch.
+# prepare-bindgen.ps1 verifies the commit and applies the TOML 1.x patch.
+uniffi-bindgen-cs = { path = "../../../../target/windows-compat/generator-source/bindgen" }
+# Unify the external generator's backend with the production UniFFI version.
+uniffi_bindgen.workspace = true
+uniffi_meta.workspace = true
+uniffi_udl.workspace = true
+
+[lints]
+workspace = true

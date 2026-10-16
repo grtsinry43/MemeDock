@@ -5,24 +5,19 @@ mod blobs;
 mod derived;
 mod exports;
 pub mod library_layout;
+mod platform;
 mod recovery;
 mod staging;
 pub use blobs::{FsBlobStore, PublishDisposition, PublishedBlob};
 pub use derived::DerivedStore;
 pub use exports::ExportStore;
+pub use platform::sync_directory;
+pub(crate) use platform::{move_no_replace, replace, sync_file};
 pub use recovery::RecoveryScan;
 pub use staging::{PendingStaging, StagedFile};
 
 use crate::{Result, StorageError};
-use std::{
-    fs::{self, File},
-    path::Path,
-};
-
-pub(crate) fn sync_directory(path: &Path) -> Result<()> {
-    File::open(path)?.sync_all()?;
-    Ok(())
-}
+use std::{fs, path::Path};
 
 /// A snapshot of regular files directly in an owned cache directory. Never
 /// follows symlinks or descends into unrelated directories.
@@ -48,7 +43,9 @@ pub(crate) fn directory_bytes(path: &Path, mut cancelled: impl FnMut() -> bool) 
         if cancelled() {
             return Err(StorageError::Cancelled);
         }
-        let metadata = match entry.and_then(|entry| entry.metadata()) {
+        // Windows DirEntry metadata may be cached by directory enumeration.
+        // Re-read the path so a concurrent eviction is observed on all OSes.
+        let metadata = match entry.and_then(|entry| fs::symlink_metadata(entry.path())) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(error.into()),

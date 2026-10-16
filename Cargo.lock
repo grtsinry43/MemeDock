@@ -175,7 +175,7 @@ dependencies = [
  "futures-lite",
  "parking",
  "polling",
- "rustix",
+ "rustix 1.1.5",
  "slab",
  "windows-sys 0.61.2",
 ]
@@ -206,7 +206,7 @@ dependencies = [
  "cfg-if",
  "event-listener",
  "futures-lite",
- "rustix",
+ "rustix 1.1.5",
 ]
 
 [[package]]
@@ -232,7 +232,7 @@ dependencies = [
  "cfg-if",
  "futures-core",
  "futures-io",
- "rustix",
+ "rustix 1.1.5",
  "signal-hook-registry",
  "slab",
  "windows-sys 0.61.2",
@@ -291,6 +291,17 @@ name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
+
+[[package]]
+name = "atomicwrites"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ef1bb8d1b645fe38d51dfc331d720fb5fc2c94b440c76cc79c80ff265ca33e3"
+dependencies = [
+ "rustix 0.38.44",
+ "tempfile",
+ "windows-sys 0.52.0",
+]
 
 [[package]]
 name = "autocfg"
@@ -1983,6 +1994,12 @@ dependencies = [
 
 [[package]]
 name = "linux-raw-sys"
+version = "0.4.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
+
+[[package]]
+name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
@@ -2103,7 +2120,7 @@ dependencies = [
  "memedock-core",
  "memedock-domain",
  "oo7",
- "rustix",
+ "rustix 1.1.5",
  "serde",
  "serde_json",
  "tempfile",
@@ -2113,8 +2130,9 @@ dependencies = [
 name = "memedock-storage"
 version = "0.1.1"
 dependencies = [
+ "atomicwrites",
  "memedock-domain",
- "rustix",
+ "rustix 1.1.5",
  "sea-orm",
  "serde",
  "serde_json",
@@ -2485,7 +2503,7 @@ dependencies = [
  "concurrent-queue",
  "hermit-abi",
  "pin-project-lite",
- "rustix",
+ "rustix 1.1.5",
  "windows-sys 0.61.2",
 ]
 
@@ -2781,8 +2799,6 @@ dependencies = [
 [[package]]
 name = "rlottie"
 version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74b1485b7d3d35af9d248389250ebd0ab92ee9c989f1bb607d0aae51b1c66f6a"
 dependencies = [
  "rgb",
  "rlottie-sys",
@@ -2815,6 +2831,19 @@ dependencies = [
 
 [[package]]
 name = "rustix"
+version = "0.38.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdb5bc1ae2baa591800df16c9ca78619bf65c0488b41b96ccec5d11220d8c154"
+dependencies = [
+ "bitflags",
+ "errno",
+ "libc",
+ "linux-raw-sys 0.4.15",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rustix"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
@@ -2822,7 +2851,7 @@ dependencies = [
  "bitflags",
  "errno",
  "libc",
- "linux-raw-sys",
+ "linux-raw-sys 0.12.1",
  "windows-sys 0.61.2",
 ]
 
@@ -3496,7 +3525,7 @@ dependencies = [
  "fastrand",
  "getrandom 0.4.3",
  "once_cell",
- "rustix",
+ "rustix 1.1.5",
  "windows-sys 0.61.2",
 ]
 
@@ -4285,7 +4314,7 @@ dependencies = [
  "hex",
  "libc",
  "ordered-stream",
- "rustix",
+ "rustix 1.1.5",
  "serde",
  "serde_repr",
  "tracing",

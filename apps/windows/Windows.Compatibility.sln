@@ -1,0 +1,18 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35327.3
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InteropProbe", "compatibility\runner\InteropProbe.csproj", "{551EEBD4-6557-4A62-B37D-791B9135317B}"
+EndProject
+Global
+    GlobalSection(SolutionConfigurationPlatforms) = preSolution
+        Debug|x64 = Debug|x64
+        Release|x64 = Release|x64
+    EndGlobalSection
+    GlobalSection(ProjectConfigurationPlatforms) = postSolution
+        {551EEBD4-6557-4A62-B37D-791B9135317B}.Debug|x64.ActiveCfg = Debug|Any CPU
+        {551EEBD4-6557-4A62-B37D-791B9135317B}.Debug|x64.Build.0 = Debug|Any CPU
+        {551EEBD4-6557-4A62-B37D-791B9135317B}.Release|x64.ActiveCfg = Release|Any CPU
+        {551EEBD4-6557-4A62-B37D-791B9135317B}.Release|x64.Build.0 = Release|Any CPU
+    EndGlobalSection
+EndGlobal

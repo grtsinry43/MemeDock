@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+    <ProbeBuildRoot>$(MSBuildThisFileDirectory)..\..\..\..\target\windows-compat</ProbeBuildRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ProbeBuildRoot)\generated\*.cs" Link="Generated\%(Filename)%(Extension)" />
+    <None Include="$(ProbeBuildRoot)\x86_64-pc-windows-msvc\debug\memedock_windows_interop_probe.dll" Link="memedock_windows_interop_probe.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="RequireNativeBindings" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(ProbeBuildRoot)\generated\memedock_windows_interop_probe.cs')" Text="Run tools/windows/test-interop.ps1 to build the native fixture and generate C# bindings first." />
+    <Error Condition="!Exists('$(ProbeBuildRoot)\x86_64-pc-windows-msvc\debug\memedock_windows_interop_probe.dll')" Text="The native interop fixture DLL is missing. Run tools/windows/test-interop.ps1." />
+  </Target>
+</Project>

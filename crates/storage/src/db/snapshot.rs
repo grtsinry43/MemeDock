@@ -1,6 +1,6 @@
 use crate::{LibraryDatabase, Result, StorageError};
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
-use std::{fs::File, path::Path};
+use std::path::Path;
 
 impl LibraryDatabase {
     /// Consistent SQLite snapshot including committed WAL contents. Destination
@@ -24,9 +24,9 @@ pub(super) async fn snapshot(db: &DatabaseConnection, destination: &Path) -> Res
         [name.into()],
     ))
     .await?;
-    File::open(destination)?.sync_all()?;
+    crate::files::sync_file(destination)?;
     if let Some(parent) = destination.parent() {
-        File::open(parent)?.sync_all()?;
+        crate::files::sync_directory(parent)?;
     }
     Ok(())
 }

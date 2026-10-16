@@ -133,11 +133,15 @@ fn failed_publication_and_old_orphan_scan_preserve_unrelated_files() -> TestResu
     ));
     assert!(!store.path(&record).exists());
     store.publish(&record, File::open(&source)?, || false)?;
-    let output = File::open(store.path(&record))?;
+    let output = File::options()
+        .read(true)
+        .write(true)
+        .open(store.path(&record))?;
     output.set_times(
         std::fs::FileTimes::new()
             .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1)),
     )?;
+    drop(output);
     std::fs::write(dir.path().join("share/unknown.txt"), b"keep")?;
     let orphans = store.orphan_page(None, 2000)?;
     assert_eq!(orphans.len(), 1);

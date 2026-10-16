@@ -1,0 +1,5 @@
+[bindings.csharp]
+namespace = "MemeDock.Bridge"
+cdylib_name = "memedock_ffi"
+global_methods_class_name = "MemeDockNative"
+access_modifier = "public"

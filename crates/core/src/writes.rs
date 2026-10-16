@@ -91,7 +91,7 @@ pub(crate) async fn checkpoint(
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 std::fs::create_dir(&directory)?;
-                std::fs::File::open(&services.config.data_dir)?.sync_all()?;
+                memedock_storage::files::sync_directory(&services.config.data_dir)?;
             }
             Err(e) => return Err(e.into()),
         }

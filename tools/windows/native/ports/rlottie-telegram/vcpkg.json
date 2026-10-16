@@ -1,0 +1,11 @@
+{
+  "name": "rlottie-telegram",
+  "version-string": "f435c0a4",
+  "description": "MemeDock's pinned Telegram rlottie decoder",
+  "license": "LGPL-2.1-or-later",
+  "supports": "windows & x64",
+  "dependencies": [
+    { "name": "vcpkg-cmake", "host": true },
+    { "name": "vcpkg-cmake-config", "host": true }
+  ]
+}

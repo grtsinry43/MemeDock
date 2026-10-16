@@ -105,15 +105,7 @@ impl FsBlobStore {
         if cancelled() {
             return Err(StorageError::Cancelled);
         }
-        let disposition = match rustix::fs::renameat_with(
-            rustix::fs::CWD,
-            &staged.path,
-            rustix::fs::CWD,
-            &path,
-            rustix::fs::RenameFlags::NOREPLACE,
-        )
-        .map_err(std::io::Error::from)
-        {
+        let disposition = match super::move_no_replace(&staged.path, &path) {
             Ok(()) => PublishDisposition::Created,
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 self.verify(staged.hash, staged.byte_size, &mut cancelled)?;
@@ -123,7 +115,7 @@ impl FsBlobStore {
         };
         // Publication is the file commit point: finish durability and cleanup
         // even if cancellation arrives now. An orphan is safer than a dangling DB ref.
-        File::open(&path)?.sync_all()?;
+        super::sync_file(&path)?;
         sync_directory(parent)?;
         if disposition == PublishDisposition::Reused {
             fs::remove_file(&staged.path)?;

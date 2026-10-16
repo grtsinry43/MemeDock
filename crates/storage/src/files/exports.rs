@@ -149,14 +149,7 @@ impl ExportStore {
                 return Err(StorageError::Cancelled);
             }
             let path = self.path(record);
-            rustix::fs::renameat_with(
-                rustix::fs::CWD,
-                &temporary,
-                rustix::fs::CWD,
-                &path,
-                rustix::fs::RenameFlags::NOREPLACE,
-            )
-            .map_err(std::io::Error::from)?;
+            super::move_no_replace(&temporary, &path)?;
             sync_directory(&self.root)?;
             Ok(path)
         })();

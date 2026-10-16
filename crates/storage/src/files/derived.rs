@@ -116,7 +116,7 @@ impl DerivedStore {
             encode(&mut file)?;
             file.flush()?;
             file.sync_all()?;
-            fs::rename(&temp, &output)?;
+            super::replace(&temp, &output)?;
             sync_directory(&self.root)?;
             Ok(output)
         })();

@@ -1,0 +1,49 @@
+# Vendored crates.io rlottie 0.5.4 with a Windows path portability patch.
+# Keep the upstream rendering implementation and dependency requirements.
+
+[package]
+edition = "2024"
+rust-version = "1.85"
+name = "rlottie"
+version = "0.5.4"
+publish = false
+build = "build.rs"
+include = [
+    "build.rs",
+    "src/**/*.rs",
+    "/LICENSE",
+]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "A platform independent standalone library that plays Lottie Animation"
+license = "MIT"
+repository = "https://codeberg.org/msrd0/rlottie-rs"
+
+[features]
+default = ["vendor-samsung"]
+serde = [
+    "dep:serde",
+    "rgb/serde",
+]
+vendor-samsung = ["rlottie-sys/vendor-samsung"]
+vendor-telegram = ["rlottie-sys/vendor-telegram"]
+
+[lib]
+name = "rlottie"
+path = "src/lib.rs"
+
+[dependencies.rgb]
+version = "0.8.32"
+default-features = false
+
+[dependencies.rlottie-sys]
+version = "0.2.12"
+default-features = false
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+optional = true

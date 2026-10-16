@@ -58,7 +58,7 @@ impl LibraryLayout {
                         "replacement has no current library or checkpoint",
                     ));
                 }
-                fs::rename(checkpoint, &current)?;
+                super::move_no_replace(&checkpoint, &current)?;
                 super::sync_directory(&root.join("checkpoints"))?;
                 super::sync_directory(root)?;
             } else if candidate.try_exists()? && layout.checkpoint(state.id).try_exists()? {
@@ -111,7 +111,7 @@ impl LibraryLayout {
         {
             return Err(StorageError::Conflict("library database is still open"));
         }
-        File::open(&candidate)?.sync_all()?;
+        super::sync_file(&candidate)?;
         let marker = self.root.join("replacement.json");
         if marker.try_exists()? {
             return Err(StorageError::Conflict("replacement in progress"));
@@ -128,12 +128,13 @@ impl LibraryLayout {
             }
         })?)?;
         file.sync_all()?;
-        fs::rename(pending, &marker)?;
+        drop(file);
+        super::move_no_replace(&pending, &marker)?;
         super::sync_directory(&self.root)?;
-        fs::rename(&current, &checkpoint)?;
+        super::move_no_replace(&current, &checkpoint)?;
         super::sync_directory(&self.root.join("checkpoints"))?;
         super::sync_directory(&self.root)?;
-        fs::rename(&candidate, &current)?;
+        super::move_no_replace(&candidate, &current)?;
         super::sync_directory(
             candidate
                 .parent()

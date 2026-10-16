@@ -30,7 +30,7 @@ impl PendingStaging {
     }
     pub fn finish(&self, max_bytes: u64, cancelled: impl FnMut() -> bool) -> Result<StagedFile> {
         let (hash, byte_size) = hash_file(&self.path, max_bytes, cancelled)?;
-        File::open(&self.path)?.sync_all()?;
+        super::sync_file(&self.path)?;
         sync_directory(&self.root.join("staging"))?;
         Ok(StagedFile {
             path: self.path.clone(),

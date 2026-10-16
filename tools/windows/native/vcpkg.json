@@ -1,0 +1,14 @@
+{
+  "name": "memedock-windows-media",
+  "version-string": "0.1.1",
+  "builtin-baseline": "3cd21e48a75f67acfef289da52893ce79144aaa1",
+  "dependencies": [
+    { "name": "ffmpeg", "default-features": false, "features": ["avcodec", "avfilter", "avformat", "swscale", "vpx"] },
+    { "name": "libwebp", "default-features": false, "features": ["libwebpmux", "simd"] },
+    "rlottie-telegram"
+  ],
+  "overrides": [
+    { "name": "ffmpeg", "version": "9.0.1", "port-version": 2 },
+    { "name": "libwebp", "version": "1.6.0", "port-version": 3 }
+  ]
+}

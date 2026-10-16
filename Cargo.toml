@@ -1,6 +1,12 @@
 [workspace]
 members = ["crates/domain", "crates/storage", "crates/core", "crates/ffi", "tools/uniffi-bindgen", "tools/ffi-fixtures", "apps/linux"]
+exclude = ["third-party/rlottie"]
 resolver = "3"
+
+[patch.crates-io]
+# rlottie 0.5.4 imports Unix path extensions unconditionally. Preserve its
+# rendering implementation while allowing the same release to build on Windows.
+rlottie = { path = "third-party/rlottie" }
 
 [workspace.package]
 version = "0.1.1"
@@ -22,6 +28,7 @@ tempfile = "=3.27.0"
 uniffi = "=0.32.2"
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 rustix = { version = "=1.1.5", features = ["fs"] }
+atomicwrites = "=0.4.4"
 zip = { version = "=8.6.0", default-features = false }
 gtk4 = { version = "=0.11.5", features = ["v4_22"] }
 libadwaita = { version = "=0.9.2", features = ["v1_9", "gtk_v4_22"] }

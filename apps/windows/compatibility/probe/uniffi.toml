@@ -1,0 +1,5 @@
+# The external C# generator uses its legacy per-crate configuration loader.
+# Keep this separate from the production 0.32 global Kotlin/Swift config.
+[bindings.csharp]
+namespace = "MemeDock.Windows.InteropProbe"
+cdylib_name = "memedock_windows_interop_probe"
