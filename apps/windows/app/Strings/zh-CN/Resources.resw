@@ -116,4 +116,12 @@
   <data name="desktop_collection_delete_hint" xml:space="preserve"><value>删除合集不会删除其中的表情。</value></data>
   <data name="message_success" xml:space="preserve"><value>成功</value></data>
   <data name="import_cancelled" xml:space="preserve"><value>已取消</value></data>
+  <data name="copy_image" xml:space="preserve"><value>复制</value></data>
+  <data name="image_copied" xml:space="preserve"><value>已复制到剪贴板</value></data>
+  <data name="export_original" xml:space="preserve"><value>原图</value></data>
+  <data name="export_png" xml:space="preserve"><value>透明 PNG</value></data>
+  <data name="share_first_frame_as" xml:space="preserve"><value>仅发送首帧（{0}）</value></data>
+  <data name="share_preparing" xml:space="preserve"><value>正在准备…</value></data>
+  <data name="export_choose" xml:space="preserve"><value>发送格式</value></data>
+  <data name="reorder" xml:space="preserve"><value>调整顺序</value></data>
 </root>

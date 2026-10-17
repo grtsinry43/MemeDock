@@ -7,8 +7,17 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <TextBlock x:Name="Heading" Style="{ThemeResource BodyStrongTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
             <CommandBar Grid.Column="1" Background="Transparent" DefaultLabelPosition="Collapsed" OverflowButtonVisibility="Collapsed" IsDynamicOverflowEnabled="False">
+                <AppBarButton x:Name="CopyButton" Icon="Copy" Click="OnCopy" />
                 <AppBarToggleButton x:Name="StarButton" Click="OnStar"><AppBarToggleButton.Icon><FontIcon x:Name="StarGlyph" Glyph="&#xE734;" /></AppBarToggleButton.Icon></AppBarToggleButton>
-                <AppBarButton x:Name="MoreButton" Icon="More"><AppBarButton.Flyout><MenuFlyout><MenuFlyoutItem x:Name="DeleteButton" Icon="Delete" Click="OnDelete" /></MenuFlyout></AppBarButton.Flyout></AppBarButton>
+                <AppBarButton x:Name="MoreButton" Icon="More"><AppBarButton.Flyout><MenuFlyout>
+                    <MenuFlyoutSubItem x:Name="CopyFormats" Icon="Copy">
+                        <MenuFlyoutItem x:Name="CopyOriginal" Click="OnCopyOriginal" />
+                        <MenuFlyoutItem x:Name="CopyPng" Click="OnCopy" />
+                        <MenuFlyoutItem x:Name="CopyFrame" Click="OnCopyFrame" />
+                    </MenuFlyoutSubItem>
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Name="DeleteButton" Icon="Delete" Click="OnDelete" />
+                </MenuFlyout></AppBarButton.Flyout></AppBarButton>
                 <AppBarButton x:Name="CloseButton" Icon="Cancel" Click="OnClose" />
             </CommandBar>
         </Grid>
@@ -17,7 +26,7 @@
                 <InfoBar x:Name="ErrorBar" Severity="Error" IsClosable="False" />
                 <ProgressRing x:Name="DetailLoading" Width="24" Height="24" IsActive="False" Visibility="Collapsed" />
                 <StackPanel x:Name="Form" Spacing="20">
-                    <Border Height="232" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <Border x:Name="DragSurface" DragStarting="OnPreviewDragStarting" DropCompleted="OnPreviewDropCompleted" Height="232" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
                         <Grid>
                             <Image x:Name="Preview" Margin="12" Stretch="Uniform" DoubleTapped="OnPreviewDoubleTapped" />
                             <Button x:Name="PreviewRetry" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Click="OnPreviewRetry" />

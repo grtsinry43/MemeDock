@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using MemeDock.Bridge;
 using MemeDock.Windows.Localization;
+using MemeDock.Windows.Models;
 using MemeDock.Windows.ViewModels;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
@@ -11,12 +12,14 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.System;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace MemeDock.Windows.Views;
 
 public sealed partial class StickerDetailView : UserControl
 {
     private StickerDetailViewModel? _model;
+    private StickerOutputViewModel? _output;
     private LocalizationService? _strings;
     private ObservableCollection<CollectionMetadata>? _collections;
     private ObservableCollection<TagMetadata>? _tags;
@@ -38,9 +41,12 @@ public sealed partial class StickerDetailView : UserControl
     public StickerDetailView() => InitializeComponent();
 
     public void Configure(StickerDetailViewModel model, LocalizationService strings,
-        ObservableCollection<CollectionMetadata> collections, ObservableCollection<TagMetadata> tags)
+        ObservableCollection<CollectionMetadata> collections, ObservableCollection<TagMetadata> tags, StickerOutputViewModel output)
     {
         if (_model is not null) _model.PropertyChanged -= OnModelChanged;
+        if (_output is not null) _output.PropertyChanged -= OnModelChanged;
+        _output = output;
+        output.PropertyChanged += OnModelChanged;
         (_model, _strings, _collections, _tags) = (model, strings, collections, tags);
         model.PropertyChanged += OnModelChanged;
         Relocalize();
@@ -56,6 +62,12 @@ public sealed partial class StickerDetailView : UserControl
         ToolTipService.SetToolTip(CloseButton, _strings["message_dismiss"]);
         CloseButton.Label = _strings["message_dismiss"];
         MoreButton.Label = _strings["more_actions"];
+        CopyButton.Label = _strings["copy_image"];
+        AutomationProperties.SetName(CopyButton, CopyButton.Label);
+        CopyFormats.Text = _strings["export_choose"];
+        CopyOriginal.Text = _strings["export_original"];
+        CopyPng.Text = _strings["export_png"];
+        CopyFrame.Text = _strings.Format("share_first_frame_as", _strings["export_png"]);
         ToolTipService.SetToolTip(MoreButton, _strings["more_actions"]);
         AutomationProperties.SetName(MoreButton, _strings["more_actions"]);
         NameBox.Header = _strings["sticker_title"];
@@ -133,6 +145,12 @@ public sealed partial class StickerDetailView : UserControl
             CollectionPicker.IsEnabled = ApplyTags.IsEnabled = !_model.IsSaving && !_model.IsLoading;
             if (_model.Detail is { } detail)
             {
+                var canOutput = _output?.CanStart == true && !_model.IsSaving && !_model.IsLoading;
+                CopyButton.IsEnabled = CopyFormats.IsEnabled = canOutput;
+                DragSurface.CanDrag = _output is not null && !_model.IsSaving && !_model.IsLoading;
+                CopyFrame.Visibility = MainWindow.ToVisibility(detail.Asset.Animated);
+                CopyPng.Visibility = MainWindow.ToVisibility(!detail.Asset.Animated);
+                ToolTipService.SetToolTip(CopyButton, _strings["copy_image"] + " · " + _strings[detail.Asset.Animated ? "export_original" : "export_png"]);
                 StarButton.IsChecked = detail.Sticker.Starred;
                 StarGlyph.Glyph = detail.Sticker.Starred ? "\uE735" : "\uE734";
                 StarButton.Label = _strings[detail.Sticker.Starred ? "unfavorite" : "favorite"];
@@ -150,7 +168,7 @@ public sealed partial class StickerDetailView : UserControl
                 SyncCollection();
                 if (_previewId != detail.Sticker.Id || _previewPath != detail.OriginalPath) StartPreview(detail);
             }
-            else StopPreview();
+            else { StopPreview(); CopyButton.IsEnabled = CopyFormats.IsEnabled = DragSurface.CanDrag = false; }
             UpdatePlayback();
         }
         finally { _updating = false; }
@@ -207,6 +225,31 @@ public sealed partial class StickerDetailView : UserControl
         if (restoreFocus && hadEditor) (title ? TitleDisplay : NoteDisplay).Focus(FocusState.Programmatic);
     }
     private async void OnStar(object sender, RoutedEventArgs args) { if (_model is not null) await _model.ToggleStarAsync(); }
+    private async void OnCopy(object sender, RoutedEventArgs args) => await CopyAsync(StickerOutputKind.Image);
+    private async void OnCopyOriginal(object sender, RoutedEventArgs args) => await CopyAsync(StickerOutputKind.OriginalFile);
+    private async void OnCopyFrame(object sender, RoutedEventArgs args) => await CopyAsync(StickerOutputKind.FirstFrame);
+    private async Task CopyAsync(StickerOutputKind kind)
+    {
+        if (_model?.Detail is not { } detail || _output?.CanStart != true) return;
+        var target = new StickerOutputTarget(detail.Sticker.Id, detail.Sticker.Lifecycle.Generation);
+        if (await _model.CommitAsync()) await _output.CopyAsync(target, kind);
+    }
+    private async void OnPreviewDragStarting(UIElement sender, DragStartingEventArgs args)
+    {
+        args.Cancel = true;
+        if (_model?.Detail is not { } detail || _output?.CanStart != true) return;
+        var target = new StickerOutputTarget(detail.Sticker.Id, detail.Sticker.Lifecycle.Generation);
+        var deferral = args.GetDeferral();
+        try
+        {
+            if (await _model.CommitAsync()) args.Cancel = !await _output.PrepareDragAsync(target, args.Data);
+        }
+        finally { deferral.Complete(); }
+    }
+    private async void OnPreviewDropCompleted(UIElement sender, DropCompletedEventArgs args)
+    {
+        if (_output is not null) await _output.CompleteDragAsync(args.DropResult == DataPackageOperation.Copy);
+    }
     private async void OnDelete(object sender, RoutedEventArgs args) { if (_model is not null) await _model.DeleteAsync(); }
     private void OnClose(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void OnCollectionOpening(object sender, object args) => SyncCollection();
@@ -340,5 +383,6 @@ public sealed partial class StickerDetailView : UserControl
         _previewDialog?.Hide();
         StopPreview();
         if (_model is not null) _model.PropertyChanged -= OnModelChanged;
+        if (_output is not null) _output.PropertyChanged -= OnModelChanged;
     }
 }

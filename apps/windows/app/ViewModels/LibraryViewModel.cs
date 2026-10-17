@@ -34,6 +34,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public StickerDetailViewModel? Details { get; private set; }
     public BatchOrganizeViewModel? Batch { get; private set; }
     public CatalogViewModel? Catalog { get; private set; }
+    public StickerOutputViewModel? Output { get; private set; }
     internal ThumbnailLoader? Thumbnails { get; private set; }
 
     private LibrarySession? _session;
@@ -80,6 +81,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         Details?.Relocalize();
         Batch?.Relocalize();
         Catalog?.Relocalize();
+        Output?.Relocalize();
         foreach (var property in new[] { nameof(Heading), nameof(EmptyHeading), nameof(CountText), nameof(SelectionText),
             nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText) }) OnPropertyChanged(property);
     }
@@ -94,6 +96,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             Details = new StickerDetailViewModel(_session, strings);
             Batch = new BatchOrganizeViewModel(_session, strings);
             Catalog = new CatalogViewModel(_session, strings, RefreshCatalogsAsync);
+            Output = new StickerOutputViewModel(_session, strings);
             _subscription = _session.Subscribe();
             IsReady = true;
             OnPropertyChanged(nameof(IsReady));
@@ -384,6 +387,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         await _queries.WaitAsync();
         try
         {
+            if (Output is not null) await Output.DisposeAsync();
             if (Details is not null) await Details.DisposeAsync();
             if (Batch is not null) await Batch.DisposeAsync();
             if (Catalog is not null) await Catalog.DisposeAsync();

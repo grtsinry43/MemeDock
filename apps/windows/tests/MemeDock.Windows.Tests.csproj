@@ -11,6 +11,7 @@
     <ProjectReference Include="..\bridge\MemeDock.Bridge.csproj" />
     <Compile Include="..\app\Models\LibraryFilter.cs" Link="Models\LibraryFilter.cs" />
     <Compile Include="..\app\Models\StickerEditState.cs" Link="Models\StickerEditState.cs" />
+    <Compile Include="..\app\Models\StickerOutput.cs" Link="Models\StickerOutput.cs" />
     <Compile Include="..\app\Services\AppPreferences.cs" Link="Services\AppPreferences.cs" />
     <Compile Include="..\app\LibrarySession.cs" Link="LibrarySession.cs" />
   </ItemGroup>

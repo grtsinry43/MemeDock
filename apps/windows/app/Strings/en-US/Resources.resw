@@ -116,4 +116,12 @@
   <data name="desktop_collection_delete_hint" xml:space="preserve"><value>Stickers inside will not be deleted.</value></data>
   <data name="message_success" xml:space="preserve"><value>Success</value></data>
   <data name="import_cancelled" xml:space="preserve"><value>Cancelled</value></data>
+  <data name="copy_image" xml:space="preserve"><value>Copy</value></data>
+  <data name="image_copied" xml:space="preserve"><value>Copied to clipboard</value></data>
+  <data name="export_original" xml:space="preserve"><value>Original</value></data>
+  <data name="export_png" xml:space="preserve"><value>Transparent PNG</value></data>
+  <data name="share_first_frame_as" xml:space="preserve"><value>Share first frame only ({0})</value></data>
+  <data name="share_preparing" xml:space="preserve"><value>Preparing…</value></data>
+  <data name="export_choose" xml:space="preserve"><value>Export Format</value></data>
+  <data name="reorder" xml:space="preserve"><value>Reorder</value></data>
 </root>

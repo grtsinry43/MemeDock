@@ -17,6 +17,7 @@ internal static class Program
             QueryScopes();
             RequestGenerations();
             EditDrafts();
+            OutputPolicies();
             ResourceParity(FindRepository());
             await PreferencesAsync();
             await SessionQueriesAsync();
@@ -73,6 +74,33 @@ internal static class Program
             if (File.Exists(Path.Combine(directory.FullName, "AGENTS.md")) && Directory.Exists(Path.Combine(directory.FullName, "apps/android")))
                 return directory.FullName;
         throw new DirectoryNotFoundException("Run the checks from a checkout of MemeDock.");
+    }
+
+    private static void OutputPolicies()
+    {
+        var animated = StickerOutputPolicy.Options(true, StickerOutputKind.Image);
+        Check(animated.Preset == ExportPreset.Original && animated.Animation == AnimationPolicy.Preserve
+            && !animated.StripMetadata && animated.MaxEdge is null, "Default animated copy would flatten or re-encode the original.");
+        var image = StickerOutputPolicy.Options(false, StickerOutputKind.Image);
+        Check(image.Preset == ExportPreset.CompatiblePng && image.MaxEdge == 1024 && image.BackgroundRgba is null
+            && image.StripMetadata, "Static copy lost the approved transparent PNG limits.");
+        foreach (var isAnimated in new[] { false, true })
+        {
+            var original = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.OriginalFile);
+            Check(original.Preset == ExportPreset.Original && original.Animation == AnimationPolicy.Preserve && !original.StripMetadata,
+                "File transfer would modify original bytes.");
+            var frame = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.FirstFrame);
+            Check(frame.Preset == ExportPreset.CompatiblePng && frame.Animation == AnimationPolicy.FirstFrame && frame.MaxEdge == 1024,
+                "First-frame conversion was implicit or lost its bounds.");
+        }
+        var metadata = new StickerMetadata("sticker", "title", "image.gif", "", false, new(2, 1, 0, 0, null));
+        var target = new StickerOutputTarget("sticker", 2);
+        target.Validate(metadata);
+        try { target.Validate(metadata with { Lifecycle = metadata.Lifecycle with { Generation = 3 } }); throw new InvalidOperationException("Stale output target accepted."); }
+        catch (BridgeException.Failure failure) { Check(failure.code == ErrorCode.Conflict, "Wrong stale-target error."); }
+        try { target.Validate(metadata with { Lifecycle = metadata.Lifecycle with { DeletedAt = 1 } }); throw new InvalidOperationException("Deleted target accepted."); }
+        catch (BridgeException.Failure failure) { Check(failure.code == ErrorCode.EntityDeleted, "Wrong deleted-target error."); }
+        Console.WriteLine("PASS: original/PNG/first-frame output policy and captured-target validation");
     }
 
     private static void EditDrafts()
@@ -213,6 +241,7 @@ internal static class Program
                 }
                 catch (OperationCanceledException) { }
                 await ManagementAsync(session, first.Sticker, redPath);
+                await OutputContractsAsync(session, first.Sticker.Id, redPath);
             }
             await using (var reopened = await LibrarySession.OpenAsync(root))
             {
@@ -282,6 +311,70 @@ internal static class Program
             "Catalog undo failed to restore entries.");
         Check((await session.DetailAsync(second.Id, token)).Sticker.Starred, "Deleting a collection deleted its sticker.");
         Console.WriteLine("PASS: real detail editing, organization, order, soft-delete/restore, original preservation and partial batch failure");
+    }
+
+    private static async Task OutputContractsAsync(LibrarySession session, string id, string source)
+    {
+        var token = CancellationToken.None;
+        var detail = await session.DetailAsync(id, token);
+        var target = new StickerOutputTarget(id, detail.Sticker.Lifecycle.Generation);
+        target.Validate(detail.Sticker);
+        using var original = await session.ExportAsync(id, StickerOutputPolicy.Options(false, StickerOutputKind.OriginalFile), token);
+        var artifact = await session.PrepareHandoffAsync(original, token);
+        Check((await File.ReadAllBytesAsync(artifact.Path)).SequenceEqual(await File.ReadAllBytesAsync(source)), "Original handoff changed bytes.");
+        Check(artifact.RetainedUntil > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), "Handoff did not durably retain its file.");
+        var pin = await session.ProtectClipboardAsync(original, token);
+        await session.ReconcileClipboardAsync(pin);
+        var failedPublication = await session.ProtectClipboardAsync(original, token);
+        await session.AbortClipboardAsync(failedPublication);
+        await session.ReconcileClipboardAsync(pin);
+        using var png = await session.ExportAsync(id, StickerOutputPolicy.Options(false, StickerOutputKind.Image), token);
+        var converted = await session.PrepareHandoffAsync(png, token);
+        Check(converted.Mime == "image/png" && !converted.Animated && File.Exists(converted.Path), "PNG export did not publish a verified static file.");
+        var replacement = await session.ProtectClipboardAsync(png, token);
+        await session.ReconcileClipboardAsync(replacement);
+        await session.ReconcileClipboardAsync(null);
+        await session.RecordUseAsync(id, UsageAction.CopyImage);
+        Check((await File.ReadAllBytesAsync(detail.OriginalPath!)).SequenceEqual(await File.ReadAllBytesAsync(source)), "Copy changed library originals.");
+        var gif = AnimatedGif();
+        var gifPath = Path.Combine(Path.GetDirectoryName(source)!, "animated.gif");
+        await File.WriteAllBytesAsync(gifPath, gif);
+        var imported = await session.ImportAsync(gifPath, null, token);
+        var moving = await session.DetailAsync(imported.Sticker.Id, token);
+        Check(moving.Asset.Animated, "Two-frame fixture was not recognized as animated.");
+        using var movingOriginal = await session.ExportAsync(imported.Sticker.Id,
+            StickerOutputPolicy.Options(moving.Asset.Animated, StickerOutputKind.Image), token);
+        var movingArtifact = await session.PrepareHandoffAsync(movingOriginal, token);
+        Check(movingArtifact.Animated && (await File.ReadAllBytesAsync(movingArtifact.Path)).SequenceEqual(gif),
+            "Default animated copy changed the original GIF or lost animation.");
+        using var firstFrame = await session.ExportAsync(imported.Sticker.Id,
+            StickerOutputPolicy.Options(true, StickerOutputKind.FirstFrame), token);
+        var frameArtifact = await session.PrepareHandoffAsync(firstFrame, token);
+        var frameBytes = await File.ReadAllBytesAsync(frameArtifact.Path);
+        Check(!frameArtifact.Animated && frameArtifact.Mime == "image/png"
+            && frameBytes.Take(8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }),
+            "Explicit first-frame copy did not produce static PNG.");
+        Check((await File.ReadAllBytesAsync(moving.OriginalPath!)).SequenceEqual(gif), "First-frame conversion changed the animated original.");
+        await session.DeleteStickerAsync(new(imported.Sticker.Id, imported.Sticker.Lifecycle.Generation), token);
+        Console.WriteLine("PASS: real export, durable handoff, clipboard replacement/abort, usage recording and immutable originals");
+        Console.WriteLine("PASS: real animated GIF preservation and explicit first-frame PNG conversion");
+    }
+
+    // GIF89a: 1px red/green frames, a two-color global palette and 100ms delays.
+    // Each LZW block contains clear(4), one palette index, end(5), packed LSB-first.
+    private static byte[] AnimatedGif()
+    {
+        using var output = new MemoryStream();
+        output.Write("GIF89a"u8);
+        output.Write(new byte[] { 1, 0, 1, 0, 0x80, 0, 0, 255, 0, 0, 0, 255, 0 });
+        foreach (var codes in new byte[] { 0x44, 0x4c })
+        {
+            output.Write(new byte[] { 0x21, 0xf9, 4, 0, 10, 0, 0, 0 });
+            output.Write(new byte[] { 0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0 });
+            output.Write(new byte[] { 2, 2, codes, 1, 0 });
+        }
+        output.WriteByte(0x3b);
+        return output.ToArray();
     }
 
     // A valid 1px RGBA PNG, using the same fixture construction as NativeContracts.

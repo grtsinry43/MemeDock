@@ -12,6 +12,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.Windows.Storage.Pickers;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace MemeDock.Windows;
 
@@ -39,6 +40,9 @@ public sealed partial class MainWindow : Window
     private bool _stopping;
     private bool _canClose;
     private bool _windowActive = true;
+    private bool _reordering;
+    private string? _reorderCollection;
+    private Task<bool>? _galleryDragPreparation;
 
     public MainWindow()
     {
@@ -103,6 +107,8 @@ public sealed partial class MainWindow : Window
         SortRecent.Text = Strings["desktop_sort_recent"];
         SortUsed.Text = Strings["filter_recent"];
         SortCollection.Text = Strings["desktop_sort_collection"];
+        ReorderMenu.Text = Strings["reorder"];
+        ReorderDone.Content = Strings["done"];
         RetryButton.Content = Strings["retry"];
         SelectAllButton.Label = Strings["desktop_select_all"];
         ClearSelectionButton.Label = Strings["desktop_clear_selection"];
@@ -124,15 +130,17 @@ public sealed partial class MainWindow : Window
 
     private void UpdateState()
     {
-        if (ViewModel.IsReady && !_childrenConfigured && ViewModel.Details is { } details && ViewModel.Batch is { } batch && ViewModel.Catalog is { } catalog)
+        if (ViewModel.IsReady && !_childrenConfigured && ViewModel.Details is { } details && ViewModel.Batch is { } batch && ViewModel.Catalog is { } catalog && ViewModel.Output is { } output)
         {
             _childrenConfigured = true;
-            Details.Configure(details, Strings, ViewModel.Collections, ViewModel.Tags);
+            Details.Configure(details, Strings, ViewModel.Collections, ViewModel.Tags, output);
             Batch.Configure(batch, Strings, ViewModel.Collections, ViewModel.Tags);
             Catalog.Configure(catalog, Strings, ViewModel.Collections, ViewModel.Tags);
             details.Deleted += OnStickerDeleted;
             batch.PropertyChanged += OnModelChanged;
             batch.Completed += OnBatchCompleted;
+            output.PropertyChanged += OnModelChanged;
+            output.SetForeground(_windowActive);
         }
         var batchRunning = ViewModel.Batch?.IsRunning == true;
         Gallery.IsEnabled = !batchRunning && !ViewModel.IsLoading;
@@ -141,25 +149,35 @@ public sealed partial class MainWindow : Window
         ImportButton.IsEnabled = ViewModel.IsReady && !ViewModel.IsImporting && !_stopping && !batchRunning;
         Search.IsEnabled = ViewModel.IsReady && !_stopping && !batchRunning;
         SortButton.IsEnabled = ViewModel.IsReady && ViewModel.Filter.Scope != LibraryScope.Recent && !batchRunning;
-        Busy.IsActive = !ViewModel.IsReady && ViewModel.ErrorKey is null || ViewModel.IsLoading || ViewModel.IsImporting;
+        Busy.IsActive = !ViewModel.IsReady && ViewModel.ErrorKey is null || ViewModel.IsLoading || ViewModel.IsImporting
+            || ViewModel.Output is { IsBusy: true, IsDragging: false };
         Busy.Visibility = ToVisibility(Busy.IsActive);
         ErrorBar.IsOpen = ViewModel.ErrorKey is not null;
         ErrorBar.Message = ViewModel.ErrorText;
         CatalogErrorBar.IsOpen = ViewModel.CatalogErrorKey is not null;
         CatalogErrorBar.Message = ViewModel.CatalogErrorText;
+        OutputErrorBar.IsOpen = ViewModel.Output?.ErrorKey is not null;
+        OutputErrorBar.Message = ViewModel.Output?.StatusText ?? "";
         EmptyState.Visibility = ToVisibility(ViewModel.IsReady && !ViewModel.IsLoading && ViewModel.Cards.Count == 0 && ViewModel.ErrorKey is null);
         EmptyHint.Text = ViewModel.SearchText.Length > 0 ? Strings["library_no_matches_hint"] : "";
         Status.Text = !ViewModel.IsReady || ViewModel.IsLoading ? Strings["import_preparing"]
-            : ViewModel.ImportText;
+            : ViewModel.Output is { StatusText.Length: > 0 } status ? status.StatusText : ViewModel.ImportText;
         SelectionBar.Visibility = ToVisibility(Gallery.SelectedItems.Count > 0);
         SelectionHint.Visibility = ToVisibility(ViewModel.HasMore);
         SortCollection.Visibility = ToVisibility(ViewModel.Filter.AllowsCollectionOrder);
         SortRecent.IsChecked = ViewModel.Sort == StickerSort.Recent;
         SortUsed.IsChecked = ViewModel.Sort == StickerSort.LastUsed;
         SortCollection.IsChecked = ViewModel.Sort == StickerSort.CollectionOrder;
-        var reorder = ViewModel.Filter.AllowsCollectionOrder && ViewModel.Sort == StickerSort.CollectionOrder
-            && !ViewModel.HasMore && !ViewModel.IsLoading && ViewModel.SearchText.Length == 0 && !batchRunning;
-        Gallery.CanDragItems = Gallery.CanReorderItems = Gallery.AllowDrop = reorder;
+        if (!ViewModel.Filter.AllowsCollectionOrder || ViewModel.Filter.Id != _reorderCollection
+            || ViewModel.SearchText.Length > 0 || ViewModel.Sort != StickerSort.CollectionOrder) _reordering = false;
+        var reorder = ViewModel.Filter.AllowsCollectionOrder && !ViewModel.HasMore && !ViewModel.IsLoading
+            && ViewModel.SearchText.Length == 0 && !batchRunning && ViewModel.Output?.IsBusy != true;
+        ReorderMenu.IsEnabled = reorder;
+        ReorderMenu.Visibility = ToVisibility(ViewModel.Filter.AllowsCollectionOrder);
+        ReorderMenu.IsChecked = _reordering;
+        ReorderDone.Visibility = ToVisibility(_reordering);
+        Gallery.CanDragItems = _reordering && reorder || CanDragOut;
+        Gallery.CanReorderItems = Gallery.AllowDrop = _reordering && reorder;
         Details.SetActive(_windowActive && Inspector.IsPaneOpen && !_settingsVisible && !_catalogVisible && Details.Visibility == Visibility.Visible);
     }
 
@@ -388,7 +406,24 @@ public sealed partial class MainWindow : Window
         Search.Focus(FocusState.Keyboard);
         args.Handled = true;
     }
-    private bool EditingText => FocusManager.GetFocusedElement(Root.XamlRoot) is TextBox or RichEditBox or PasswordBox;
+    private bool EditingText => FocusManager.GetFocusedElement(Root.XamlRoot) is TextBox or RichEditBox or PasswordBox
+        or TextBlock { IsTextSelectionEnabled: true } or RichTextBlock { IsTextSelectionEnabled: true };
+    private bool CanDragOut => !_stopping && !_reordering && ViewModel.Output is not null
+        && ViewModel.Batch?.IsRunning != true && !ViewModel.IsLoading && Gallery.SelectedItems.Count <= 1;
+    private async void OnCopyShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_settingsVisible || _catalogVisible || EditingText || Gallery.SelectedItems.Count != 1
+            || Gallery.SelectedItem is not StickerCard card || ViewModel.Output?.CanStart != true) return;
+        args.Handled = true;
+        await CopyCardAsync(card, StickerOutputKind.Image);
+    }
+    private async Task CopyCardAsync(StickerCard card, StickerOutputKind kind)
+    {
+        if (_stopping || ViewModel.Output?.CanStart != true) return;
+        var target = new StickerOutputTarget(card.Id, card.Generation);
+        if (ViewModel.Details is { } detail && detail.CurrentId == target.Id && !await detail.CommitAsync()) return;
+        await ViewModel.Output.CopyAsync(target, kind);
+    }
     private void OnSelectAllShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         if (_settingsVisible || _catalogVisible || EditingText) return;
@@ -398,6 +433,7 @@ public sealed partial class MainWindow : Window
     private void OnEscape(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         if (_composing || _settingsVisible || _catalogVisible || EditingText) return;
+        if (_reordering) { _reordering = false; UpdateState(); args.Handled = true; return; }
         Gallery.SelectedItems.Clear();
         args.Handled = true;
     }
@@ -464,6 +500,7 @@ public sealed partial class MainWindow : Window
             ViewModel.CatalogChanged -= OnCatalogChanged;
             ViewModel.ThumbnailInvalidated -= OnThumbnailInvalidated;
             ViewModel.ContentChanged -= OnContentChanged;
+            if (ViewModel.Output is { } output) output.PropertyChanged -= OnModelChanged;
             Activated -= OnActivated;
             if (ViewModel.Details is { } details) details.Deleted -= OnStickerDeleted;
             if (ViewModel.Batch is { } batch)
@@ -495,6 +532,7 @@ public sealed partial class MainWindow : Window
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         _windowActive = args.WindowActivationState != WindowActivationState.Deactivated;
+        ViewModel.Output?.SetForeground(_windowActive);
         Details.SetActive(_windowActive && Inspector.IsPaneOpen && !_settingsVisible && !_catalogVisible && Details.Visibility == Visibility.Visible);
     }
     private async void OnContentChanged(object? sender, string? id)
@@ -541,16 +579,67 @@ public sealed partial class MainWindow : Window
     }
     private async void OnGalleryReordered(ListViewBase sender, DragItemsCompletedEventArgs args)
     {
-        if (args.DropResult == global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.None
+        if (_galleryDragPreparation is { } preparation)
+        {
+            _galleryDragPreparation = null;
+            await preparation;
+            if (ViewModel.Output is { } output)
+                await output.CompleteDragAsync(args.DropResult == DataPackageOperation.Copy);
+            return;
+        }
+        if (!_reordering || args.DropResult == global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.None
             || args.Items.Count != 1 || args.Items[0] is not StickerCard card || ViewModel.Catalog is not { } catalog) return;
         var collection = ViewModel.Collections.FirstOrDefault(item => item.Id == ViewModel.Filter.Id);
         if (collection is null) return;
         var index = ViewModel.Cards.IndexOf(card);
+        if (index < 0) return;
         await catalog.MoveStickerAsync(collection, card, index + 1 < ViewModel.Cards.Count ? ViewModel.Cards[index + 1].Id : null);
         await ViewModel.RetryAsync();
     }
     private void OnGalleryDragStarting(object sender, DragItemsStartingEventArgs args)
-        => args.Cancel = !Gallery.CanReorderItems || args.Items.Count != 1;
+    {
+        args.Cancel = true;
+        if (args.Items.Count != 1 || args.Items[0] is not StickerCard card) return;
+        if (_reordering) { args.Cancel = !Gallery.CanReorderItems; return; }
+        if (!CanDragOut || ViewModel.Output is not { CanStart: true } output) return;
+        var target = new StickerOutputTarget(card.Id, card.Generation);
+        var package = new DataPackage();
+        var dispatcher = DispatcherQueue;
+        args.Data.RequestedOperation = DataPackageOperation.Copy;
+        // ListViewBase owns the pointer gesture. Its event has no GetDeferral;
+        // the data provider keeps asynchronous file preparation out of selection.
+        var preparation = output.PrepareDragAsync(target, package);
+        _galleryDragPreparation = preparation;
+        args.Data.SetDataProvider(StandardDataFormats.StorageItems, request =>
+        {
+            var deferral = request.GetDeferral();
+            if (!dispatcher.TryEnqueue(async () =>
+            {
+                try
+                {
+                    if (await preparation)
+                        request.SetData(await package.GetView().GetStorageItemsAsync());
+                }
+                catch (Exception error) { Trace.WriteLine($"Provide dragged file: {error}"); }
+                finally { deferral.Complete(); }
+            })) deferral.Complete();
+        });
+        args.Cancel = false;
+    }
+    private async void OnReorder(object sender, RoutedEventArgs args)
+    {
+        if (_reordering) { _reordering = false; UpdateState(); return; }
+        if (!ReorderMenu.IsEnabled || ViewModel.Filter.Id is not { } collectionId) return;
+        if (ViewModel.Details is { } detail && !await detail.CommitAsync()) { UpdateState(); return; }
+        await ViewModel.SortAsync(StickerSort.CollectionOrder);
+        if (ViewModel.Filter.Id == collectionId && !ViewModel.HasMore && ViewModel.ErrorKey is null)
+        {
+            _reorderCollection = collectionId;
+            _reordering = true;
+        }
+        UpdateState();
+    }
+    private void OnReorderDone(object sender, RoutedEventArgs args) { _reordering = false; UpdateState(); }
 
     private async void OnBatchCompleted(object? sender, EventArgs args)
     {
@@ -575,14 +664,36 @@ public sealed partial class MainWindow : Window
 
     private void OnGalleryRightTapped(object sender, RightTappedRoutedEventArgs args)
     {
-        if (!Gallery.CanReorderItems || ViewModel.Catalog is not { } catalog) return;
+        if (ViewModel.Output is not { } output || _stopping) return;
         DependencyObject? element = args.OriginalSource as DependencyObject;
         while (element is not null && element is not GridViewItem) element = VisualTreeHelper.GetParent(element);
         if (element is not GridViewItem { Content: StickerCard card } container) return;
-        var collection = ViewModel.Collections.FirstOrDefault(item => item.Id == ViewModel.Filter.Id);
-        if (collection is null) return;
-        var index = ViewModel.Cards.IndexOf(card);
         var menu = new MenuFlyout();
+        var copy = new MenuFlyoutItem { Text = Strings["copy_image"], Icon = new SymbolIcon(Symbol.Copy), IsEnabled = output.CanStart };
+        copy.Click += async (_, _) => await CopyCardAsync(card, StickerOutputKind.Image);
+        menu.Items.Add(copy);
+        var formats = new MenuFlyoutSubItem { Text = Strings["export_choose"], Icon = new SymbolIcon(Symbol.Copy), IsEnabled = output.CanStart };
+        var original = new MenuFlyoutItem { Text = Strings["export_original"], IsEnabled = output.CanStart };
+        original.Click += async (_, _) => await CopyCardAsync(card, StickerOutputKind.OriginalFile);
+        formats.Items.Add(original);
+        if (card.Animated)
+        {
+            var frame = new MenuFlyoutItem { Text = Strings.Format("share_first_frame_as", Strings["export_png"]), IsEnabled = output.CanStart };
+            frame.Click += async (_, _) => await CopyCardAsync(card, StickerOutputKind.FirstFrame);
+            formats.Items.Add(frame);
+        }
+        else
+        {
+            var png = new MenuFlyoutItem { Text = Strings["export_png"], IsEnabled = output.CanStart };
+            png.Click += async (_, _) => await CopyCardAsync(card, StickerOutputKind.Image);
+            formats.Items.Add(png);
+        }
+        menu.Items.Add(formats);
+        args.Handled = true;
+        var collection = ViewModel.Collections.FirstOrDefault(item => item.Id == ViewModel.Filter.Id);
+        if (!Gallery.CanReorderItems || collection is null || ViewModel.Catalog is not { } catalog) { menu.ShowAt(container); return; }
+        menu.Items.Add(new MenuFlyoutSeparator());
+        var index = ViewModel.Cards.IndexOf(card);
         var up = new MenuFlyoutItem { Text = Strings["move_up"], IsEnabled = index > 0 };
         var down = new MenuFlyoutItem { Text = Strings["move_down"], IsEnabled = index >= 0 && index < ViewModel.Cards.Count - 1 };
         up.Click += async (_, _) =>

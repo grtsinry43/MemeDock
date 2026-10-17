@@ -7,9 +7,13 @@ internal sealed class LibrarySession : IAsyncDisposable
 {
     private readonly LibraryHandle _library;
     private readonly ulong _maxInputBytes;
+    public string LibraryId { get; }
 
     private LibrarySession(LibraryHandle library, ulong maxInputBytes)
-        => (_library, _maxInputBytes) = (library, maxInputBytes);
+    {
+        (_library, _maxInputBytes) = (library, maxInputBytes);
+        LibraryId = library.Identity().LibraryId;
+    }
 
     public static Task<LibrarySession> OpenAsync(string root) => Task.Run(async () =>
     {
@@ -230,6 +234,48 @@ internal sealed class LibrarySession : IAsyncDisposable
             cancellation.ThrowIfCancellationRequested();
             return _library.Batch(targets, action);
         });
+
+    public Task<ArtifactLeaseHandle> ExportAsync(string id, ExportOptions options, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.Export(id, options);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<ExportArtifact> PrepareHandoffAsync(ArtifactLeaseHandle lease, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.PrepareHandoff(lease);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<string> ProtectClipboardAsync(ArtifactLeaseHandle lease, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.ProtectClipboard(lease);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task ReconcileClipboardAsync(string? reference) => Task.Run(async () =>
+    {
+        using var request = _library.ReconcileClipboard(reference);
+        await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task AbortClipboardAsync(string reference) => Task.Run(async () =>
+    {
+        using var request = _library.AbortClipboard(reference);
+        await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task RecordUseAsync(string id, UsageAction action) => Task.Run(async () =>
+    {
+        using var request = _library.RecordUse(id, action);
+        await request.AwaitResult().ConfigureAwait(false);
+    });
 
     public async ValueTask DisposeAsync()
     {
