@@ -2,23 +2,39 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.11.35327.3
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MemeDock.Windows", "app\MemeDock.Windows.csproj", "{9E34BB07-AABA-4811-9B7E-E7C7DD93809C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MemeDock.Windows", "app\MemeDock.Windows.csproj", "{9E34BB07-AABA-4811-9B7E-E7C7DD93809C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MemeDock.Bridge", "bridge\MemeDock.Bridge.csproj", "{A39D5C3C-D012-492D-9B69-B258EA18329B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MemeDock.Bridge", "bridge\MemeDock.Bridge.csproj", "{A39D5C3C-D012-492D-9B69-B258EA18329B}"
 EndProject
 Global
-    GlobalSection(SolutionConfigurationPlatforms) = preSolution
-        Debug|x64 = Debug|x64
-        Release|x64 = Release|x64
-    EndGlobalSection
-    GlobalSection(ProjectConfigurationPlatforms) = postSolution
-        {9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Debug|x64.ActiveCfg = Debug|x64
-        {9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Debug|x64.Build.0 = Debug|x64
-        {9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Release|x64.ActiveCfg = Release|x64
-        {9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Release|x64.Build.0 = Release|x64
-        {A39D5C3C-D012-492D-9B69-B258EA18329B}.Debug|x64.ActiveCfg = Debug|Any CPU
-        {A39D5C3C-D012-492D-9B69-B258EA18329B}.Debug|x64.Build.0 = Debug|Any CPU
-        {A39D5C3C-D012-492D-9B69-B258EA18329B}.Release|x64.ActiveCfg = Release|Any CPU
-        {A39D5C3C-D012-492D-9B69-B258EA18329B}.Release|x64.Build.0 = Release|Any CPU
-    EndGlobalSection
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Debug|Any CPU.Build.0 = Debug|x64
+		{9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Debug|x64.ActiveCfg = Debug|x64
+		{9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Debug|x64.Build.0 = Debug|x64
+		{9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Release|Any CPU.ActiveCfg = Release|x64
+		{9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Release|Any CPU.Build.0 = Release|x64
+		{9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Release|x64.ActiveCfg = Release|x64
+		{9E34BB07-AABA-4811-9B7E-E7C7DD93809C}.Release|x64.Build.0 = Release|x64
+		{A39D5C3C-D012-492D-9B69-B258EA18329B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A39D5C3C-D012-492D-9B69-B258EA18329B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A39D5C3C-D012-492D-9B69-B258EA18329B}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A39D5C3C-D012-492D-9B69-B258EA18329B}.Debug|x64.Build.0 = Debug|Any CPU
+		{A39D5C3C-D012-492D-9B69-B258EA18329B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A39D5C3C-D012-492D-9B69-B258EA18329B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A39D5C3C-D012-492D-9B69-B258EA18329B}.Release|x64.ActiveCfg = Release|Any CPU
+		{A39D5C3C-D012-492D-9B69-B258EA18329B}.Release|x64.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {BD8151AB-44E0-4C87-A1A6-A17F107F74D8}
+	EndGlobalSection
 EndGlobal

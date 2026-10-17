@@ -3,48 +3,129 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:MemeDock.Windows"
+    xmlns:views="using:MemeDock.Windows.Views"
     Title="MemeDock">
-    <Grid x:Name="Root" Padding="28" RowSpacing="20" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Loaded="OnLoaded">
+    <Grid x:Name="Root" Loaded="OnLoaded">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="OnFocusSearch" />
+            <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OnImportShortcut" />
+            <KeyboardAccelerator Key="A" Modifiers="Control" Invoked="OnSelectAllShortcut" />
+            <KeyboardAccelerator Key="Escape" Invoked="OnEscape" />
+        </Grid.KeyboardAccelerators>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <Grid ColumnSpacing="24">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <StackPanel Spacing="4">
-                <TextBlock Text="MemeDock" Style="{ThemeResource TitleTextBlockStyle}" />
-                <TextBlock Text="收好每一张表情，随时找到想用的那张。" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
-            <Button x:Name="ImportButton" Grid.Column="1" Content="导入图片" IsEnabled="False" Click="OnImport" VerticalAlignment="Center" Style="{ThemeResource AccentButtonStyle}" />
-        </Grid>
-        <TextBox x:Name="Search" Grid.Row="1" PlaceholderText="搜索表情名称、备注或标签" TextChanged="OnSearchChanged" IsEnabled="False" MaxWidth="640" HorizontalAlignment="Stretch" />
-        <Grid Grid.Row="2">
-            <GridView x:Name="Gallery" ItemsSource="{x:Bind Cards}" SelectionMode="Single"
-                      ContainerContentChanging="OnContainerContentChanging" Loaded="OnGalleryLoaded"
-                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                <GridView.ItemsPanel>
-                    <ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" /></ItemsPanelTemplate>
-                </GridView.ItemsPanel>
-                <GridView.ItemTemplate>
-                    <DataTemplate x:DataType="local:StickerCard">
-                        <Grid Width="152" Margin="4" RowSpacing="8">
-                            <Grid.RowDefinitions><RowDefinition Height="144" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="12" Padding="10">
-                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="Uniform" AutomationProperties.Name="{x:Bind Title}" />
-                            </Border>
-                            <TextBlock Grid.Row="1" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" MaxLines="1" Margin="4,0" />
+        <TitleBar x:Name="WindowTitleBar" Title="MemeDock" IsPaneToggleButtonVisible="True" PaneToggleRequested="OnPaneToggle">
+            <TitleBar.IconSource><FontIconSource Glyph="&#xE7F4;" /></TitleBar.IconSource>
+        </TitleBar>
+        <NavigationView x:Name="Navigation" Grid.Row="1" PaneDisplayMode="Auto" OpenPaneLength="240"
+                        IsBackButtonVisible="Collapsed" IsPaneToggleButtonVisible="False"
+                        IsSettingsVisible="False" SelectionChanged="OnNavigationChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem x:Name="AllNavigation" Tag="all" Icon="AllApps" />
+                <NavigationViewItem x:Name="StarredNavigation" Tag="starred" Icon="Favorite" />
+                <NavigationViewItem x:Name="RecentNavigation" Tag="recent" Icon="Clock" />
+                <NavigationViewItemSeparator />
+                <NavigationViewItem x:Name="CollectionsNavigation" Icon="Library" SelectsOnInvoked="False" />
+                <NavigationViewItem x:Name="TagsNavigation" Tag="tags" Icon="Tag" IsEnabled="False" />
+            </NavigationView.MenuItems>
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem x:Name="SettingsNavigation" Tag="settings" Icon="Setting" />
+            </NavigationView.FooterMenuItems>
+            <Grid>
+                <Border Margin="0,0,8,8" Background="{ThemeResource LayerFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                    <Grid x:Name="LibraryContent" Padding="24" RowSpacing="16">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{x:Bind ViewModel.Heading, Mode=OneWay}" Style="{ThemeResource TitleTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind ViewModel.CountText, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <Button x:Name="ImportButton" Grid.Column="1" IsEnabled="False" Click="OnImport" VerticalAlignment="Center" Style="{ThemeResource AccentButtonStyle}" />
                         </Grid>
-                    </DataTemplate>
-                </GridView.ItemTemplate>
-            </GridView>
-            <TextBlock x:Name="EmptyState" Text="还没有表情，导入几张喜欢的图片吧。" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        </Grid>
-        <Grid Grid.Row="3" ColumnSpacing="12">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-            <ProgressRing x:Name="Busy" Width="18" Height="18" IsActive="True" />
-            <TextBlock x:Name="Status" Grid.Column="1" Text="正在打开表情库…" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
-        </Grid>
+                        <Grid x:Name="SearchRow" Grid.Row="1" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBox x:Name="Search" IsEnabled="False" MaxWidth="640" HorizontalAlignment="Stretch"
+                                     TextChanged="OnSearchChanged" TextCompositionStarted="OnCompositionStarted" TextCompositionEnded="OnCompositionEnded" />
+                            <DropDownButton x:Name="SortButton" Grid.Column="1" VerticalAlignment="Center">
+                                <DropDownButton.Flyout>
+                                    <MenuFlyout>
+                                        <RadioMenuFlyoutItem x:Name="SortRecent" Tag="Recent" GroupName="sort" Click="OnSort" />
+                                        <RadioMenuFlyoutItem x:Name="SortUsed" Tag="LastUsed" GroupName="sort" Click="OnSort" />
+                                        <RadioMenuFlyoutItem x:Name="SortCollection" Tag="CollectionOrder" GroupName="sort" Click="OnSort" />
+                                    </MenuFlyout>
+                                </DropDownButton.Flyout>
+                            </DropDownButton>
+                        </Grid>
+                        <StackPanel Grid.Row="2" Spacing="8">
+                            <ComboBox x:Name="TagSelector" Visibility="Collapsed" ItemsSource="{x:Bind ViewModel.Tags}"
+                                      DisplayMemberPath="Name" SelectedValuePath="Id" SelectionChanged="OnTagChanged" MinWidth="160" MaxWidth="400" />
+                            <InfoBar x:Name="ErrorBar" Severity="Error" IsClosable="False">
+                                <InfoBar.ActionButton><Button x:Name="RetryButton" Click="OnRetry" /></InfoBar.ActionButton>
+                            </InfoBar>
+                            <InfoBar x:Name="CatalogErrorBar" Severity="Warning" IsClosable="False" />
+                            <Grid x:Name="SelectionBar" Visibility="Collapsed" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ViewModel.SelectionText, Mode=OneWay}" />
+                                    <TextBlock x:Name="SelectionHint" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                                <Button x:Name="SelectAllButton" Grid.Column="1" Click="OnSelectAll" VerticalAlignment="Center" />
+                                <Button x:Name="ClearSelectionButton" Grid.Column="2" Click="OnClearSelection" VerticalAlignment="Center" />
+                            </Grid>
+                        </StackPanel>
+                        <Grid Grid.Row="3">
+                            <GridView x:Name="Gallery" ItemsSource="{x:Bind ViewModel.Cards}" SelectionMode="Extended"
+                                      IsMultiSelectCheckBoxEnabled="True" SelectionChanged="OnSelectionChanged"
+                                      ContainerContentChanging="OnContainerContentChanging" Loaded="OnGalleryLoaded"
+                                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" /></ItemsPanelTemplate></GridView.ItemsPanel>
+                                <GridView.ItemTemplate>
+                                    <DataTemplate x:DataType="local:StickerCard">
+                                        <Grid Width="144" Margin="4" RowSpacing="8" ToolTipService.ToolTip="{x:Bind Title, Mode=OneWay}">
+                                            <Grid.RowDefinitions><RowDefinition Height="136" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="8">
+                                                <Grid>
+                                                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="Uniform" AutomationProperties.Name="{x:Bind Title, Mode=OneWay}" />
+                                                    <FontIcon Glyph="&#xE735;" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                              Foreground="{ThemeResource SystemFillColorCautionBrush}" Visibility="{x:Bind local:MainWindow.ToVisibility(Starred), Mode=OneWay}" />
+                                                    <FontIcon Glyph="&#xE714;" FontSize="12" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                                                              Visibility="{x:Bind local:MainWindow.ToVisibility(Animated), Mode=OneWay}" />
+                                                    <Button Tag="{x:Bind}" Click="OnRetryThumbnail" Loaded="OnThumbnailRetryLoaded" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                            Visibility="{x:Bind local:MainWindow.ToVisibility(ThumbnailFailed), Mode=OneWay}">
+                                                        <FontIcon Glyph="&#xE72C;" FontSize="16" />
+                                                    </Button>
+                                                </Grid>
+                                            </Border>
+                                            <TextBlock Grid.Row="1" Text="{x:Bind Title, Mode=OneWay}" TextTrimming="CharacterEllipsis" MaxLines="1" Margin="4,0" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </GridView.ItemTemplate>
+                            </GridView>
+                            <StackPanel x:Name="EmptyState" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" MaxWidth="360">
+                                <FontIcon Glyph="&#xEB9F;" FontSize="40" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                <TextBlock Text="{x:Bind ViewModel.EmptyHeading, Mode=OneWay}" Style="{ThemeResource SubtitleTextBlockStyle}" TextWrapping="Wrap" TextAlignment="Center" />
+                                <TextBlock x:Name="EmptyHint" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid Grid.Row="4" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <ProgressRing x:Name="Busy" Width="18" Height="18" IsActive="True" />
+                            <TextBlock x:Name="Status" Grid.Column="1" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Grid>
+                </Border>
+                <views:SettingsView x:Name="Settings" Visibility="Collapsed" Margin="24" />
+            </Grid>
+        </NavigationView>
     </Grid>
 </Window>

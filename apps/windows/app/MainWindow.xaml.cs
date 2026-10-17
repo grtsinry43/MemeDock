@@ -1,49 +1,62 @@
-using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using MemeDock.Bridge;
+using MemeDock.Windows.Localization;
+using MemeDock.Windows.Models;
+using MemeDock.Windows.Services;
+using MemeDock.Windows.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.Storage.Pickers;
 
 namespace MemeDock.Windows;
 
 public sealed partial class MainWindow : Window
 {
-    public ObservableCollection<StickerCard> Cards { get; } = [];
+    public LocalizationService Strings { get; } = new();
+    public LibraryViewModel ViewModel { get; }
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly SemaphoreSlim _thumbnailSlots = new(4);
-    private readonly Dictionary<StickerCard, ThumbnailWork> _thumbnails = [];
-    private LibrarySession? _session;
-    private QueryCursorHandle? _cursor;
-    private CancellationTokenSource? _queryCancellation;
+    private readonly AppPreferences _preferences;
+    private readonly string _root;
     private CancellationTokenSource? _searchCancellation;
     private Task _initialization = Task.CompletedTask;
-    private Task _loading = Task.CompletedTask;
+    private Task _searching = Task.CompletedTask;
     private Task _importing = Task.CompletedTask;
     private ScrollViewer? _scroll;
     private bool _initialized;
-    private bool _hasMore;
-    private bool _loadingPage;
+    private bool _updatingNavigation;
+    private bool _composing;
+    private bool _settingsVisible;
+    private bool _tagMode;
     private bool _stopping;
     private bool _canClose;
-    private int _generation;
-    private string _query = "";
-
-    private sealed class ThumbnailWork(CancellationTokenSource cancellation)
-    {
-        public CancellationTokenSource Cancellation { get; } = cancellation;
-        public Task Completion { get; set; } = Task.CompletedTask;
-    }
 
     public MainWindow()
     {
+        ViewModel = new LibraryViewModel(Strings);
+        _root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MemeDock");
+        _preferences = new AppPreferences(_root);
         InitializeComponent();
-        AppWindow.Resize(new global::Windows.Graphics.SizeInt32(1120, 800));
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(WindowTitleBar);
+        SystemBackdrop = new MicaBackdrop();
+        AppWindow.Resize(new global::Windows.Graphics.SizeInt32(1180, 820));
         AppWindow.Closing += OnClosing;
+        Strings.PropertyChanged += OnLanguageChanged;
+        ViewModel.PropertyChanged += OnModelChanged;
+        ViewModel.CatalogChanged += OnCatalogChanged;
+        ViewModel.ThumbnailInvalidated += OnThumbnailInvalidated;
+        ApplyLabels();
+        _updatingNavigation = true;
+        Navigation.SelectedItem = AllNavigation;
+        _updatingNavigation = false;
     }
+
+    public static Visibility ToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
 
     private async void OnLoaded(object sender, RoutedEventArgs args)
     {
@@ -55,213 +68,291 @@ public sealed partial class MainWindow : Window
 
     private async Task InitializeAsync()
     {
-        var elapsed = Stopwatch.StartNew();
-        try
-        {
-            var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MemeDock");
-            _session = await LibrarySession.OpenAsync(root);
-            if (_stopping) return;
-            ImportButton.IsEnabled = Search.IsEnabled = true;
-            await RefreshAsync();
-            Trace.WriteLine($"MemeDock startup to first library page: {elapsed.ElapsedMilliseconds} ms");
-        }
-        catch (Exception error)
-        {
-            Status.Text = $"无法打开表情库：{error.Message}";
-            Busy.IsActive = false;
-        }
+        await _preferences.LoadAsync();
+        if (_stopping) return;
+        Strings.SetLanguage(_preferences.Language);
+        Settings.Configure(Strings, _preferences);
+        await ViewModel.InitializeAsync(_root);
+        UpdateState();
     }
 
-    private async void OnSearchChanged(object sender, TextChangedEventArgs args)
+    private void ApplyLabels()
     {
-        if (_session is null || _stopping) return;
+        AllNavigation.Content = Strings["filter_all"];
+        StarredNavigation.Content = Strings["favorites_only"];
+        RecentNavigation.Content = Strings["filter_recent"];
+        CollectionsNavigation.Content = Strings["tab_collections"];
+        TagsNavigation.Content = Strings["tags_title"];
+        SettingsNavigation.Content = Strings["desktop_settings"];
+        ImportButton.Content = Strings["library_add"];
+        Search.PlaceholderText = Strings["library_search"];
+        AutomationProperties.SetName(Search, Strings["library_search"]);
+        AutomationProperties.SetName(Gallery, Strings["tab_stickers"]);
+        SortButton.Content = Strings["desktop_sort"];
+        SortRecent.Text = Strings["desktop_sort_recent"];
+        SortUsed.Text = Strings["filter_recent"];
+        SortCollection.Text = Strings["desktop_sort_collection"];
+        RetryButton.Content = Strings["retry"];
+        SelectAllButton.Content = Strings["desktop_select_all"];
+        ClearSelectionButton.Content = Strings["desktop_clear_selection"];
+        SelectionHint.Text = Strings["desktop_selection_loaded_only"];
+        TagSelector.PlaceholderText = Strings["tags_title"];
+        AutomationProperties.SetName(TagSelector, Strings["tags_title"]);
+        Settings.Relocalize();
+        ViewModel.Relocalize();
+        UpdateState();
+    }
+
+    private void OnLanguageChanged(object? sender, PropertyChangedEventArgs args) => ApplyLabels();
+    private void OnModelChanged(object? sender, PropertyChangedEventArgs args) => UpdateState();
+
+    private void UpdateState()
+    {
+        ImportButton.IsEnabled = ViewModel.IsReady && !ViewModel.IsImporting && !_stopping;
+        Search.IsEnabled = ViewModel.IsReady && !_stopping;
+        SortButton.IsEnabled = ViewModel.IsReady && ViewModel.Filter.Scope != LibraryScope.Recent;
+        Busy.IsActive = !ViewModel.IsReady && ViewModel.ErrorKey is null || ViewModel.IsLoading || ViewModel.IsImporting;
+        Busy.Visibility = ToVisibility(Busy.IsActive);
+        ErrorBar.IsOpen = ViewModel.ErrorKey is not null;
+        ErrorBar.Message = ViewModel.ErrorText;
+        CatalogErrorBar.IsOpen = ViewModel.CatalogErrorKey is not null;
+        CatalogErrorBar.Message = ViewModel.CatalogErrorText;
+        EmptyState.Visibility = ToVisibility(ViewModel.IsReady && !ViewModel.IsLoading && ViewModel.Cards.Count == 0 && ViewModel.ErrorKey is null);
+        EmptyHint.Text = ViewModel.SearchText.Length > 0 ? Strings["library_no_matches_hint"] : "";
+        Status.Text = !ViewModel.IsReady || ViewModel.IsLoading ? Strings["import_preparing"]
+            : ViewModel.ImportText;
+        SelectionBar.Visibility = ToVisibility(Gallery.SelectedItems.Count > 0);
+        SelectionHint.Visibility = ToVisibility(ViewModel.HasMore);
+        SortCollection.Visibility = ToVisibility(ViewModel.Filter.AllowsCollectionOrder);
+        SortRecent.IsChecked = ViewModel.Sort == StickerSort.Recent;
+        SortUsed.IsChecked = ViewModel.Sort == StickerSort.LastUsed;
+        SortCollection.IsChecked = ViewModel.Sort == StickerSort.CollectionOrder;
+    }
+
+    private void OnPaneToggle(TitleBar sender, object args) => Navigation.IsPaneOpen = !Navigation.IsPaneOpen;
+
+    private async void OnNavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    {
+        if (_updatingNavigation || _stopping || args.SelectedItemContainer is not NavigationViewItem item) return;
+        _settingsVisible = item == SettingsNavigation;
+        LibraryContent.Visibility = ToVisibility(!_settingsVisible);
+        Settings.Visibility = ToVisibility(_settingsVisible);
+        if (_settingsVisible) return;
+        _tagMode = item == TagsNavigation;
+        TagSelector.Visibility = ToVisibility(_tagMode);
+        LibraryFilter? filter = item.Tag switch
+        {
+            "all" => LibraryFilter.All,
+            "starred" => new(LibraryScope.Starred),
+            "recent" => new(LibraryScope.Recent),
+            CollectionMetadata collection => new(LibraryScope.Collection, collection.Id, collection.Name),
+            _ => null
+        };
+        if (_tagMode && ViewModel.Tags.FirstOrDefault() is { } tag)
+        {
+            _updatingNavigation = true;
+            TagSelector.SelectedValue = tag.Id;
+            _updatingNavigation = false;
+            filter = new(LibraryScope.Tag, tag.Id, tag.Name);
+        }
+        if (filter is null) return;
+        Gallery.SelectedItems.Clear();
+        await ViewModel.NavigateAsync(filter);
+        _scroll?.ChangeView(null, 0, null, disableAnimation: true);
+    }
+
+    private void OnCatalogChanged(object? sender, EventArgs args)
+    {
+        _updatingNavigation = true;
+        try
+        {
+            CollectionsNavigation.MenuItems.Clear();
+            foreach (var collection in ViewModel.Collections)
+                CollectionsNavigation.MenuItems.Add(new NavigationViewItem { Content = collection.Name, Tag = collection });
+            CollectionsNavigation.IsEnabled = ViewModel.Collections.Count > 0;
+            TagsNavigation.IsEnabled = ViewModel.Tags.Count > 0;
+            if (!_settingsVisible)
+            {
+                Navigation.SelectedItem = ViewModel.Filter.Scope switch
+                {
+                    LibraryScope.Starred => StarredNavigation,
+                    LibraryScope.Recent => RecentNavigation,
+                    LibraryScope.Tag => TagsNavigation,
+                    LibraryScope.Collection => CollectionsNavigation.MenuItems.OfType<NavigationViewItem>()
+                        .FirstOrDefault(item => item.Tag is CollectionMetadata value && value.Id == ViewModel.Filter.Id),
+                    _ => AllNavigation
+                };
+                _tagMode = ViewModel.Filter.Scope == LibraryScope.Tag;
+                TagSelector.Visibility = ToVisibility(_tagMode);
+                if (_tagMode) TagSelector.SelectedValue = ViewModel.Filter.Id;
+            }
+        }
+        finally { _updatingNavigation = false; }
+    }
+
+    private async void OnTagChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_updatingNavigation || !_tagMode || _stopping || TagSelector.SelectedItem is not TagMetadata tag) return;
+        Gallery.SelectedItems.Clear();
+        await ViewModel.NavigateAsync(new(LibraryScope.Tag, tag.Id, tag.Name));
+    }
+
+    private async void OnSort(object sender, RoutedEventArgs args)
+    {
+        if (_stopping || sender is not RadioMenuFlyoutItem item) return;
+        Gallery.SelectedItems.Clear();
+        await ViewModel.SortAsync(Enum.Parse<StickerSort>((string)item.Tag));
+    }
+
+    private void OnSearchChanged(object sender, TextChangedEventArgs args)
+    {
+        if (!_composing) QueueSearch();
+    }
+
+    private void OnCompositionStarted(TextBox sender, TextCompositionStartedEventArgs args)
+    {
+        _composing = true;
+        _searchCancellation?.Cancel();
+    }
+
+    private void OnCompositionEnded(TextBox sender, TextCompositionEndedEventArgs args)
+    {
+        _composing = false;
+        QueueSearch();
+    }
+
+    private void QueueSearch()
+    {
         _searchCancellation?.Cancel();
         _searchCancellation?.Dispose();
+        if (!ViewModel.IsReady || _stopping) return;
         _searchCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        var cancellation = _searchCancellation.Token;
+        _searching = SearchAfterDelayAsync(_searchCancellation.Token);
+    }
+
+    private async Task SearchAfterDelayAsync(CancellationToken cancellation)
+    {
         try
         {
             await Task.Delay(250, cancellation);
-            if (!cancellation.IsCancellationRequested) await RefreshAsync();
+            if (_composing || _stopping) return;
+            Gallery.SelectedItems.Clear();
+            await ViewModel.SearchAsync(Search.Text);
         }
         catch (OperationCanceledException) { }
     }
 
-    private async Task RefreshAsync()
-    {
-        var generation = ++_generation;
-        _queryCancellation?.Cancel();
-        await _loading;
-        if (_stopping || generation != _generation) return;
-        _queryCancellation?.Dispose();
-        _queryCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        foreach (var work in _thumbnails.Values.ToArray()) work.Cancellation.Cancel();
-        _cursor?.Dispose();
-        _cursor = null;
-        Cards.Clear();
-        _query = Search.Text.Trim();
-        _hasMore = true;
-        _loading = LoadNextAsync(generation, _queryCancellation.Token);
-        await _loading;
-    }
-
-    private async Task LoadNextAsync(int generation, CancellationToken cancellation)
-    {
-        if (_session is null || _loadingPage || !_hasMore || _stopping) return;
-        _loadingPage = true;
-        Busy.IsActive = true;
-        EmptyState.Visibility = Visibility.Collapsed;
-        try
-        {
-            var page = await _session.QueryAsync(_query, _cursor, cancellation);
-            if (cancellation.IsCancellationRequested || generation != _generation)
-            {
-                page.Next?.Dispose();
-                return;
-            }
-            _cursor?.Dispose();
-            // Transfer the page's only owned handle to this window. Disposing
-            // the page here would destroy the cursor needed for the next page.
-            _cursor = page.Next;
-            _hasMore = _cursor is not null;
-            var resources = page.Resources.ToDictionary(resource => resource.Asset.Hash);
-            for (var index = 0; index < page.Stickers.Length; index++)
-            {
-                var sticker = page.Stickers[index];
-                var thumbnail = resources.TryGetValue(sticker.Id, out var resource) ? resource.ThumbnailPath : null;
-                Cards.Add(new StickerCard(sticker.Id, sticker.Title, thumbnail));
-            }
-            Status.Text = _hasMore ? $"已加载 {Cards.Count} 张，继续滚动查看更多" : $"共 {Cards.Count} 张表情";
-            EmptyState.Text = _query.Length == 0 ? "还没有表情，导入几张喜欢的图片吧。" : "没有找到匹配的表情，换个关键词试试。";
-            EmptyState.Visibility = Cards.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        }
-        catch (Exception error)
-        {
-            if (!cancellation.IsCancellationRequested) Status.Text = $"加载失败：{error.Message}";
-        }
-        finally
-        {
-            _loadingPage = false;
-            Busy.IsActive = false;
-        }
-    }
-
     private void OnGalleryLoaded(object sender, RoutedEventArgs args)
     {
+        if (_scroll is not null) _scroll.ViewChanged -= OnViewChanged;
         _scroll = FindScrollViewer(Gallery);
         if (_scroll is not null) _scroll.ViewChanged += OnViewChanged;
     }
 
-    private void OnViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
+    private async void OnViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
     {
-        if (_stopping || _loadingPage || !_hasMore || _queryCancellation is null || _scroll is null) return;
-        if (_scroll.ScrollableHeight - _scroll.VerticalOffset < 700)
-            _loading = LoadNextAsync(_generation, _queryCancellation.Token);
+        if (_stopping || _scroll is null || ViewModel.IsLoading || !ViewModel.HasMore) return;
+        if (_scroll.ScrollableHeight - _scroll.VerticalOffset < 700) await ViewModel.LoadNextAsync();
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
     {
         if (parent is ScrollViewer scroll) return scroll;
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
-        {
-            var found = FindScrollViewer(VisualTreeHelper.GetChild(parent, index));
-            if (found is not null) return found;
-        }
+            if (FindScrollViewer(VisualTreeHelper.GetChild(parent, index)) is { } found) return found;
         return null;
     }
 
     private void OnContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
         if (args.Item is not StickerCard card) return;
-        card.IsRealized = !args.InRecycleQueue;
-        if (args.InRecycleQueue)
+        if (args.InRecycleQueue) ViewModel.Thumbnails?.Recycle(card);
+        else if (args.Phase == 0) ViewModel.Thumbnails?.Realize(card);
+    }
+
+    private void OnThumbnailInvalidated(object? sender, string id)
+    {
+        if (ViewModel.Cards.FirstOrDefault(card => card.Id == id) is { } card) ViewModel.Thumbnails?.Invalidate(card);
+    }
+
+    private void OnRetryThumbnail(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { Tag: StickerCard card })
         {
-            if (_thumbnails.TryGetValue(card, out var previous)) previous.Cancellation.Cancel();
             card.Thumbnail = null;
-            return;
+            ViewModel.Thumbnails?.Invalidate(card);
         }
-        if (args.Phase == 0) StartThumbnail(card);
     }
 
-    private void StartThumbnail(StickerCard card)
+    private void OnThumbnailRetryLoaded(object sender, RoutedEventArgs args)
     {
-        if (_stopping || _session is null || _thumbnails.ContainsKey(card)) return;
-        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        var work = new ThumbnailWork(cancellation);
-        _thumbnails.Add(card, work);
-        work.Completion = LoadThumbnailAsync(card, work);
-    }
-
-    private async Task LoadThumbnailAsync(StickerCard card, ThumbnailWork work)
-    {
-        var acquired = false;
-        try
+        if (sender is Button button)
         {
-            await _thumbnailSlots.WaitAsync(work.Cancellation.Token);
-            acquired = true;
-            var path = card.CachedThumbnailPath ?? await _session!.ThumbnailAsync(card.Id, work.Cancellation.Token);
-            work.Cancellation.Token.ThrowIfCancellationRequested();
-            var normalized = path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase) ? @"\\" + path[8..]
-                : path.StartsWith(@"\\?\", StringComparison.Ordinal) ? path[4..] : path;
-            card.Thumbnail = new BitmapImage
-            {
-                DecodePixelWidth = 256,
-                DecodePixelType = DecodePixelType.Physical,
-                UriSource = new Uri(normalized),
-                AutoPlay = false
-            };
-        }
-        catch (Exception error)
-        {
-            if (!work.Cancellation.IsCancellationRequested)
-                Trace.WriteLine($"Thumbnail {card.Id}: {error}");
-        }
-        finally
-        {
-            if (acquired) _thumbnailSlots.Release();
-            var cancelled = work.Cancellation.IsCancellationRequested;
-            _thumbnails.Remove(card);
-            work.Cancellation.Dispose();
-            if (cancelled && card.IsRealized && !_stopping) StartThumbnail(card);
+            AutomationProperties.SetName(button, Strings["retry_thumbnail"]);
+            ToolTipService.SetToolTip(button, Strings["retry_thumbnail"]);
         }
     }
 
-    private async void OnImport(object sender, RoutedEventArgs args)
+    private void OnSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (_session is null || _stopping || !_importing.IsCompleted) return;
-        _importing = ImportAsync();
-        await _importing;
+        ViewModel.SetSelectedCount(Gallery.SelectedItems.Count);
+        UpdateState();
     }
+    private void OnSelectAll(object sender, RoutedEventArgs args) => Gallery.SelectAll();
+    private void OnClearSelection(object sender, RoutedEventArgs args) => Gallery.SelectedItems.Clear();
 
-    private async Task ImportAsync()
+    private void OnFocusSearch(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        ImportButton.IsEnabled = false;
+        if (_settingsVisible) return;
+        Search.Focus(FocusState.Keyboard);
+        args.Handled = true;
+    }
+    private bool EditingText => FocusManager.GetFocusedElement(Root.XamlRoot) is TextBox or RichEditBox or PasswordBox;
+    private void OnSelectAllShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_settingsVisible || EditingText) return;
+        Gallery.SelectAll();
+        args.Handled = true;
+    }
+    private void OnEscape(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_composing || _settingsVisible || EditingText) return;
+        Gallery.SelectedItems.Clear();
+        args.Handled = true;
+    }
+    private async void OnImportShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (!ImportButton.IsEnabled || _settingsVisible) return;
+        args.Handled = true;
+        await StartImportAsync();
+    }
+    private async void OnImport(object sender, RoutedEventArgs args) => await StartImportAsync();
+    private Task StartImportAsync()
+    {
+        if (_stopping || !_importing.IsCompleted || !ViewModel.IsReady) return Task.CompletedTask;
+        return _importing = PickAndImportAsync();
+    }
+    private async Task PickAndImportAsync()
+    {
         try
         {
             var picker = new FileOpenPicker(AppWindow.Id);
             foreach (var extension in new[] { ".png", ".jpg", ".jpeg", ".gif", ".webp" }) picker.FileTypeFilter.Add(extension);
             var files = await picker.PickMultipleFilesAsync();
-            var completed = 0;
-            foreach (var file in files)
-            {
-                _lifetime.Token.ThrowIfCancellationRequested();
-                Busy.IsActive = true;
-                Status.Text = $"正在导入 {++completed}/{files.Count}：{Path.GetFileName(file.Path)}";
-                var outcome = await _session!.ImportAsync(file.Path, _lifetime.Token);
-                if (outcome.Status == ImportStatus.RestoreRequired)
-                    throw new IOException("该图片已在回收站中，需要先恢复后才能重新导入。");
-            }
-            if (!_stopping && files.Count > 0) await RefreshAsync();
+            if (!_stopping) await ViewModel.ImportAsync(files.Select(file => file.Path).ToArray());
         }
         catch (Exception error)
         {
-            if (!_stopping) Status.Text = $"导入未完成：{error.Message}";
+            Trace.WriteLine(error);
+            ErrorBar.Message = Strings[Strings.ErrorKey(error)];
+            ErrorBar.IsOpen = true;
         }
-        finally
-        {
-            ImportButton.IsEnabled = !_stopping && _session is not null;
-            Busy.IsActive = false;
-        }
+    }
+    private async void OnRetry(object sender, RoutedEventArgs args)
+    {
+        if (_stopping) return;
+        if (ViewModel.IsReady) await ViewModel.RetryAsync();
+        else { _initialization = ViewModel.InitializeAsync(_root); await _initialization; }
     }
 
     private async void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -271,25 +362,23 @@ public sealed partial class MainWindow : Window
         if (_stopping) return;
         _stopping = true;
         Root.IsHitTestVisible = false;
-        Status.Text = "正在关闭表情库…";
         _lifetime.Cancel();
-        _queryCancellation?.Cancel();
+        ViewModel.RequestStop();
         try
         {
-            await _initialization;
-            await Task.WhenAll(_loading, _importing);
-            await Task.WhenAll(_thumbnails.Values.Select(work => work.Completion).ToArray());
-            _cursor?.Dispose();
-            if (_session is not null) await _session.DisposeAsync();
+            await Task.WhenAll(_initialization, _searching, _importing, Settings.PendingSave);
+            await ViewModel.DisposeAsync();
         }
         catch (Exception error) { Trace.WriteLine($"Library shutdown: {error}"); }
         finally
         {
             if (_scroll is not null) _scroll.ViewChanged -= OnViewChanged;
-            _queryCancellation?.Dispose();
+            Strings.PropertyChanged -= OnLanguageChanged;
+            ViewModel.PropertyChanged -= OnModelChanged;
+            ViewModel.CatalogChanged -= OnCatalogChanged;
+            ViewModel.ThumbnailInvalidated -= OnThumbnailInvalidated;
             _searchCancellation?.Dispose();
             _lifetime.Dispose();
-            _thumbnailSlots.Dispose();
             _canClose = true;
             Close();
         }

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <!-- Shared keys and copy match Android; desktop_* copy comes from macOS Localization.swift. -->
+  <data name="app_name" xml:space="preserve"><value>MemeDock</value></data>
+  <data name="tab_stickers" xml:space="preserve"><value>Stickers</value></data>
+  <data name="tab_collections" xml:space="preserve"><value>Collections</value></data>
+  <data name="cancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="retry" xml:space="preserve"><value>Retry</value></data>
+  <data name="message_dismiss" xml:space="preserve"><value>Dismiss</value></data>
+  <data name="library_add" xml:space="preserve"><value>Add</value></data>
+  <data name="library_search" xml:space="preserve"><value>Search stickers</value></data>
+  <data name="favorites_only" xml:space="preserve"><value>Starred</value></data>
+  <data name="filter_recent" xml:space="preserve"><value>Recent</value></data>
+  <data name="filter_all" xml:space="preserve"><value>All</value></data>
+  <data name="more_actions" xml:space="preserve"><value>More options</value></data>
+  <data name="library_empty" xml:space="preserve"><value>No stickers yet</value></data>
+  <data name="library_no_matches" xml:space="preserve"><value>No results found</value></data>
+  <data name="library_no_matches_hint" xml:space="preserve"><value>Try searching for different keywords</value></data>
+  <data name="library_load_title" xml:space="preserve"><value>Failed to load stickers</value></data>
+  <data name="starred_empty" xml:space="preserve"><value>No starred stickers</value></data>
+  <data name="retry_thumbnail" xml:space="preserve"><value>Reload</value></data>
+  <data name="import_preparing" xml:space="preserve"><value>Processing…</value></data>
+  <data name="import_running_progress" xml:space="preserve"><value>Importing {0} of {1}</value></data>
+  <data name="import_done" xml:space="preserve"><value>{0} stickers added</value></data>
+  <data name="import_restore_required" xml:space="preserve"><value>Item is currently in Trash</value></data>
+  <data name="collection_empty" xml:space="preserve"><value>Collection is empty</value></data>
+  <data name="tags_title" xml:space="preserve"><value>Tags</value></data>
+  <data name="tag_empty" xml:space="preserve"><value>No stickers with this tag</value></data>
+  <data name="settings_language" xml:space="preserve"><value>Language</value></data>
+  <data name="language_system" xml:space="preserve"><value>Follow system</value></data>
+  <data name="language_chinese" xml:space="preserve"><value>中文</value></data>
+  <data name="language_english" xml:space="preserve"><value>English</value></data>
+  <data name="settings_language_save_failed" xml:space="preserve"><value>Failed to save language settings. Please try again.</value></data>
+  <data name="settings_general" xml:space="preserve"><value>General</value></data>
+  <data name="failure_permission" xml:space="preserve"><value>Storage permission denied. Please try again.</value></data>
+  <data name="failure_io" xml:space="preserve"><value>File I/O error. Please try again.</value></data>
+  <data name="failure_full" xml:space="preserve"><value>Device storage is full</value></data>
+  <data name="failure_format" xml:space="preserve"><value>Unsupported image format</value></data>
+  <data name="failure_image" xml:space="preserve"><value>Corrupted image file</value></data>
+  <data name="failure_limit" xml:space="preserve"><value>Image exceeds size limit</value></data>
+  <data name="failure_busy" xml:space="preserve"><value>System busy. Please try again later.</value></data>
+  <data name="failure_missing" xml:space="preserve"><value>Image file not found</value></data>
+  <data name="failure_library" xml:space="preserve"><value>Failed to read library. Please try again later.</value></data>
+  <data name="failure_unknown" xml:space="preserve"><value>Operation failed. Please try again.</value></data>
+  <data name="failure_changed" xml:space="preserve"><value>Data changed. Please refresh and try again.</value></data>
+  <data name="failure_deleted" xml:space="preserve"><value>Item is already in Trash</value></data>
+  <data name="failure_input" xml:space="preserve"><value>Invalid input. Please check and try again.</value></data>
+  <data name="select_items" xml:space="preserve"><value>Select</value></data>
+  <data name="selection_count" xml:space="preserve"><value>{0} selected</value></data>
+  <data name="collection_count" xml:space="preserve"><value>{0} stickers</value></data>
+  <data name="finish_selection" xml:space="preserve"><value>Finish selection</value></data>
+  <data name="desktop_settings" xml:space="preserve"><value>Settings</value></data>
+  <data name="desktop_sort" xml:space="preserve"><value>Sort order</value></data>
+  <data name="desktop_sort_recent" xml:space="preserve"><value>Recently added</value></data>
+  <data name="desktop_sort_collection" xml:space="preserve"><value>Collection order</value></data>
+  <data name="desktop_select_all" xml:space="preserve"><value>Select all</value></data>
+  <data name="desktop_clear_selection" xml:space="preserve"><value>Clear selection</value></data>
+  <data name="desktop_selection_loaded_only" xml:space="preserve"><value>Select all covers loaded stickers only</value></data>
+  <data name="import_done_reused" xml:space="preserve"><value>{0} added, {1} already exist</value></data>
+  <data name="import_done_existing" xml:space="preserve"><value>All selected stickers already exist</value></data>
+  <data name="failure_batch" xml:space="preserve"><value>Maximum 200 items per import</value></data>
+  <data name="failure_color_profile" xml:space="preserve"><value>Color profile conversion unsupported. Please share as original.</value></data>
+</root>

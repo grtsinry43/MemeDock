@@ -1,4 +1,5 @@
 using MemeDock.Bridge;
+using MemeDock.Windows.Models;
 
 namespace MemeDock.Windows;
 
@@ -20,12 +21,12 @@ internal sealed class LibrarySession : IAsyncDisposable
         return new LibrarySession(library, limits.MaxFileBytes);
     });
 
-    public Task<StickerPage> QueryAsync(string text, QueryCursorHandle? cursor, CancellationToken cancellation)
+    public Task<StickerPage> QueryAsync(LibraryFilter filter, string text, StickerSort sort,
+        QueryCursorHandle? cursor, CancellationToken cancellation)
         => Task.Run(async () =>
         {
             cancellation.ThrowIfCancellationRequested();
-            var query = new StickerQuery(MemeDockNative.NewRequestId(), text, null, [], null,
-                false, StickerSort.Recent, 80, cursor);
+            var query = filter.Query(MemeDockNative.NewRequestId(), text, sort, cursor);
             using var request = _library.ListStickers(query);
             using var registration = cancellation.Register(() => request.Cancel());
             return await request.AwaitResult().ConfigureAwait(false);
@@ -39,7 +40,25 @@ internal sealed class LibrarySession : IAsyncDisposable
         return (await request.AwaitResult().ConfigureAwait(false)).Path;
     });
 
-    public Task<ImportOutcome> ImportAsync(string source, CancellationToken cancellation) => Task.Run(async () =>
+    public SubscriptionHandle Subscribe() => _library.Subscribe();
+
+    public Task<CollectionMetadata[]> CollectionsAsync(CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.Collections(false);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<TagMetadata[]> TagsAsync(CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.Tags(false);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<ImportOutcome> ImportAsync(string source, string? collectionId, CancellationToken cancellation) => Task.Run(async () =>
     {
         cancellation.ThrowIfCancellationRequested();
         using var create = _library.CreateImportInput();
@@ -59,13 +78,13 @@ internal sealed class LibrarySession : IAsyncDisposable
                 {
                     total += (ulong)read;
                     if (total > _maxInputBytes)
-                        throw new IOException("图片超过当前表情库允许的文件大小。");
+                        throw new BridgeException.Failure(ErrorCode.ResourceLimit, "Import exceeds max file bytes.");
                     await writer.WriteAsync(buffer.AsMemory(0, read), cancellation).ConfigureAwait(false);
                 }
                 await writer.FlushAsync(cancellation).ConfigureAwait(false);
             }
             cancellation.ThrowIfCancellationRequested();
-            using var request = _library.ImportStaged(input, new ImportOptions(Path.GetFileName(source), null, null));
+            using var request = _library.ImportStaged(input, new ImportOptions(Path.GetFileName(source), null, collectionId));
             submitted = true;
             using var registration = cancellation.Register(() => request.Cancel());
             return await request.AwaitResult().ConfigureAwait(false);
