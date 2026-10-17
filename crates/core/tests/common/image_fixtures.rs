@@ -25,10 +25,14 @@ fn riff_chunk(output: &mut Vec<u8>, name: &[u8; 4], data: &[u8]) -> TestResult {
 /// Synthetic lossless animation following Google's RIFF container specification.
 /// The first update occupies only a subrectangle of the transparent canvas.
 pub fn animated_webp() -> TestResult<Vec<u8>> {
+    animated_webp_with_alpha(128)
+}
+
+pub fn animated_webp_with_alpha(alpha: u8) -> TestResult<Vec<u8>> {
     let mut chunks = Vec::new();
     riff_chunk(&mut chunks, b"VP8X", &[0x12, 0, 0, 0, 39, 0, 0, 19, 0, 0])?;
     riff_chunk(&mut chunks, b"ANIM", &[0; 6])?;
-    for color in [[200, 10, 20, 128], [10, 200, 20, 255]] {
+    for color in [[200, 10, 20, alpha], [10, 200, 20, 255]] {
         let pixels = encoded(ImageFormat::WebP, 20, 10, color)?;
         let mut frame = vec![4, 0, 0, 3, 0, 0, 19, 0, 0, 9, 0, 0, 50, 0, 0, 2];
         assert_eq!(&pixels[12..16], b"VP8L");
@@ -57,6 +61,10 @@ fn png_chunk(output: &mut Vec<u8>, name: &[u8; 4], data: &[u8]) -> TestResult {
 }
 /// Two full frames, with sequence numbers and CRCs prescribed by PNG Third Edition.
 pub fn apng() -> TestResult<Vec<u8>> {
+    apng_with_plays(0)
+}
+
+pub fn apng_with_plays(plays: u32) -> TestResult<Vec<u8>> {
     let png = encoded(ImageFormat::Png, 40, 20, [200, 10, 20, 128])?;
     let mut chunks = Vec::new();
     let mut at = 8;
@@ -68,7 +76,7 @@ pub fn apng() -> TestResult<Vec<u8>> {
     let mut output = png[..8].to_vec();
     png_chunk(&mut output, b"IHDR", chunks[0].1)?;
     let mut animation = 2u32.to_be_bytes().to_vec();
-    animation.extend(0u32.to_be_bytes());
+    animation.extend(plays.to_be_bytes());
     png_chunk(&mut output, b"acTL", &animation)?;
     for sequence in [0u32, 1u32] {
         let mut frame = sequence.to_be_bytes().to_vec();

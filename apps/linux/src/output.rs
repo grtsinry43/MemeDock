@@ -82,6 +82,8 @@ pub fn preset_name(preset: ExportPreset) -> &'static str {
         ExportPreset::CompatiblePng => i18n::text(Key::ExportPng),
         ExportPreset::WhiteBackground => i18n::text(Key::ExportWhite),
         ExportPreset::SmallJpeg => i18n::text(Key::ExportSmall),
+        ExportPreset::CompatibleGif => "GIF",
+        ExportPreset::BestCompatibility => "PNG / GIF",
     }
 }
 
@@ -91,6 +93,8 @@ pub fn preset_hint(preset: ExportPreset) -> &'static str {
         ExportPreset::CompatiblePng => i18n::text(Key::ExportPngHint),
         ExportPreset::WhiteBackground => i18n::text(Key::ExportWhiteHint),
         ExportPreset::SmallJpeg => i18n::text(Key::ExportSmallHint),
+        ExportPreset::CompatibleGif => "GIF · 512 px",
+        ExportPreset::BestCompatibility => "PNG / GIF",
     }
 }
 

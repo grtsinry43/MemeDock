@@ -7,11 +7,11 @@ use std::{
     io::{self, Write},
 };
 
-struct BoundedWriter<'a> {
-    file: File,
-    remaining: u64,
-    control: &'a TaskControl,
-    exceeded: bool,
+pub(super) struct BoundedWriter<'a> {
+    pub(super) file: File,
+    pub(super) remaining: u64,
+    pub(super) control: &'a TaskControl,
+    pub(super) exceeded: bool,
 }
 impl Write for BoundedWriter<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
@@ -31,7 +31,11 @@ impl Write for BoundedWriter<'_> {
     }
 }
 
-fn resize(mut rgba: RgbaImage, edge: Option<u32>, control: &TaskControl) -> Result<RgbaImage> {
+pub(super) fn resize(
+    mut rgba: RgbaImage,
+    edge: Option<u32>,
+    control: &TaskControl,
+) -> Result<RgbaImage> {
     let Some(edge) = edge.filter(|edge| rgba.width().max(rgba.height()) > *edge) else {
         return Ok(rgba);
     };
@@ -71,7 +75,10 @@ pub(crate) fn encode(
     limits: &ResourceLimits,
     available: u64,
     control: &TaskControl,
-) -> Result<StagedFile> {
+) -> Result<(StagedFile, bool)> {
+    if options.preset() == memedock_domain::export::ExportPreset::CompatibleGif {
+        return super::gif_export::encode(original, blobs, limits, available, control);
+    }
     control.stage("decoding_export");
     let decoded = super::inspect::decode_export(original, limits, control)?;
     // Lanczos retains an f32 intermediate canvas in addition to RGBA source
@@ -86,7 +93,7 @@ pub(crate) fn encode(
             "export exceeds image working budget",
         ));
     }
-    let format = options.output_format(decoded.format);
+    let format = options.output_format(decoded.format, decoded.animated);
     let mut rgba = resize(decoded.image.into_rgba8(), options.max_edge(), control)?;
     if let Some(background) = options.background_rgba() {
         let background = background.to_be_bytes();
@@ -153,5 +160,5 @@ pub(crate) fn encode(
     if result.is_err() {
         pending.discard()?;
     }
-    result
+    result.map(|file| (file, false))
 }

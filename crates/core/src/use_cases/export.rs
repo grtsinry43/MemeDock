@@ -51,7 +51,7 @@ impl Library {
                     .get()
                     .checked_add(MIN_RETENTION_MS)
                     .ok_or_else(|| CoreError::internal("retention overflow"))?;
-                options.validate_source(asset.animated())?;
+                let options = options.resolve_source(asset.animated())?;
                 if let Some(mut record) = services
                     .db
                     .artifact_for_recipe(asset.hash(), &options.recipe())
@@ -60,30 +60,56 @@ impl Library {
                     let store = services.artifacts.store.clone();
                     let candidate = record.clone();
                     let check = control.clone();
-                    let verified = tokio::task::spawn_blocking(move || {
-                        store.verify(&candidate, || check.is_cancelled())
+                    let limits = services.config.limits.clone();
+                    let verified = tokio::task::spawn_blocking(move || -> Result<()> {
+                        let started = std::time::Instant::now();
+                        store.verify(&candidate, || check.is_cancelled())?;
+                        if options.preset() == ExportPreset::CompatibleGif {
+                            let animated = crate::images::gif_export::verify_cached(
+                                std::fs::File::open(store.path(&candidate))?,
+                                &limits,
+                                &check,
+                                started,
+                            )?;
+                            if animated != candidate.animated {
+                                return Err(CoreError::new(
+                                    ErrorCode::CorruptData,
+                                    "GIF cache metadata mismatch",
+                                ));
+                            }
+                        }
+                        Ok(())
                     })
                     .await?;
                     match verified {
                         Ok(())
                             if !record.deleting
-                                && record.format == options.output_format(asset.format())
-                                && record.animated
-                                    == (options.preset() == ExportPreset::Original
-                                        && asset.animated()) =>
+                                && record.format
+                                    == options.output_format(asset.format(), asset.animated())
+                                && (options.preset() == ExportPreset::CompatibleGif
+                                    || record.animated
+                                        == (options.preset() == ExportPreset::Original
+                                            && asset.animated())) =>
                         {
                             control.begin_commit()?;
                             record.retained_until = record.retained_until.max(until);
                             services.db.save_artifact(&record).await?;
                             return services.artifacts.lease(record);
                         }
-                        Err(memedock_storage::StorageError::Cancelled) => {
+                        Err(error) if error.code() == ErrorCode::Cancelled => {
                             return Err(CoreError::new(ErrorCode::Cancelled, "export cancelled"));
                         }
-                        Err(memedock_storage::StorageError::Io(e))
-                            if e.kind() != std::io::ErrorKind::NotFound =>
+                        Err(error)
+                            if !matches!(
+                                error.code(),
+                                ErrorCode::NotFound
+                                    | ErrorCode::CorruptData
+                                    | ErrorCode::InvalidImage
+                                    | ErrorCode::ResourceLimit
+                                    | ErrorCode::UnsupportedFormat
+                            ) =>
                         {
-                            return Err(e.into());
+                            return Err(error);
                         }
                         _ => {}
                     }
@@ -102,10 +128,13 @@ impl Library {
                     source_hash: asset.hash(),
                     output_hash: asset.hash(),
                     recipe: options.recipe(),
-                    format: options.output_format(asset.format()),
+                    format: options.output_format(asset.format(), asset.animated()),
                     byte_size: u64::try_from(asset.byte_size().get())
                         .map_err(|_| CoreError::internal("asset size overflow"))?,
-                    animated: options.preset() == ExportPreset::Original && asset.animated(),
+                    animated: matches!(
+                        options.preset(),
+                        ExportPreset::Original | ExportPreset::CompatibleGif
+                    ) && asset.animated(),
                     retained_until: until,
                     deleting: false,
                 };
@@ -150,10 +179,11 @@ impl Library {
                             check.is_cancelled()
                         })?;
                         let original = blobs.open_original(candidate.source_hash)?;
-                        let staged = crate::images::export::encode(
+                        let (staged, animated) = crate::images::export::encode(
                             original, &blobs, options, &limits, available, &check,
                         )?;
                         let mut output = candidate;
+                        output.animated = animated;
                         output.output_hash = staged.hash();
                         output.byte_size = staged.byte_size();
                         check.stage("publishing_export");
@@ -162,18 +192,22 @@ impl Library {
                                 .open_read()
                                 .map_err(CoreError::from)
                                 .and_then(|file| {
-                                    let verified = crate::images::inspect::decode_export(
-                                        file.try_clone()?,
-                                        &limits,
-                                        &check,
-                                    )?;
-                                    if verified.format != output.format || verified.animated {
-                                        return Err(CoreError::new(
-                                            ErrorCode::CorruptData,
-                                            "encoded output metadata mismatch",
-                                        ));
+                                    // GIF encoding already fully validated the animation
+                                    // within its deadline; static outputs are verified here.
+                                    if options.preset() != ExportPreset::CompatibleGif {
+                                        let verified = crate::images::inspect::decode_export(
+                                            file.try_clone()?,
+                                            &limits,
+                                            &check,
+                                        )?;
+                                        if verified.format != output.format || verified.animated {
+                                            return Err(CoreError::new(
+                                                ErrorCode::CorruptData,
+                                                "encoded output metadata mismatch",
+                                            ));
+                                        }
+                                        drop(verified);
                                     }
-                                    drop(verified);
                                     use std::io::{Seek, SeekFrom};
                                     let mut file = file;
                                     file.seek(SeekFrom::Start(0))?;

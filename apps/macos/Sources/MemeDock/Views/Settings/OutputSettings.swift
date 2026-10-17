@@ -9,9 +9,9 @@ struct OutputSettings: View {
     var body: some View {
         SettingsForm {
             Section {
-                presetRow(.outputCopy, detail: .outputCopyHint, selection: $preferences.copyPreset)
-                presetRow(.outputShare, detail: .outputShareHint, selection: $preferences.sharePreset)
-                presetRow(.outputDrag, detail: .outputDragHint, selection: $preferences.dragPreset)
+                presetRow(.outputCopy, detail: .outputCopyHint, selection: $preferences.copyPreset, animated: $preferences.copyAnimatedPreset)
+                presetRow(.outputShare, detail: .outputShareHint, selection: $preferences.sharePreset, animated: $preferences.shareAnimatedPreset)
+                presetRow(.outputDrag, detail: .outputDragHint, selection: $preferences.dragPreset, animated: $preferences.dragAnimatedPreset)
             } header: {
                 SettingsHeader(.outputDefaults)
             } footer: {
@@ -25,19 +25,27 @@ struct OutputSettings: View {
     private func presetRow(
         _ title: L10nKey,
         detail: L10nKey,
-        selection: Binding<ExportPreset>
+        selection: Binding<ExportPreset>, animated: Binding<ExportPreset>
     ) -> some View {
         LabeledContent {
             VStack(alignment: .trailing, spacing: 4) {
-                Picker(L10n.text(title), selection: selection) {
-                    ForEach(StickerExport.presets, id: \.self) { preset in
-                        Text(StickerExport.label(preset)).tag(preset)
+                HStack(spacing: 12) {
+                    Picker(L10n.text(.outputStatic), selection: selection) {
+                        ForEach(StickerExport.presets(animated: false), id: \.self) { preset in
+                            Text(StickerExport.label(preset)).tag(preset)
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    Picker(L10n.text(.outputAnimated), selection: animated) {
+                        ForEach(StickerExport.presets(animated: true), id: \.self) { preset in
+                            Text(StickerExport.label(preset)).tag(preset)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .fixedSize()
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .fixedSize()
-                Text(StickerExport.hint(selection.wrappedValue))
+                Text(selection.wrappedValue == animated.wrappedValue ? StickerExport.hint(selection.wrappedValue) : StickerExport.hint(selection.wrappedValue) + " · " + StickerExport.hint(animated.wrappedValue))
                     .font(MemeDockTypography.caption)
                     .foregroundStyle(MemeDockPalette(scheme).secondary)
                     .multilineTextAlignment(.trailing)

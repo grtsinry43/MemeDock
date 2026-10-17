@@ -20,7 +20,10 @@ pub(crate) fn error(e: image::ImageError) -> CoreError {
     };
     CoreError::caused(code, "image decoding failed", e)
 }
-fn bounds(decoder: &mut impl ImageDecoder, limits: &ResourceLimits) -> Result<(u32, u32)> {
+pub(super) fn bounds(
+    decoder: &mut impl ImageDecoder,
+    limits: &ResourceLimits,
+) -> Result<(u32, u32)> {
     let (w, h) = decoder.dimensions();
     let pixels = u64::from(w) * u64::from(h);
     // Animation composition and orientation may retain multiple RGBA canvases.
@@ -77,7 +80,7 @@ pub(crate) fn decode_export(
 ) -> Result<Decoded> {
     decode_internal(file, limits, control, false, true)
 }
-fn check_profile(decoder: &mut impl ImageDecoder, reject_profile: bool) -> Result<()> {
+pub(super) fn check_profile(decoder: &mut impl ImageDecoder, reject_profile: bool) -> Result<()> {
     if reject_profile && decoder.icc_profile().map_err(error)?.is_some() {
         return Err(CoreError::new(
             ErrorCode::UnsupportedColorProfile,

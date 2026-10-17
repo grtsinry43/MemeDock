@@ -390,7 +390,7 @@ private struct StickerCell: View {
         Button(L10n.text(.share)) { share() }
         .disabled(actions.busy)
         Menu(L10n.text(.exportPreset)) {
-            ExportOverridePicker(selection: $actions.override)
+            ExportOverridePicker(selection: $actions.override, animated: item.animated)
         }
         .disabled(actions.busy)
         Divider()

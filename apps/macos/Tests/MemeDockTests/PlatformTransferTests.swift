@@ -1,10 +1,32 @@
 import AppKit
 import XCTest
+import MemeDockBridge
 @testable import MemeDock
 
 /// Platform-side rules behind drag and Quick Look. The core has its own Rust
 /// tests; these cover what the macOS client decides before it reaches the core.
 final class PlatformTransferTests: XCTestCase {
+    func testBestCompatibilityIsAdaptiveAndMenusOnlyOfferApplicableChoices() {
+        XCTAssertEqual(StickerExport.presets(animated: true), [.bestCompatibility, .original])
+        XCTAssertEqual(StickerExport.presets(animated: false), [.bestCompatibility, .original, .whiteBackground, .smallJpeg])
+        XCTAssertEqual(StickerExport.preset(storageKey: "compatiblePng", animated: true), .bestCompatibility)
+        XCTAssertNil(StickerExport.preset(storageKey: "smallJpeg", animated: true))
+        let resolution = StickerExport.resolve(preset: .bestCompatibility, animated: true, firstFrame: false)
+        XCTAssertEqual(resolution.preset, .bestCompatibility)
+        XCTAssertEqual(resolution.animation, .preserve)
+        let options = StickerExport.options(resolution.preset, animation: resolution.animation)
+        XCTAssertNil(options.maxEdge) // Core chooses PNG 1024 / GIF 512.
+        XCTAssertNil(options.backgroundRgba)
+        XCTAssertTrue(options.stripMetadata)
+        let first = StickerExport.resolve(preset: .bestCompatibility, animated: true, firstFrame: true)
+        XCTAssertEqual(first.preset, .compatiblePng)
+        XCTAssertEqual(first.animation, .firstFrame)
+        XCTAssertEqual(StickerExport.resolve(preset: .bestCompatibility, animated: false, firstFrame: false).preset, .bestCompatibility)
+        XCTAssertNil(StickerExport.effectiveOverride(.smallJpeg, animated: true))
+        XCTAssertEqual(StickerExport.resolve(preset: .smallJpeg, animated: true, firstFrame: false).preset, .original)
+        XCTAssertEqual(StickerExport.fileExtension(forMime: "image/gif"), "gif")
+    }
+
     /// A file-backed provider offers exactly the types the drag machinery
     /// expects for a file (its own type and the two URL types) and answers
     /// both a file and data request from the bytes that are already on disk.
@@ -47,24 +69,82 @@ final class PlatformTransferTests: XCTestCase {
         wait(for: [copiedLoaded], timeout: 2)
     }
 
-    /// The drag start has to wait for the export: destinations read the file at
-    /// once and never wait for a promise.
-    func testDragExportWaitCarriesTheResult() throws {
-        let expected = try makeTemporaryFile(named: "ready.png", contents: makePNG())
-        let ready = DragExport(task: Task {
-            try await Task.sleep(nanoseconds: 50_000_000)
-            return expected
-        })
-        guard case let .success(url)? = ready.wait(timeout: 2) else {
-            return XCTFail("the export was not ready in time")
+    @MainActor
+    func testDragPreparationSerializesCancellationAndKeepsOnlyLatestRequest() async throws {
+        let drag = DragExport<String>()
+        let started = expectation(description: "first started")
+        let completed = expectation(description: "latest completed")
+        var release: CheckedContinuation<Void, Never>?
+        drag.prepare(key: "a") {
+            await withCheckedContinuation { release = $0; started.fulfill() }
+            return "stale"
         }
-        XCTAssertEqual(url, expected)
+        await fulfillment(of: [started], timeout: 2)
+        XCTAssertNil(drag.value(for: "a"))
+        drag.prepare(key: "b") { XCTFail("superseded request ran"); return "b" }
+        drag.prepare(key: "c") { return "ready" }
+        drag.completed = { key, result in
+            XCTAssertEqual(key, "c")
+            XCTAssertEqual(try? result.get(), "ready")
+            completed.fulfill()
+        }
+        XCTAssertNil(drag.value(for: "c"))
+        release?.resume()
+        await fulfillment(of: [completed], timeout: 2)
+        XCTAssertNil(drag.value(for: "a"))
+        XCTAssertEqual(drag.value(for: "c"), "ready")
+        drag.invalidate()
+        XCTAssertNil(drag.value(for: "c"))
+    }
 
-        let slow = DragExport(task: Task {
-            try await Task.sleep(nanoseconds: 2_000_000_000)
-            return expected
-        })
-        XCTAssertNil(slow.wait(timeout: 0.1))
+    @MainActor
+    func testDragPreparationReportsFailureWithoutReturningAnotherFormat() async {
+        let drag = DragExport<String>()
+        let completed = expectation(description: "failure")
+        drag.completed = { _, result in
+            if case .success = result { XCTFail("unexpected fallback") }
+            completed.fulfill()
+        }
+        drag.prepare(key: "gif") { throw NSError(domain: "test", code: 1) }
+        await fulfillment(of: [completed], timeout: 2)
+        XCTAssertNil(drag.value(for: "gif"))
+        XCTAssertNotNil(drag.failure(for: "gif"))
+    }
+
+    @MainActor
+    func testOutputDefaultsMigrateIndependentlyAndPreserveNewSelections() throws {
+        for (legacy, still, animated) in [
+            ("compatiblePng", ExportPreset.bestCompatibility, ExportPreset.bestCompatibility),
+            ("original", .original, .original),
+            ("whiteBackground", .whiteBackground, .original),
+            ("smallJpeg", .smallJpeg, .original),
+        ] {
+            let suite = "MemeDockTests-\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            for key in ["copyPreset", "sharePreset", "dragPreset"] { defaults.set(legacy, forKey: key) }
+            let preferences = Preferences(defaults: defaults)
+            XCTAssertEqual(preferences.copyPreset, still)
+            XCTAssertEqual(preferences.sharePreset, still)
+            XCTAssertEqual(preferences.dragPreset, still)
+            XCTAssertEqual(preferences.copyAnimatedPreset, animated)
+            XCTAssertEqual(preferences.shareAnimatedPreset, animated)
+            XCTAssertEqual(preferences.dragAnimatedPreset, animated)
+            preferences.copyAnimatedPreset = .original
+            let reloaded = Preferences(defaults: defaults)
+            XCTAssertEqual(reloaded.copyAnimatedPreset, .original)
+            XCTAssertEqual(reloaded.shareAnimatedPreset, animated)
+            XCTAssertEqual(defaults.string(forKey: "copyPreset"), legacy)
+        }
+        let suite = "MemeDockTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("compatiblePng", forKey: "copyPreset")
+        defaults.set("original", forKey: "copyPreset.static")
+        let interrupted = Preferences(defaults: defaults)
+        XCTAssertEqual(interrupted.copyPreset, .original)
+        XCTAssertEqual(interrupted.copyAnimatedPreset, .bestCompatibility)
+        XCTAssertEqual(interrupted.dragPreset, .bestCompatibility)
     }
 
     /// Quick Look reads the type from the file name, so the staged copy must

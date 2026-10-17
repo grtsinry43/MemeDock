@@ -10,8 +10,9 @@ enum StickerExport {
         let animation: AnimationPolicy
     }
 
-    /// Every preset, in the order the pickers list them.
-    static let presets: [ExportPreset] = [.original, .compatiblePng, .whiteBackground, .smallJpeg]
+    static func presets(animated: Bool) -> [ExportPreset] {
+        animated ? [.bestCompatibility, .original] : [.bestCompatibility, .original, .whiteBackground, .smallJpeg]
+    }
 
     /// The generated enum carries no raw value, so the stored defaults use
     /// these names. They are persisted and must not change.
@@ -21,11 +22,19 @@ enum StickerExport {
         case .compatiblePng: return "compatiblePng"
         case .whiteBackground: return "whiteBackground"
         case .smallJpeg: return "smallJpeg"
+        case .compatibleGif: return "compatibleGif"
+        case .bestCompatibility: return "bestCompatibility"
         }
     }
 
-    static func preset(storageKey: String?) -> ExportPreset? {
-        presets.first { self.storageKey($0) == storageKey }
+    static func preset(storageKey: String?, animated: Bool) -> ExportPreset? {
+        if storageKey == "compatiblePng" || storageKey == "compatibleGif" { return .bestCompatibility }
+        return presets(animated: animated).first { self.storageKey($0) == storageKey }
+    }
+
+    static func effectiveOverride(_ preset: ExportPreset?, animated: Bool) -> ExportPreset? {
+        guard let preset, presets(animated: animated).contains(preset) else { return nil }
+        return preset
     }
 
     /// The extension a Quick Look copy needs: the stored original has none.
@@ -49,12 +58,13 @@ enum StickerExport {
         )
     }
 
-    /// An animated original can only be handed over untouched, and asking for
-    /// the first frame flattens it. Everything else keeps the animation.
+    /// GIF preserves animation; the static presets keep animated originals
+    /// untouched until the user explicitly asks for the first frame.
     static func resolve(preset: ExportPreset, animated: Bool, firstFrame: Bool) -> Resolution {
         if firstFrame {
-            return Resolution(preset: preset == .original ? .compatiblePng : preset, animation: .firstFrame)
+            return Resolution(preset: .compatiblePng, animation: .firstFrame)
         }
+        if preset == .bestCompatibility { return Resolution(preset: preset, animation: .preserve) }
         if preset == .original || (animated && !firstFrame) {
             return Resolution(preset: .original, animation: .preserve)
         }
@@ -67,6 +77,8 @@ enum StickerExport {
         case .compatiblePng: return L10n.text(.exportCompatiblePng)
         case .whiteBackground: return L10n.text(.exportWhiteBackground)
         case .smallJpeg: return L10n.text(.exportSmallJpeg)
+        case .compatibleGif: return L10n.text(.exportCompatibleGif)
+        case .bestCompatibility: return L10n.text(.exportBestCompatibility)
         }
     }
 
@@ -76,21 +88,23 @@ enum StickerExport {
         case .compatiblePng: return L10n.text(.exportCompatiblePngHint)
         case .whiteBackground: return L10n.text(.exportWhiteBackgroundHint)
         case .smallJpeg: return L10n.text(.exportSmallJpegHint)
+        case .compatibleGif: return L10n.text(.exportCompatibleGifHint)
+        case .bestCompatibility: return L10n.text(.exportBestCompatibilityHint)
         }
     }
 
     private static func maxEdge(_ preset: ExportPreset) -> UInt32? {
         switch preset {
-        case .original, .whiteBackground: return nil
+        case .original, .whiteBackground, .bestCompatibility: return nil
         case .compatiblePng: return 1024
-        case .smallJpeg: return 512
+        case .smallJpeg, .compatibleGif: return 512
         }
     }
 
     private static func background(_ preset: ExportPreset) -> UInt32? {
         switch preset {
         case .whiteBackground, .smallJpeg: return 0xFFFF_FFFF
-        case .original, .compatiblePng: return nil
+        case .original, .compatiblePng, .compatibleGif, .bestCompatibility: return nil
         }
     }
 }

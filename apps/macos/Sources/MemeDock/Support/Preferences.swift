@@ -93,16 +93,19 @@ final class Preferences: ObservableObject {
     @Published var copyPreset: ExportPreset {
         didSet { persist() }
     }
+    @Published var copyAnimatedPreset: ExportPreset { didSet { persist() } }
     /// What sharing and saving hand over; both produce one file for somewhere
     /// else, so they share the choice.
     @Published var sharePreset: ExportPreset {
         didSet { persist() }
     }
+    @Published var shareAnimatedPreset: ExportPreset { didSet { persist() } }
     /// What a sticker dragged into another app hands over. The detail pane's
     /// temporary choice never changes it.
     @Published var dragPreset: ExportPreset {
         didSet { persist() }
     }
+    @Published var dragAnimatedPreset: ExportPreset { didSet { persist() } }
 
     /// How wide one grid tile aims to be, within `tileSizeRange`. A grid
     /// density is a display choice, so it survives relaunches.
@@ -130,9 +133,13 @@ final class Preferences: ObservableObject {
         self.defaults = defaults
         self.appearance = AppearanceMode(rawValue: defaults.string(forKey: Key.appearance) ?? "") ?? .system
         self.language = LanguageMode(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
-        self.copyPreset = StickerExport.preset(storageKey: defaults.string(forKey: Key.copyPreset)) ?? .compatiblePng
-        self.sharePreset = StickerExport.preset(storageKey: defaults.string(forKey: Key.sharePreset)) ?? .compatiblePng
-        self.dragPreset = StickerExport.preset(storageKey: defaults.string(forKey: Key.dragPreset)) ?? .compatiblePng
+        OutputDefaultsV0_1_0ToV0_1_2.migrate(defaults)
+        self.copyPreset = Self.loadOutput(defaults, Key.copyPreset, animated: false)
+        self.copyAnimatedPreset = Self.loadOutput(defaults, Key.copyPreset, animated: true)
+        self.sharePreset = Self.loadOutput(defaults, Key.sharePreset, animated: false)
+        self.shareAnimatedPreset = Self.loadOutput(defaults, Key.sharePreset, animated: true)
+        self.dragPreset = Self.loadOutput(defaults, Key.dragPreset, animated: false)
+        self.dragAnimatedPreset = Self.loadOutput(defaults, Key.dragPreset, animated: true)
         let storedSize = defaults.object(forKey: Key.tileSize) as? Double
         self.tileSize = min(
             Self.tileSizeRange.upperBound,
@@ -150,9 +157,39 @@ final class Preferences: ObservableObject {
     private func persist() {
         defaults.set(appearance.rawValue, forKey: Key.appearance)
         defaults.set(language.rawValue, forKey: Key.language)
-        defaults.set(StickerExport.storageKey(copyPreset), forKey: Key.copyPreset)
-        defaults.set(StickerExport.storageKey(sharePreset), forKey: Key.sharePreset)
-        defaults.set(StickerExport.storageKey(dragPreset), forKey: Key.dragPreset)
+        for (key, still, animated) in [(Key.copyPreset, copyPreset, copyAnimatedPreset), (Key.sharePreset, sharePreset, shareAnimatedPreset), (Key.dragPreset, dragPreset, dragAnimatedPreset)] {
+            defaults.set(StickerExport.storageKey(still), forKey: Self.outputKey(key, animated: false))
+            defaults.set(StickerExport.storageKey(animated), forKey: Self.outputKey(key, animated: true))
+        }
         defaults.set(Double(tileSize), forKey: Key.tileSize)
+    }
+
+    private static func outputKey(_ legacyKey: String, animated: Bool) -> String {
+        "\(legacyKey).\(animated ? "animated" : "static")"
+    }
+
+    private static func loadOutput(_ defaults: UserDefaults, _ key: String, animated: Bool) -> ExportPreset {
+        StickerExport.preset(storageKey: defaults.string(forKey: outputKey(key, animated: animated)), animated: animated) ?? .bestCompatibility
+    }
+
+    /// One transition from the initial release's preference shape to 0.1.2.
+    /// Each destination key is written independently, making interrupted and
+    /// repeated migration safe. Legacy keys remain intact; no downgrade promise.
+    @MainActor private enum OutputDefaultsV0_1_0ToV0_1_2 {
+        static func migrate(_ defaults: UserDefaults) {
+            for key in [Key.copyPreset, Key.sharePreset, Key.dragPreset] {
+                let old = defaults.string(forKey: key)
+                for animated in [false, true] {
+                    let destination = outputKey(key, animated: animated)
+                    guard defaults.object(forKey: destination) == nil else { continue }
+                    let preset: ExportPreset
+                    if old == "original" { preset = .original }
+                    else if old == "whiteBackground" || old == "smallJpeg" {
+                        preset = animated ? .original : (old == "whiteBackground" ? .whiteBackground : .smallJpeg)
+                    } else { preset = .bestCompatibility }
+                    defaults.set(StickerExport.storageKey(preset), forKey: destination)
+                }
+            }
+        }
     }
 }

@@ -9,17 +9,31 @@ import MemeDockBridge
 @MainActor
 final class StickerActions: ObservableObject {
     @Published private(set) var busy = false
+    @Published private(set) var preparingOutput = false
+    private var activeExport: ExportTask?
+
+    func cancelOutput() { _ = activeExport?.cancel() }
     /// A preset picked in the detail pane for this run of the app. It replaces
     /// the copy and share defaults while set; `nil` follows the settings.
     @Published var override: ExportPreset?
 
     /// What copying an image or a file hands over right now.
-    var copyPreset: ExportPreset { override ?? preferences.copyPreset }
+    func copyPreset(for item: StickerItem) -> ExportPreset {
+        StickerExport.effectiveOverride(override, animated: item.animated) ?? (item.animated ? preferences.copyAnimatedPreset : preferences.copyPreset)
+    }
     /// What sharing and saving hand over right now.
-    var sharePreset: ExportPreset { override ?? preferences.sharePreset }
+    func sharePreset(for item: StickerItem) -> ExportPreset {
+        StickerExport.effectiveOverride(override, animated: item.animated) ?? (item.animated ? preferences.shareAnimatedPreset : preferences.sharePreset)
+    }
     /// What a drag hands over; the detail pane's temporary choice never
     /// changes it.
-    var dragPreset: ExportPreset { preferences.dragPreset }
+    private func dragPreset(for item: StickerItem) -> ExportPreset {
+        item.animated ? preferences.dragAnimatedPreset : preferences.dragPreset
+    }
+
+    private let drag = DragExport<ArtifactLeaseHandle>()
+    private var dragPromptKey: String?
+    private var observations: Set<AnyCancellable> = []
 
     private let session: LibrarySession
     private let clipboard: ClipboardGuard
@@ -33,11 +47,32 @@ final class StickerActions: ObservableObject {
         self.session = session
         self.clipboard = clipboard
         self.status = status
+        preferences.objectWillChange.sink { [weak self] in
+            self?.drag.invalidate()
+            self?.objectWillChange.send()
+        }.store(in: &observations)
+        session.$phase.sink { [weak self] phase in
+            if phase != .ready { self?.drag.invalidate() }
+        }.store(in: &observations)
+        session.events.sink { [weak self] event in
+            switch event {
+            case .reload, .sticker: self?.drag.invalidate()
+            default: break
+            }
+        }.store(in: &observations)
+        drag.completed = { [weak self] key, result in
+            guard let self, self.dragPromptKey == key else { return }
+            self.dragPromptKey = nil
+            switch result {
+            case .success: self.status.show(.dragReady)
+            case let .failure(error): self.status.show(error)
+            }
+        }
     }
 
     func copyImage(_ item: StickerItem, firstFrame: Bool = false) async throws {
         try await run {
-            let lease = try await self.export(item, preset: self.copyPreset, firstFrame: firstFrame)
+            let lease = try await self.export(item, preset: self.copyPreset(for: item), firstFrame: firstFrame)
             let artifact = try lease.metadata()
             try await self.clipboard.install(lease: lease) { pasteboard in
                 try Self.write(artifact: artifact, representation: .image, to: pasteboard)
@@ -49,7 +84,7 @@ final class StickerActions: ObservableObject {
 
     func copyFile(_ item: StickerItem) async throws {
         try await run {
-            let lease = try await self.export(item, preset: self.copyPreset, firstFrame: false)
+            let lease = try await self.export(item, preset: self.copyPreset(for: item), firstFrame: false)
             let artifact = try lease.metadata()
             try await self.clipboard.install(lease: lease) { pasteboard in
                 try Self.write(artifact: artifact, representation: .file, to: pasteboard)
@@ -61,7 +96,7 @@ final class StickerActions: ObservableObject {
 
     func save(_ item: StickerItem, firstFrame: Bool = false) async throws {
         try await run {
-            let lease = try await self.export(item, preset: self.sharePreset, firstFrame: firstFrame)
+            let lease = try await self.export(item, preset: self.sharePreset(for: item), firstFrame: firstFrame)
             let artifact = try lease.metadata()
             guard let destination = try await Self.askDestination(name: artifact.fileName) else { return }
             try Self.replace(source: URL(fileURLWithPath: artifact.path), destination: destination)
@@ -72,7 +107,7 @@ final class StickerActions: ObservableObject {
 
     func share(_ item: StickerItem, firstFrame: Bool = false) async throws {
         try await run {
-            let lease = try await self.export(item, preset: self.sharePreset, firstFrame: firstFrame)
+            let lease = try await self.export(item, preset: self.sharePreset(for: item), firstFrame: firstFrame)
             let artifact = try lease.metadata()
             let url = URL(fileURLWithPath: artifact.path)
             guard let view = Self.anchorView() else { throw AppFailure(.errorInternal) }
@@ -89,53 +124,45 @@ final class StickerActions: ObservableObject {
     /// data immediately and ignore a promise. `NSItemProvider(contentsOf:)`
     /// then derives the file's types and serves its bytes.
     func dragProvider(for item: StickerItem) -> NSItemProvider {
-        guard let library = session.library else { return NSItemProvider() }
-        var outcome = exportedFile(
-            library: library,
-            id: item.id,
-            animated: item.animated,
-            preset: dragPreset,
-            timeout: 2
-        )
-        // A preset conversion can fail where the stored file is still usable.
-        if case .success? = outcome {} else {
-            outcome = exportedFile(
-                library: library,
-                id: item.id,
-                animated: item.animated,
-                preset: .original,
-                timeout: 1
-            )
+        guard session.library != nil, !item.isDeleted else { return NSItemProvider() }
+        let key = dragPreparationKey(for: item)
+        if let lease = drag.value(for: key), let artifact = try? lease.metadata(), FileManager.default.fileExists(atPath: artifact.path) {
+            _ = retain(lease)
+            return NSItemProvider(contentsOf: URL(fileURLWithPath: artifact.path)) ?? NSItemProvider()
         }
-        let fileURL: URL
-        switch outcome {
-        case let .success(url)?:
-            fileURL = url
-        case let .failure(error)?:
+        if drag.value(for: key) != nil { drag.invalidate() }
+        if let error = drag.failure(for: key) {
             status.show(error)
-            return NSItemProvider()
-        case nil:
-            status.show(L10n.text(.errorTimeout), isFailure: true)
-            return NSItemProvider()
+        } else {
+            dragPromptKey = key
+            status.show(.dragPreparing)
         }
-        return NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
+        prepareDrag(for: item)
+        return NSItemProvider()
     }
 
-    private func exportedFile(
-        library: LibraryHandle,
-        id: String,
-        animated: Bool,
-        preset: ExportPreset,
-        timeout: TimeInterval
-    ) -> Result<URL, Error>? {
-        let resolution = StickerExport.resolve(preset: preset, animated: animated, firstFrame: false)
+    func dragPreparationKey(for item: StickerItem) -> String {
+        "\(session.library.map { String(describing: ObjectIdentifier($0)) } ?? "closed"):\(item.id):\(item.sticker.lifecycle.generation):\(item.animated):\(StickerExport.storageKey(dragPreset(for: item)))"
+    }
+
+    func prepareDrag(for item: StickerItem) {
+        guard let library = session.library, !item.isDeleted, item.asset != nil else { return }
+        let key = dragPreparationKey(for: item)
+        let resolution = StickerExport.resolve(preset: dragPreset(for: item), animated: item.animated, firstFrame: false)
         let options = StickerExport.options(resolution.preset, animation: resolution.animation)
-        let export = DragExport(task: Task.detached(priority: .userInitiated) {
-            let lease = try await library.export(id: id, options: options).awaitResult()
-            let artifact = try lease.metadata()
-            return URL(fileURLWithPath: artifact.path)
-        })
-        return export.wait(timeout: timeout)
+        drag.prepare(key: key) {
+            let task = try library.export(id: item.id, options: options)
+            return try await withTaskCancellationHandler {
+                let lease = try await task.awaitResult()
+                try Task.checkCancellation()
+                return lease
+            } onCancel: { _ = task.cancel() }
+        }
+    }
+
+    func cancelDragPreparation(for item: StickerItem) {
+        let key = dragPreparationKey(for: item)
+        if dragPromptKey != key { drag.cancel(key: key) }
     }
 
     private enum Representation {
@@ -150,7 +177,13 @@ final class StickerActions: ObservableObject {
     ) async throws -> ArtifactLeaseHandle {
         let resolution = StickerExport.resolve(preset: preset, animated: item.animated, firstFrame: firstFrame)
         let options = StickerExport.options(resolution.preset, animation: resolution.animation)
-        let lease = try await session.requireLibrary().export(id: item.id, options: options).awaitResult()
+        let task = try session.requireLibrary().export(id: item.id, options: options)
+        activeExport = task
+        preparingOutput = true
+        defer { activeExport = nil; preparingOutput = false }
+        let lease = try await withTaskCancellationHandler {
+            try await task.awaitResult()
+        } onCancel: { _ = task.cancel() }
         return retain(lease)
     }
 

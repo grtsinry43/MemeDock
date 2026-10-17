@@ -350,14 +350,14 @@ struct StickerDetailPane: View {
         }
     }
 
-    private var actionsSection: some View {
+    @ViewBuilder private var actionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let item = detail.item {
                 Menu {
-                    ExportOverridePicker(selection: $actions.override)
+                    ExportOverridePicker(selection: $actions.override, animated: item.animated)
                 } label: {
                     HStack(spacing: 6) {
-                        Text(actions.override.map(StickerExport.label) ?? L10n.text(.followDefaults))
+                        Text(StickerExport.effectiveOverride(actions.override, animated: item.animated).map(StickerExport.label) ?? L10n.text(.followDefaults))
                             .font(MemeDockTypography.control)
                         Image(systemName: "chevron.down").font(.system(size: 10, weight: .medium))
                     }
@@ -366,9 +366,9 @@ struct StickerDetailPane: View {
                 .menuStyle(.button)
                 .buttonStyle(.plain)
                 .menuIndicator(.hidden)
-                .help(actions.override.map(StickerExport.hint) ?? L10n.text(.followDefaultsHint))
-                if item.animated, actions.copyPreset != .original || actions.sharePreset != .original {
-                    Text(L10n.text(.animatedUsesOriginal))
+                .help(StickerExport.effectiveOverride(actions.override, animated: item.animated).map(StickerExport.hint) ?? L10n.text(.followDefaultsHint))
+                if item.animated, actions.copyPreset(for: item) == .bestCompatibility || actions.sharePreset(for: item) == .bestCompatibility {
+                    Text(L10n.text(.exportAnimatedCompatibilityHint))
                         .font(MemeDockTypography.caption)
                         .foregroundStyle(MemeDockPalette(scheme).secondary)
                 }
@@ -409,6 +409,10 @@ struct StickerDetailPane: View {
             }
         }
         .disabled(actions.busy || detail.loading || detail.sticker?.originalPath == nil)
+        if actions.preparingOutput {
+            Button(L10n.text(.cancel)) { actions.cancelOutput() }
+                .buttonStyle(.borderless)
+        }
     }
 
     private func actionIcon(_ title: L10nKey, _ symbol: String) -> some View {
@@ -506,16 +510,25 @@ struct StickerDetailPane: View {
 /// share for the rest of this run, or to go back to the settings' defaults.
 struct ExportOverridePicker: View {
     @Binding var selection: ExportPreset?
+    let animated: Bool
 
     var body: some View {
-        Picker(L10n.text(.exportPreset), selection: $selection) {
+        Picker(L10n.text(.exportPreset), selection: Binding(
+            get: { StickerExport.effectiveOverride(selection, animated: animated) },
+            set: { selection = $0 }
+        )) {
             Text(L10n.text(.followDefaults)).tag(ExportPreset?.none)
             Divider()
-            ForEach(StickerExport.presets, id: \.self) { preset in
+            ForEach(StickerExport.presets(animated: animated), id: \.self) { preset in
                 Text(StickerExport.label(preset)).tag(ExportPreset?.some(preset))
             }
         }
         .pickerStyle(.inline)
+        if animated && selection == .bestCompatibility {
+            Text(L10n.text(.exportAnimatedCompatibilityHint))
+                .font(MemeDockTypography.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

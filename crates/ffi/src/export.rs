@@ -10,6 +10,8 @@ pub enum ExportPreset {
     CompatiblePng,
     WhiteBackground,
     SmallJpeg,
+    CompatibleGif,
+    BestCompatibility,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum AnimationPolicy {
@@ -34,6 +36,8 @@ impl TryFrom<ExportOptions> for memedock_domain::export::ExportOptions {
                 ExportPreset::CompatiblePng => d::ExportPreset::CompatiblePng,
                 ExportPreset::WhiteBackground => d::ExportPreset::WhiteBackground,
                 ExportPreset::SmallJpeg => d::ExportPreset::SmallJpeg,
+                ExportPreset::CompatibleGif => d::ExportPreset::CompatibleGif,
+                ExportPreset::BestCompatibility => d::ExportPreset::BestCompatibility,
             },
             v.max_edge,
             v.background_rgba,

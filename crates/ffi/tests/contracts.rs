@@ -9,6 +9,54 @@ use memedock_domain::{
 };
 use memedock_ffi::*;
 
+#[test]
+fn gif_options_cross_the_bridge_and_reject_flattening() -> TestResult {
+    let options = || ExportOptions {
+        preset: ExportPreset::CompatibleGif,
+        max_edge: Some(512),
+        background_rgba: None,
+        strip_metadata: true,
+        animation: AnimationPolicy::Preserve,
+    };
+    let domain = memedock_domain::export::ExportOptions::try_from(options())?;
+    assert_eq!(
+        domain.preset(),
+        memedock_domain::export::ExportPreset::CompatibleGif
+    );
+    domain.validate_source(true)?;
+    let mut invalid = options();
+    invalid.animation = AnimationPolicy::FirstFrame;
+    assert_eq!(
+        memedock_domain::export::ExportOptions::try_from(invalid)
+            .err()
+            .ok_or("accepted first frame GIF")?
+            .code(),
+        ErrorCode::InvalidInput
+    );
+    Ok(())
+}
+
+#[test]
+fn best_compatibility_crosses_ffi_as_an_adaptive_policy() -> TestResult {
+    let options = ExportOptions {
+        preset: ExportPreset::BestCompatibility,
+        max_edge: None,
+        background_rgba: None,
+        strip_metadata: true,
+        animation: AnimationPolicy::Preserve,
+    };
+    let domain = memedock_domain::export::ExportOptions::try_from(options)?;
+    assert_eq!(
+        domain.resolve_source(true)?.preset(),
+        memedock_domain::export::ExportPreset::CompatibleGif
+    );
+    assert_eq!(
+        domain.resolve_source(false)?.preset(),
+        memedock_domain::export::ExportPreset::CompatiblePng
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn metadata_conversions_preserve_validated_domain_fields() -> TestResult {
     let dir = tempfile::tempdir()?;

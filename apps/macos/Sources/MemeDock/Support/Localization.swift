@@ -23,8 +23,8 @@ enum L10nKey: String {
     case checkpointCreated, exportsCleaned, imageCopied, fileCopied, saved, shareLaunched
     case importDone, importDoneReused, importDonePartial, importStopped, importFailed, importPreparing
     case importDropHere, importDropHint, directorySkipped, restoreRequired, thumbnailFailed, busy
-    case exportOriginal, exportCompatiblePng, exportWhiteBackground, exportSmallJpeg
-    case exportOriginalHint, exportCompatiblePngHint, exportWhiteBackgroundHint, exportSmallJpegHint
+    case exportOriginal, exportCompatiblePng, exportWhiteBackground, exportSmallJpeg, exportCompatibleGif
+    case exportOriginalHint, exportCompatiblePngHint, exportWhiteBackgroundHint, exportSmallJpegHint, exportCompatibleGifHint
     case exportPreset, export
     case errorNetwork, errorTimeout, errorUnauthorized, errorRateLimited, errorInvalidInput
     case errorUnsupportedFormat, errorUnsupportedColorProfile, errorInvalidImage, errorResourceLimit
@@ -50,6 +50,8 @@ enum L10nKey: String {
     case outputTab, backupTab, about
     case outputDefaults, outputCopy, outputCopyHint, outputShare, outputShareHint, outputFooter
     case outputDrag, outputDragHint
+    case outputStatic, outputAnimated, exportBestCompatibility, exportBestCompatibilityHint, exportAnimatedCompatibilityHint
+    case dragPreparing, dragReady
     case followDefaults, followDefaultsHint
     case tokenSaved, tokenNotSaved, forget, importFromTelegram, importFromTelegramHint, telegramSettingsHint
     case open, backUp, backupSavedTo, restoreHintShort, chooseFile, restoreMode, discard
@@ -108,6 +110,8 @@ enum L10n {
         .exportCompatiblePngHint: "Flatten to PNG at up to 1024 px",
         .exportWhiteBackgroundHint: "Opaque PNG for apps that ignore transparency",
         .exportSmallJpegHint: "512 px JPEG for size-limited targets",
+        .exportCompatibleGif: "Compatible GIF",
+        .exportCompatibleGifHint: "Animated GIF up to 512 px; colors and transparent edges may change",
         .exportPreset: "Format", .export: "Export",
         .errorNetwork: "The network is unavailable", .errorTimeout: "The request timed out",
         .errorUnauthorized: "Credentials are missing or rejected", .errorRateLimited: "Too many requests",
@@ -174,7 +178,13 @@ enum L10n {
         .outputCopy: "Copy", .outputCopyHint: "Copy image, copy file and ⌘C",
         .outputShare: "Share and save", .outputShareHint: "The share menu and Save as",
         .outputDrag: "Drag", .outputDragHint: "Files dragged into other apps",
-        .outputFooter: "Animations always keep their original format; only Copy first frame turns them into a still image. Dragging uses its own format. The format menu in the detail pane can override copy and share until the app quits.",
+        .outputFooter: "Best compatibility produces PNG for still images and GIF for animations. The format menu temporarily overrides copy and share. Dragging uses its own defaults and prepares the file before hand-off.",
+        .outputStatic: "Still", .outputAnimated: "Animated",
+        .exportBestCompatibility: "Best compatibility",
+        .exportBestCompatibilityHint: "Still: PNG up to 1024 px; animated: GIF up to 512 px / 30 FPS",
+        .exportAnimatedCompatibilityHint: "GIF up to 512 px / 30 FPS; colors and transparent edges may change",
+        .dragPreparing: "Preparing the file for dragging. Please try again when ready.",
+        .dragReady: "File ready. You can drag it now.",
         .followDefaults: "Use defaults", .followDefaultsHint: "Copy and share use the formats chosen in Settings",
         .tokenSaved: "Saved in the keychain", .tokenNotSaved: "Not saved", .forget: "Forget",
         .importFromTelegram: "Import from Telegram",
@@ -246,6 +256,8 @@ enum L10n {
         .exportCompatiblePngHint: "转换为最长边 1024 的 PNG",
         .exportWhiteBackgroundHint: "不透明 PNG，适合不识别透明的应用",
         .exportSmallJpegHint: "最长边 512 的 JPEG，适合有体积限制的场景",
+        .exportCompatibleGif: "兼容 GIF",
+        .exportCompatibleGifHint: "保留动画，最长边 512 像素；颜色和透明边缘可能变化",
         .exportPreset: "格式", .export: "导出",
         .errorNetwork: "网络不可用", .errorTimeout: "请求超时",
         .errorUnauthorized: "凭据缺失或无效", .errorRateLimited: "请求过于频繁",
@@ -310,7 +322,13 @@ enum L10n {
         .outputCopy: "复制", .outputCopyHint: "复制图片、复制文件和 ⌘C",
         .outputShare: "分享与另存为", .outputShareHint: "分享菜单和另存为",
         .outputDrag: "拖拽", .outputDragHint: "拖到其他应用时的格式",
-        .outputFooter: "动图始终保留原格式，只有“复制首帧”会转换为静图。拖拽使用自己的格式。详情栏的格式菜单可以临时覆盖复制与分享，直到退出应用。",
+        .outputFooter: "最佳兼容会将静态图片转为 PNG，动图转为 GIF。素材的格式菜单可以临时覆盖复制与分享。拖拽使用独立的默认设置，并提前准备文件。",
+        .outputStatic: "静态", .outputAnimated: "动图",
+        .exportBestCompatibility: "最佳兼容",
+        .exportBestCompatibilityHint: "静态：最长边 1024 的 PNG；动图：最长边 512、最高 30 FPS 的 GIF",
+        .exportAnimatedCompatibilityHint: "输出最长边 512、最高 30 FPS 的 GIF；颜色和透明边缘可能变化",
+        .dragPreparing: "正在准备拖拽文件，就绪后请再拖一次",
+        .dragReady: "文件已就绪，现在可以拖拽",
         .followDefaults: "跟随默认", .followDefaultsHint: "复制与分享使用设置中的默认格式",
         .tokenSaved: "已保存在钥匙串", .tokenNotSaved: "未保存", .forget: "清除",
         .importFromTelegram: "从 Telegram 导入",

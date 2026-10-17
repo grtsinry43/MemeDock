@@ -5,6 +5,318 @@ use memedock_domain::export::{AnimationPolicy, ExportOptions, ExportPreset};
 #[path = "common/image_fixtures.rs"]
 mod image_fixtures;
 
+fn gif_options() -> ExportOptions {
+    ExportOptions::for_preset(ExportPreset::CompatibleGif, AnimationPolicy::Preserve)
+}
+
+fn timed_gif(
+    width: u32,
+    height: u32,
+    delays: &[u32],
+    repeat: Option<image::codecs::gif::Repeat>,
+) -> TestResult<Vec<u8>> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = image::codecs::gif::GifEncoder::new_with_speed(&mut bytes, 10);
+        if let Some(repeat) = repeat {
+            encoder.set_repeat(repeat)?;
+        }
+        for (i, delay) in delays.iter().enumerate() {
+            let pixels = image::RgbaImage::from_fn(width, height, |x, _| {
+                if (x < width / 2) == i.is_multiple_of(2) {
+                    image::Rgba([200, 10, 20, 255])
+                } else {
+                    image::Rgba([0; 4])
+                }
+            });
+            encoder.encode_frame(image::Frame::from_parts(
+                pixels,
+                0,
+                0,
+                image::Delay::from_numer_denom_ms(*delay, 1),
+            ))?;
+        }
+    }
+    Ok(bytes)
+}
+
+fn gif_repetitions(bytes: &[u8]) -> Option<u16> {
+    bytes
+        .windows(11)
+        .position(|window| window == b"NETSCAPE2.0")
+        .map(|at| u16::from_le_bytes([bytes[at + 13], bytes[at + 14]]))
+}
+
+#[tokio::test]
+async fn gif_resizes_preserves_disposal_timing_repetition_and_original_across_restart() -> TestResult
+{
+    use image::AnimationDecoder;
+    let dir = tempfile::tempdir()?;
+    let settings = config(dir.path());
+    let library = Library::open(settings.clone()).await?;
+    let bytes = timed_gif(
+        1024,
+        512,
+        &[40, 60],
+        Some(image::codecs::gif::Repeat::Finite(3)),
+    )?;
+    let id = import_real(&library, &bytes).await?;
+    let output = library.export(id, gif_options())?.wait().await?;
+    let metadata = output.metadata().clone();
+    assert_eq!(metadata.mime, "image/gif");
+    assert_eq!(
+        metadata.path.extension().and_then(|v| v.to_str()),
+        Some("gif")
+    );
+    assert!(metadata.animated);
+    let result = std::fs::read(&metadata.path)?;
+    assert_eq!(gif_repetitions(&result), Some(3));
+    let frames = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(result))?
+        .into_frames()
+        .collect_frames()?;
+    assert_eq!(frames.len(), 2);
+    assert_eq!(frames[0].buffer().dimensions(), (512, 256));
+    assert_eq!(
+        frames
+            .iter()
+            .map(|f| f.delay().numer_denom_ms().0)
+            .collect::<Vec<_>>(),
+        [40, 60]
+    );
+    assert_eq!(frames[0].buffer().get_pixel(100, 100).0, [200, 10, 20, 255]);
+    assert_eq!(frames[1].buffer().get_pixel(100, 100)[3], 0);
+    assert_eq!(frames[1].buffer().get_pixel(400, 100).0, [200, 10, 20, 255]);
+    assert_eq!(
+        std::fs::read(&library.export_original(id)?.wait().await?.metadata().path)?,
+        bytes
+    );
+    assert_eq!(
+        library
+            .export(id, gif_options())?
+            .wait()
+            .await?
+            .metadata()
+            .id,
+        metadata.id
+    );
+    library.prepare_handoff(output)?.wait().await?;
+    library.close().await?;
+    let library = Library::open(settings).await?;
+    assert_eq!(
+        library
+            .export(id, gif_options())?
+            .wait()
+            .await?
+            .metadata()
+            .id,
+        metadata.id
+    );
+    library.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn gif_converts_composed_webp_and_apng_without_upscaling() -> TestResult {
+    use image::AnimationDecoder;
+    let dir = tempfile::tempdir()?;
+    let library = Library::open(config(dir.path())).await?;
+    let mut finite_webp = image_fixtures::animated_webp()?;
+    finite_webp[42..44].copy_from_slice(&4u16.to_le_bytes());
+    for (bytes, repeats, outside_alpha) in [
+        (image_fixtures::animated_webp()?, Some(0), 0),
+        (finite_webp, Some(3), 0),
+        (image_fixtures::apng()?, Some(0), 255),
+        (image_fixtures::apng_with_plays(1)?, None, 255),
+        (image_fixtures::apng_with_plays(5)?, Some(4), 255),
+        (timed_gif(40, 20, &[40, 60], None)?, None, 0),
+    ] {
+        let id = import_real(&library, &bytes).await?;
+        let output = library.export(id, gif_options())?.wait().await?;
+        let encoded = std::fs::read(&output.metadata().path)?;
+        assert_eq!(gif_repetitions(&encoded), repeats);
+        let frames = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(encoded))?
+            .into_frames()
+            .collect_frames()?;
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].buffer().dimensions(), (40, 20));
+        assert_eq!(frames[0].buffer().get_pixel(10, 10).0, [200, 10, 20, 255]);
+        assert_eq!(frames[0].buffer().get_pixel(30, 15)[3], outside_alpha);
+    }
+    library.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn gif_threshold_and_cache_metadata_are_verified() -> TestResult {
+    use image::AnimationDecoder;
+    let dir = tempfile::tempdir()?;
+    let settings = config(dir.path());
+    let library = Library::open(settings.clone()).await?;
+    let id = import_real(&library, &image_fixtures::animated_webp_with_alpha(127)?).await?;
+    let output = library.export(id, gif_options())?.wait().await?;
+    let frames = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(
+        std::fs::File::open(&output.metadata().path)?,
+    ))?
+    .into_frames()
+    .collect_frames()?;
+    assert_eq!(frames[0].buffer().get_pixel(10, 10)[3], 0);
+    assert_eq!(frames[1].buffer().get_pixel(10, 10).0, [10, 200, 20, 255]);
+    let old_id = output.metadata().id;
+    let db =
+        memedock_storage::LibraryDatabase::open(settings.data_dir.join("library.sqlite")).await?;
+    let mut record = db.artifact_by_id(old_id).await?.ok_or("record")?;
+    record.animated = false;
+    db.save_artifact(&record).await?;
+    assert_eq!(
+        library
+            .export(id, gif_options())?
+            .wait()
+            .await
+            .err()
+            .ok_or("metadata corruption")?
+            .code(),
+        ErrorCode::CorruptData
+    );
+    drop(output);
+    let replacement = library.export(id, gif_options())?.wait().await?;
+    assert_ne!(replacement.metadata().id, old_id);
+    assert!(replacement.metadata().animated);
+    db.close().await?;
+    library.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn gif_rejects_overlong_too_many_frames_zero_delays_and_cleans_staging() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let settings = config(dir.path());
+    let library = Library::open(settings.clone()).await?;
+    for (delays, code) in [
+        (vec![15_000, 15_010], ErrorCode::ResourceLimit),
+        (vec![10; 1801], ErrorCode::ResourceLimit),
+        (vec![0, 10], ErrorCode::UnsupportedFormat),
+    ] {
+        let id = import_real(&library, &timed_gif(2, 1, &delays, None)?).await?;
+        let error = library
+            .export(id, gif_options())?
+            .wait()
+            .await
+            .err()
+            .ok_or("expected GIF limit")?;
+        assert_eq!(error.code(), code);
+        assert_eq!(std::fs::read_dir(&settings.export_dir)?.count(), 0);
+        assert_eq!(
+            std::fs::read_dir(settings.data_dir.join("staging"))?.count(),
+            0
+        );
+    }
+    library.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn gif_quota_and_cancellation_never_publish_partial_files() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut settings = config(dir.path());
+    settings.limits.export_budget_bytes = 32;
+    let library = Library::open(settings.clone()).await?;
+    let id = import_real(&library, &image_fixtures::animated_webp()?).await?;
+    assert_eq!(
+        library
+            .export(id, gif_options())?
+            .wait()
+            .await
+            .err()
+            .ok_or("quota")?
+            .code(),
+        ErrorCode::ResourceLimit
+    );
+    let task = library.export(id, gif_options())?;
+    task.cancel();
+    assert_eq!(
+        task.wait().await.err().ok_or("cancel")?.code(),
+        ErrorCode::Cancelled
+    );
+    assert_eq!(std::fs::read_dir(&settings.export_dir)?.count(), 0);
+    assert_eq!(
+        std::fs::read_dir(settings.data_dir.join("staging"))?.count(),
+        0
+    );
+    library.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn best_compatibility_selects_formats_and_caps_frames_without_changing_duration() -> TestResult
+{
+    use image::AnimationDecoder;
+    let dir = tempfile::tempdir()?;
+    let library = Library::open(config(dir.path())).await?;
+    let options =
+        ExportOptions::for_preset(ExportPreset::BestCompatibility, AnimationPolicy::Preserve);
+    let still = import_real(
+        &library,
+        &image_fixtures::encoded(image::ImageFormat::WebP, 1200, 600, [20, 80, 180, 128])?,
+    )
+    .await?;
+    let output = library.export(still, options)?.wait().await?;
+    assert_eq!(output.metadata().mime, "image/png");
+    assert_eq!(image::open(&output.metadata().path)?.width(), 1024);
+    // WebP retains millisecond timing; GIF fixtures quantize their input to 10 ms.
+    let mut source = image_fixtures::animated_webp()?;
+    // Two high-rate WebP frames, each 10 ms: output may collapse to one display frame.
+    let mut at = 12;
+    while at + 8 <= source.len() {
+        let len = u32::from_le_bytes(source[at + 4..at + 8].try_into()?) as usize;
+        if &source[at..at + 4] == b"ANMF" {
+            source[at + 20..at + 23].copy_from_slice(&[10, 0, 0]);
+        }
+        at += 8 + len + (len % 2);
+    }
+    let short = import_real(&library, &source).await?;
+    let output = library.export(short, options)?.wait().await?;
+    assert_eq!(output.metadata().mime, "image/gif");
+    assert!(!output.metadata().animated);
+    assert_eq!(
+        library.export(short, options)?.wait().await?.metadata().id,
+        output.metadata().id
+    );
+    let frames = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(
+        std::fs::File::open(&output.metadata().path)?,
+    ))?
+    .into_frames()
+    .collect_frames()?;
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].delay().numer_denom_ms(), (20, 1));
+    let animated = import_real(&library, &timed_gif(40, 20, &[10; 100], None)?).await?;
+    let output = library.export(animated, options)?.wait().await?;
+    let frames = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(
+        std::fs::File::open(&output.metadata().path)?,
+    ))?
+    .into_frames()
+    .collect_frames()?;
+    assert_eq!(frames.len(), 30);
+    assert_eq!(
+        frames
+            .iter()
+            .map(|f| f.delay().numer_denom_ms().0)
+            .sum::<u32>(),
+        1000
+    );
+    assert_eq!(frames[0].buffer().get_pixel(10, 10).0, [200, 10, 20, 255]);
+    let first = library
+        .export(
+            animated,
+            ExportOptions::for_preset(ExportPreset::BestCompatibility, AnimationPolicy::FirstFrame),
+        )?
+        .wait()
+        .await?;
+    assert_eq!(first.metadata().mime, "image/png");
+    assert!(!first.metadata().animated);
+    library.close().await?;
+    Ok(())
+}
+
 async fn import_real(
     library: &Library,
     bytes: &[u8],

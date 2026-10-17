@@ -9,6 +9,8 @@ pub enum ExportPreset {
     CompatiblePng,
     WhiteBackground,
     SmallJpeg,
+    CompatibleGif,
+    BestCompatibility,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,16 +47,18 @@ impl ExportOptions {
         Self {
             preset,
             max_edge: match preset {
-                ExportPreset::Original | ExportPreset::WhiteBackground => None,
+                ExportPreset::Original
+                | ExportPreset::WhiteBackground
+                | ExportPreset::BestCompatibility => None,
                 ExportPreset::CompatiblePng => Some(1024),
-                ExportPreset::SmallJpeg => Some(512),
+                ExportPreset::SmallJpeg | ExportPreset::CompatibleGif => Some(512),
             },
             background_rgba: match preset {
                 ExportPreset::WhiteBackground | ExportPreset::SmallJpeg => Some(0xffff_ffff),
                 _ => None,
             },
             strip_metadata: !matches!(preset, ExportPreset::Original),
-            animation: if matches!(preset, ExportPreset::Original) {
+            animation: if matches!(preset, ExportPreset::Original | ExportPreset::CompatibleGif) {
                 AnimationPolicy::Preserve
             } else {
                 animation
@@ -71,6 +75,21 @@ impl ExportOptions {
     ) -> Result<Self, DomainError> {
         if max_edge == Some(0) {
             return Err(DomainError::InvalidValue("export max_edge"));
+        }
+        if preset == ExportPreset::BestCompatibility
+            && (max_edge.is_some() || background_rgba.is_some() || !strip_metadata)
+        {
+            return Err(DomainError::InvalidValue(
+                "best compatibility export options",
+            ));
+        }
+        if preset == ExportPreset::CompatibleGif
+            && (max_edge != Some(512)
+                || background_rgba.is_some()
+                || !strip_metadata
+                || animation != AnimationPolicy::Preserve)
+        {
+            return Err(DomainError::InvalidValue("GIF export options"));
         }
         if matches!(preset, ExportPreset::Original) {
             if max_edge.is_some()
@@ -106,6 +125,16 @@ impl ExportOptions {
     }
 
     pub fn validate_source(self, animated: bool) -> Result<(), DomainError> {
+        if self.preset == ExportPreset::BestCompatibility {
+            return Ok(());
+        }
+        if self.preset == ExportPreset::CompatibleGif {
+            return if animated {
+                Ok(())
+            } else {
+                Err(DomainError::InvalidValue("GIF export requires animation"))
+            };
+        }
         if animated
             && self.preset != ExportPreset::Original
             && self.animation != AnimationPolicy::FirstFrame
@@ -115,6 +144,22 @@ impl ExportOptions {
             ));
         }
         Ok(())
+    }
+    /// Resolve adaptive policy in the domain, before cache lookup or encoding.
+    /// Legacy PNG requests retain their explicitly static behavior.
+    pub fn resolve_source(self, animated: bool) -> Result<Self, DomainError> {
+        self.validate_source(animated)?;
+        if self.preset != ExportPreset::BestCompatibility {
+            return Ok(self);
+        }
+        Ok(Self::for_preset(
+            if animated && self.animation == AnimationPolicy::Preserve {
+                ExportPreset::CompatibleGif
+            } else {
+                ExportPreset::CompatiblePng
+            },
+            self.animation,
+        ))
     }
     pub const fn preset(self) -> ExportPreset {
         self.preset
@@ -128,10 +173,16 @@ impl ExportOptions {
     pub const fn animation(self) -> AnimationPolicy {
         self.animation
     }
-    pub const fn output_format(self, source: ImageFormat) -> ImageFormat {
+    pub const fn output_format(self, source: ImageFormat, animated: bool) -> ImageFormat {
         match self.preset {
             ExportPreset::Original => source,
             ExportPreset::SmallJpeg => ImageFormat::Jpeg,
+            ExportPreset::CompatibleGif => ImageFormat::Gif,
+            ExportPreset::BestCompatibility
+                if animated && matches!(self.animation, AnimationPolicy::Preserve) =>
+            {
+                ImageFormat::Gif
+            }
             _ => ImageFormat::Png,
         }
     }
@@ -141,6 +192,13 @@ impl ExportOptions {
         if self.preset == ExportPreset::Original {
             return "original-v1".into();
         }
+        if self.preset == ExportPreset::CompatibleGif {
+            return "gif-v2:edge=512:resize=lanczos3:alpha=128:fps=max30:timing=cumulative-centiseconds:repeat=source:quantizer=neuquant:speed=10:metadata=strip".into();
+        }
+        if self.preset == ExportPreset::BestCompatibility {
+            return "best-compatibility-v1:static=png1024:animated=gif512-max30:metadata=strip"
+                .into();
+        }
         format!(
             "derived-v1:{}:edge={}:rgba={}:metadata=strip:animation={}:resize=lanczos3:jpeg=85",
             match self.preset {
@@ -148,6 +206,8 @@ impl ExportOptions {
                 ExportPreset::CompatiblePng => "compatible_png",
                 ExportPreset::WhiteBackground => "white_background",
                 ExportPreset::SmallJpeg => "small_jpeg",
+                ExportPreset::CompatibleGif => "compatible_gif",
+                ExportPreset::BestCompatibility => "best_compatibility",
             },
             self.max_edge
                 .map_or_else(|| "none".into(), |v| v.to_string()),
