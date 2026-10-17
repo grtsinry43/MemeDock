@@ -1,0 +1,50 @@
+<UserControl x:Class="MemeDock.Windows.Views.BatchOrganizeView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:models="using:MemeDock.Windows.ViewModels">
+    <Grid Padding="20,12,20,20" RowSpacing="20" Background="{ThemeResource LayerFillColorDefaultBrush}">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock x:Name="Heading" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Button x:Name="CloseButton" Grid.Column="1" Click="OnClose" Style="{StaticResource SubtleButtonStyle}" Width="36" Height="36"><SymbolIcon Symbol="Cancel" /></Button>
+        </Grid>
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
+            <StackPanel Spacing="20">
+                <StackPanel Spacing="8"><FontIcon Glyph="&#xE762;" FontSize="40" HorizontalAlignment="Left" Foreground="{ThemeResource TextFillColorTertiaryBrush}" /><TextBlock x:Name="Count" Style="{ThemeResource SubtitleTextBlockStyle}" TextWrapping="Wrap" /></StackPanel>
+                <CommandBar x:Name="Actions" Background="Transparent" DefaultLabelPosition="Bottom" HorizontalAlignment="Left" IsDynamicOverflowEnabled="False">
+                    <AppBarToggleButton x:Name="StarButton" Click="OnStar"><AppBarToggleButton.Icon><FontIcon x:Name="StarGlyph" Glyph="&#xE734;" /></AppBarToggleButton.Icon></AppBarToggleButton>
+                    <AppBarButton x:Name="AssignButton" Icon="Folder">
+                        <AppBarButton.Flyout><Flyout x:Name="CollectionFlyout"><StackPanel Width="248" Spacing="12">
+                            <TextBlock x:Name="CollectionHeading" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <ListView x:Name="Collections" DisplayMemberPath="Name" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="OnAssign" MaxHeight="280" />
+                        </StackPanel></Flyout></AppBarButton.Flyout>
+                    </AppBarButton>
+                    <AppBarButton x:Name="TagsButton" Icon="Tag">
+                        <AppBarButton.Flyout><Flyout x:Name="TagFlyout"><StackPanel Width="248" Spacing="12">
+                            <TextBlock x:Name="TagsHeading" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <ListView x:Name="Tags" DisplayMemberPath="Name" SelectionMode="Multiple" IsMultiSelectCheckBoxEnabled="True" MaxHeight="240" SelectionChanged="OnTagsChanged" />
+                            <TextBlock x:Name="NoTags" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <CommandBar Background="Transparent" DefaultLabelPosition="Right" OverflowButtonVisibility="Collapsed" IsDynamicOverflowEnabled="False">
+                                <AppBarButton x:Name="AddTagsButton" Icon="Add" Click="OnAddTags" />
+                                <AppBarButton x:Name="RemoveTagsButton" Icon="Remove" Click="OnRemoveTags" />
+                            </CommandBar>
+                        </StackPanel></Flyout></AppBarButton.Flyout>
+                    </AppBarButton>
+                    <CommandBar.SecondaryCommands><AppBarButton x:Name="ClearButton" Icon="Remove" Click="OnClear" /></CommandBar.SecondaryCommands>
+                </CommandBar>
+                <InfoBar x:Name="ErrorBar" IsClosable="False" Severity="Error" />
+                <StackPanel Spacing="12">
+                    <TextBlock x:Name="Progress" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ProgressBar x:Name="Running" IsIndeterminate="True" Visibility="Collapsed" />
+                    <Button x:Name="StopButton" Visibility="Collapsed" Click="OnStop" Style="{StaticResource SubtleButtonStyle}" />
+                </StackPanel>
+                <ListView x:Name="Results" SelectionMode="None" MaxHeight="260">
+                    <ListView.ItemTemplate><DataTemplate x:DataType="models:BatchRow"><StackPanel Spacing="4" Padding="0,6">
+                        <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{x:Bind Error}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel></DataTemplate></ListView.ItemTemplate>
+                </ListView>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

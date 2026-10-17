@@ -62,4 +62,58 @@
   <data name="import_done_existing" xml:space="preserve"><value>所选表情均已存在</value></data>
   <data name="failure_batch" xml:space="preserve"><value>单次导入最多支持 200 张</value></data>
   <data name="failure_color_profile" xml:space="preserve"><value>图片颜色配置暂不支持转换，请直接发送原图</value></data>
+  <data name="done" xml:space="preserve"><value>完成</value></data>
+  <data name="name" xml:space="preserve"><value>名称</value></data>
+  <data name="rename" xml:space="preserve"><value>重命名</value></data>
+  <data name="organize" xml:space="preserve"><value>整理</value></data>
+  <data name="move_up" xml:space="preserve"><value>上移</value></data>
+  <data name="move_down" xml:space="preserve"><value>下移</value></data>
+  <data name="sticker_deleted" xml:space="preserve"><value>已移至回收站</value></data>
+  <data name="detail_file_title" xml:space="preserve"><value>详细信息</value></data>
+  <data name="detail_dimensions" xml:space="preserve"><value>{0} × {1}</value></data>
+  <data name="detail_size" xml:space="preserve"><value>尺寸</value></data>
+  <data name="detail_bytes" xml:space="preserve"><value>大小</value></data>
+  <data name="detail_format" xml:space="preserve"><value>格式</value></data>
+  <data name="detail_original_name" xml:space="preserve"><value>原文件名</value></data>
+  <data name="add_note" xml:space="preserve"><value>添加备注</value></data>
+  <data name="preview_unavailable" xml:space="preserve"><value>预览加载失败</value></data>
+  <data name="preview_retry" xml:space="preserve"><value>重新加载</value></data>
+  <data name="pause_animation" xml:space="preserve"><value>暂停</value></data>
+  <data name="play_animation" xml:space="preserve"><value>播放</value></data>
+  <data name="apng_first_frame" xml:space="preserve"><value>当前仅显示首帧预览，发送时仍为动图</value></data>
+  <data name="sticker_title" xml:space="preserve"><value>名称</value></data>
+  <data name="sticker_note" xml:space="preserve"><value>备注</value></data>
+  <data name="favorite" xml:space="preserve"><value>星标</value></data>
+  <data name="unfavorite" xml:space="preserve"><value>取消星标</value></data>
+  <data name="delete" xml:space="preserve"><value>删除</value></data>
+  <data name="delete_hint" xml:space="preserve"><value>删除后可在回收站找回</value></data>
+  <data name="import_cancel_remaining" xml:space="preserve"><value>停止</value></data>
+  <data name="import_cancelling" xml:space="preserve"><value>正在停止…</value></data>
+  <data name="no_collection" xml:space="preserve"><value>不加入合集</value></data>
+  <data name="organize_load_failed" xml:space="preserve"><value>合集和标签加载失败</value></data>
+  <data name="organize_reorder_hint" xml:space="preserve"><value>按住右侧手柄拖动调整顺序</value></data>
+  <data name="collection_deleted" xml:space="preserve"><value>合集已移至回收站</value></data>
+  <data name="new_collection" xml:space="preserve"><value>新建合集</value></data>
+  <data name="select_collections" xml:space="preserve"><value>加入合集</value></data>
+  <data name="new_tag" xml:space="preserve"><value>新建标签</value></data>
+  <data name="tag_deleted" xml:space="preserve"><value>标签已移至回收站</value></data>
+  <data name="no_collections_hint" xml:space="preserve"><value>暂无合集，点下方新建一个</value></data>
+  <data name="collections_empty" xml:space="preserve"><value>还没有合集</value></data>
+  <data name="collections_empty_hint" xml:space="preserve"><value>把同一类表情放进合集，找起来更快</value></data>
+  <data name="select_tags" xml:space="preserve"><value>选择标签</value></data>
+  <data name="restored" xml:space="preserve"><value>已恢复</value></data>
+  <data name="restore" xml:space="preserve"><value>恢复</value></data>
+  <data name="batch_organize" xml:space="preserve"><value>批量整理</value></data>
+  <data name="assign_collection" xml:space="preserve"><value>归入合集</value></data>
+  <data name="clear_collection" xml:space="preserve"><value>取消归类</value></data>
+  <data name="add_tags" xml:space="preserve"><value>添加标签</value></data>
+  <data name="remove_tags" xml:space="preserve"><value>移除标签</value></data>
+  <data name="batch_progress" xml:space="preserve"><value>已处理 {0} / {1} 张</value></data>
+  <data name="batch_result" xml:space="preserve"><value>已完成 {0} 张，失败 {1} 张，未处理 {2} 张</value></data>
+  <data name="batch_no_tags" xml:space="preserve"><value>暂无标签</value></data>
+  <data name="desktop_details" xml:space="preserve"><value>详细信息</value></data>
+  <data name="desktop_selection_over_limit" xml:space="preserve"><value>已选 {0} 张，超过单次 {1} 张上限</value></data>
+  <data name="desktop_collection_delete_hint" xml:space="preserve"><value>删除合集不会删除其中的表情。</value></data>
+  <data name="message_success" xml:space="preserve"><value>成功</value></data>
+  <data name="import_cancelled" xml:space="preserve"><value>已取消</value></data>
 </root>

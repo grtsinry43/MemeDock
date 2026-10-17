@@ -62,4 +62,58 @@
   <data name="import_done_existing" xml:space="preserve"><value>All selected stickers already exist</value></data>
   <data name="failure_batch" xml:space="preserve"><value>Maximum 200 items per import</value></data>
   <data name="failure_color_profile" xml:space="preserve"><value>Color profile conversion unsupported. Please share as original.</value></data>
+  <data name="done" xml:space="preserve"><value>Done</value></data>
+  <data name="name" xml:space="preserve"><value>Name</value></data>
+  <data name="rename" xml:space="preserve"><value>Rename</value></data>
+  <data name="organize" xml:space="preserve"><value>Organize</value></data>
+  <data name="move_up" xml:space="preserve"><value>Move Up</value></data>
+  <data name="move_down" xml:space="preserve"><value>Move Down</value></data>
+  <data name="sticker_deleted" xml:space="preserve"><value>Moved to Trash</value></data>
+  <data name="detail_file_title" xml:space="preserve"><value>Details</value></data>
+  <data name="detail_dimensions" xml:space="preserve"><value>{0} × {1}</value></data>
+  <data name="detail_size" xml:space="preserve"><value>Dimensions</value></data>
+  <data name="detail_bytes" xml:space="preserve"><value>Size</value></data>
+  <data name="detail_format" xml:space="preserve"><value>Format</value></data>
+  <data name="detail_original_name" xml:space="preserve"><value>Original file</value></data>
+  <data name="add_note" xml:space="preserve"><value>Add note</value></data>
+  <data name="preview_unavailable" xml:space="preserve"><value>Preview unavailable</value></data>
+  <data name="preview_retry" xml:space="preserve"><value>Reload</value></data>
+  <data name="pause_animation" xml:space="preserve"><value>Pause</value></data>
+  <data name="play_animation" xml:space="preserve"><value>Play</value></data>
+  <data name="apng_first_frame" xml:space="preserve"><value>Only the first frame is previewed. Animation will be preserved when shared.</value></data>
+  <data name="sticker_title" xml:space="preserve"><value>Name</value></data>
+  <data name="sticker_note" xml:space="preserve"><value>Note</value></data>
+  <data name="favorite" xml:space="preserve"><value>Star</value></data>
+  <data name="unfavorite" xml:space="preserve"><value>Unstar</value></data>
+  <data name="delete" xml:space="preserve"><value>Delete</value></data>
+  <data name="delete_hint" xml:space="preserve"><value>Deleted items can be restored from Trash</value></data>
+  <data name="import_cancel_remaining" xml:space="preserve"><value>Stop</value></data>
+  <data name="import_cancelling" xml:space="preserve"><value>Stopping…</value></data>
+  <data name="no_collection" xml:space="preserve"><value>No collection</value></data>
+  <data name="organize_load_failed" xml:space="preserve"><value>Failed to load collections and tags</value></data>
+  <data name="organize_reorder_hint" xml:space="preserve"><value>Drag the handle on the right to reorder</value></data>
+  <data name="collection_deleted" xml:space="preserve"><value>Collection moved to Trash</value></data>
+  <data name="new_collection" xml:space="preserve"><value>New Collection</value></data>
+  <data name="select_collections" xml:space="preserve"><value>Add to Collection</value></data>
+  <data name="new_tag" xml:space="preserve"><value>New Tag</value></data>
+  <data name="tag_deleted" xml:space="preserve"><value>Tag moved to Trash</value></data>
+  <data name="no_collections_hint" xml:space="preserve"><value>No collections yet. Create one below.</value></data>
+  <data name="collections_empty" xml:space="preserve"><value>No collections yet</value></data>
+  <data name="collections_empty_hint" xml:space="preserve"><value>Group similar stickers to find them faster</value></data>
+  <data name="select_tags" xml:space="preserve"><value>Select Tags</value></data>
+  <data name="restored" xml:space="preserve"><value>Restored</value></data>
+  <data name="restore" xml:space="preserve"><value>Restore</value></data>
+  <data name="batch_organize" xml:space="preserve"><value>Organize selection</value></data>
+  <data name="assign_collection" xml:space="preserve"><value>Move to collection</value></data>
+  <data name="clear_collection" xml:space="preserve"><value>Uncategorize</value></data>
+  <data name="add_tags" xml:space="preserve"><value>Add tags</value></data>
+  <data name="remove_tags" xml:space="preserve"><value>Remove tags</value></data>
+  <data name="batch_progress" xml:space="preserve"><value>Processed {0} of {1}</value></data>
+  <data name="batch_result" xml:space="preserve"><value>{0} completed, {1} failed, {2} remaining</value></data>
+  <data name="batch_no_tags" xml:space="preserve"><value>No tags yet</value></data>
+  <data name="desktop_details" xml:space="preserve"><value>Details</value></data>
+  <data name="desktop_selection_over_limit" xml:space="preserve"><value>{0} selected, above the {1} per batch limit</value></data>
+  <data name="desktop_collection_delete_hint" xml:space="preserve"><value>Stickers inside will not be deleted.</value></data>
+  <data name="message_success" xml:space="preserve"><value>Success</value></data>
+  <data name="import_cancelled" xml:space="preserve"><value>Cancelled</value></data>
 </root>

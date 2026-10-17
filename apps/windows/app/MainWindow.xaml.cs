@@ -31,9 +31,14 @@ public sealed partial class MainWindow : Window
     private bool _updatingNavigation;
     private bool _composing;
     private bool _settingsVisible;
+    private bool _catalogVisible;
+    private bool _childrenConfigured;
+    private bool _restoringSelection;
+    private long _selectionVersion;
     private bool _tagMode;
     private bool _stopping;
     private bool _canClose;
+    private bool _windowActive = true;
 
     public MainWindow()
     {
@@ -50,6 +55,8 @@ public sealed partial class MainWindow : Window
         ViewModel.PropertyChanged += OnModelChanged;
         ViewModel.CatalogChanged += OnCatalogChanged;
         ViewModel.ThumbnailInvalidated += OnThumbnailInvalidated;
+        ViewModel.ContentChanged += OnContentChanged;
+        Activated += OnActivated;
         ApplyLabels();
         _updatingNavigation = true;
         Navigation.SelectedItem = AllNavigation;
@@ -84,21 +91,30 @@ public sealed partial class MainWindow : Window
         CollectionsNavigation.Content = Strings["tab_collections"];
         TagsNavigation.Content = Strings["tags_title"];
         SettingsNavigation.Content = Strings["desktop_settings"];
-        ImportButton.Content = Strings["library_add"];
+        CatalogNavigation.Content = Strings["organize"];
+        UndoButton.Content = Strings["restore"];
+        ImportLabel.Text = Strings["library_add"];
+        AutomationProperties.SetName(ImportButton, Strings["library_add"]);
         Search.PlaceholderText = Strings["library_search"];
         AutomationProperties.SetName(Search, Strings["library_search"]);
         AutomationProperties.SetName(Gallery, Strings["tab_stickers"]);
-        SortButton.Content = Strings["desktop_sort"];
+        AutomationProperties.SetName(SortButton, Strings["desktop_sort"]);
+        ToolTipService.SetToolTip(SortButton, Strings["desktop_sort"]);
         SortRecent.Text = Strings["desktop_sort_recent"];
         SortUsed.Text = Strings["filter_recent"];
         SortCollection.Text = Strings["desktop_sort_collection"];
         RetryButton.Content = Strings["retry"];
-        SelectAllButton.Content = Strings["desktop_select_all"];
-        ClearSelectionButton.Content = Strings["desktop_clear_selection"];
+        SelectAllButton.Label = Strings["desktop_select_all"];
+        ClearSelectionButton.Label = Strings["desktop_clear_selection"];
+        ToolTipService.SetToolTip(SelectAllButton, SelectAllButton.Label);
+        ToolTipService.SetToolTip(ClearSelectionButton, ClearSelectionButton.Label);
         SelectionHint.Text = Strings["desktop_selection_loaded_only"];
         TagSelector.PlaceholderText = Strings["tags_title"];
         AutomationProperties.SetName(TagSelector, Strings["tags_title"]);
         Settings.Relocalize();
+        Details.Relocalize();
+        Batch.Relocalize();
+        Catalog.Relocalize();
         ViewModel.Relocalize();
         UpdateState();
     }
@@ -108,9 +124,23 @@ public sealed partial class MainWindow : Window
 
     private void UpdateState()
     {
-        ImportButton.IsEnabled = ViewModel.IsReady && !ViewModel.IsImporting && !_stopping;
-        Search.IsEnabled = ViewModel.IsReady && !_stopping;
-        SortButton.IsEnabled = ViewModel.IsReady && ViewModel.Filter.Scope != LibraryScope.Recent;
+        if (ViewModel.IsReady && !_childrenConfigured && ViewModel.Details is { } details && ViewModel.Batch is { } batch && ViewModel.Catalog is { } catalog)
+        {
+            _childrenConfigured = true;
+            Details.Configure(details, Strings, ViewModel.Collections, ViewModel.Tags);
+            Batch.Configure(batch, Strings, ViewModel.Collections, ViewModel.Tags);
+            Catalog.Configure(catalog, Strings, ViewModel.Collections, ViewModel.Tags);
+            details.Deleted += OnStickerDeleted;
+            batch.PropertyChanged += OnModelChanged;
+            batch.Completed += OnBatchCompleted;
+        }
+        var batchRunning = ViewModel.Batch?.IsRunning == true;
+        Gallery.IsEnabled = !batchRunning && !ViewModel.IsLoading;
+        AllNavigation.IsEnabled = StarredNavigation.IsEnabled = RecentNavigation.IsEnabled = !batchRunning;
+        CatalogNavigation.IsEnabled = SettingsNavigation.IsEnabled = !batchRunning;
+        ImportButton.IsEnabled = ViewModel.IsReady && !ViewModel.IsImporting && !_stopping && !batchRunning;
+        Search.IsEnabled = ViewModel.IsReady && !_stopping && !batchRunning;
+        SortButton.IsEnabled = ViewModel.IsReady && ViewModel.Filter.Scope != LibraryScope.Recent && !batchRunning;
         Busy.IsActive = !ViewModel.IsReady && ViewModel.ErrorKey is null || ViewModel.IsLoading || ViewModel.IsImporting;
         Busy.Visibility = ToVisibility(Busy.IsActive);
         ErrorBar.IsOpen = ViewModel.ErrorKey is not null;
@@ -127,6 +157,10 @@ public sealed partial class MainWindow : Window
         SortRecent.IsChecked = ViewModel.Sort == StickerSort.Recent;
         SortUsed.IsChecked = ViewModel.Sort == StickerSort.LastUsed;
         SortCollection.IsChecked = ViewModel.Sort == StickerSort.CollectionOrder;
+        var reorder = ViewModel.Filter.AllowsCollectionOrder && ViewModel.Sort == StickerSort.CollectionOrder
+            && !ViewModel.HasMore && !ViewModel.IsLoading && ViewModel.SearchText.Length == 0 && !batchRunning;
+        Gallery.CanDragItems = Gallery.CanReorderItems = Gallery.AllowDrop = reorder;
+        Details.SetActive(_windowActive && Inspector.IsPaneOpen && !_settingsVisible && !_catalogVisible && Details.Visibility == Visibility.Visible);
     }
 
     private void OnPaneToggle(TitleBar sender, object args) => Navigation.IsPaneOpen = !Navigation.IsPaneOpen;
@@ -134,10 +168,18 @@ public sealed partial class MainWindow : Window
     private async void OnNavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (_updatingNavigation || _stopping || args.SelectedItemContainer is not NavigationViewItem item) return;
+        if (ViewModel.Batch?.IsRunning == true || ViewModel.Details is { } detail && !await detail.CommitAsync())
+        {
+            OnCatalogChanged(this, EventArgs.Empty);
+            return;
+        }
         _settingsVisible = item == SettingsNavigation;
-        LibraryContent.Visibility = ToVisibility(!_settingsVisible);
+        _catalogVisible = item == CatalogNavigation;
+        Inspector.Visibility = ToVisibility(!_settingsVisible && !_catalogVisible);
         Settings.Visibility = ToVisibility(_settingsVisible);
-        if (_settingsVisible) return;
+        Catalog.Visibility = ToVisibility(_catalogVisible);
+        Details.SetActive(!_settingsVisible && !_catalogVisible && Inspector.IsPaneOpen);
+        if (_settingsVisible || _catalogVisible) return;
         _tagMode = item == TagsNavigation;
         TagSelector.Visibility = ToVisibility(_tagMode);
         LibraryFilter? filter = item.Tag switch
@@ -171,7 +213,10 @@ public sealed partial class MainWindow : Window
                 CollectionsNavigation.MenuItems.Add(new NavigationViewItem { Content = collection.Name, Tag = collection });
             CollectionsNavigation.IsEnabled = ViewModel.Collections.Count > 0;
             TagsNavigation.IsEnabled = ViewModel.Tags.Count > 0;
-            if (!_settingsVisible)
+            Details.RefreshCatalogs();
+            Batch.RefreshCatalogs();
+            Catalog.RefreshCatalogs();
+            if (!_settingsVisible && !_catalogVisible)
             {
                 Navigation.SelectedItem = ViewModel.Filter.Scope switch
                 {
@@ -193,6 +238,13 @@ public sealed partial class MainWindow : Window
     private async void OnTagChanged(object sender, SelectionChangedEventArgs args)
     {
         if (_updatingNavigation || !_tagMode || _stopping || TagSelector.SelectedItem is not TagMetadata tag) return;
+        if (ViewModel.Details is { } detail && !await detail.CommitAsync())
+        {
+            _updatingNavigation = true;
+            try { TagSelector.SelectedValue = ViewModel.Filter.Id; }
+            finally { _updatingNavigation = false; }
+            return;
+        }
         Gallery.SelectedItems.Clear();
         await ViewModel.NavigateAsync(new(LibraryScope.Tag, tag.Id, tag.Name));
     }
@@ -200,6 +252,7 @@ public sealed partial class MainWindow : Window
     private async void OnSort(object sender, RoutedEventArgs args)
     {
         if (_stopping || sender is not RadioMenuFlyoutItem item) return;
+        if (ViewModel.Details is { } detail && !await detail.CommitAsync()) { UpdateState(); return; }
         Gallery.SelectedItems.Clear();
         await ViewModel.SortAsync(Enum.Parse<StickerSort>((string)item.Tag));
     }
@@ -236,6 +289,8 @@ public sealed partial class MainWindow : Window
         {
             await Task.Delay(250, cancellation);
             if (_composing || _stopping) return;
+            if (ViewModel.Details is { } detail && !await detail.CommitAsync()) return;
+            cancellation.ThrowIfCancellationRequested();
             Gallery.SelectedItems.Clear();
             await ViewModel.SearchAsync(Search.Text);
         }
@@ -293,8 +348,34 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnSelectionChanged(object sender, SelectionChangedEventArgs args)
+    private async void OnSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
+        if (_restoringSelection || _stopping || ViewModel.Batch?.IsRunning == true
+            || ViewModel.IsLoading && ViewModel.Batch?.Report is not null) return;
+        var version = ++_selectionVersion;
+        var selected = Gallery.SelectedItems.OfType<StickerCard>().ToArray();
+        if (ViewModel.Details is { } detail)
+        {
+            var accepted = await detail.SelectAsync(selected.Length == 1 ? selected[0].Id : null);
+            if (_stopping || version != _selectionVersion) return;
+            if (!accepted)
+            {
+                _restoringSelection = true;
+                Gallery.SelectedItems.Clear();
+                if (ViewModel.Cards.FirstOrDefault(card => card.Id == detail.CurrentId) is { } current) Gallery.SelectedItems.Add(current);
+                _restoringSelection = false;
+                ViewModel.SetSelectedCount(Gallery.SelectedItems.Count);
+                Details.Visibility = Visibility.Visible;
+                Batch.Visibility = Visibility.Collapsed;
+                Inspector.IsPaneOpen = true;
+                UpdateState();
+                return;
+            }
+        }
+        ViewModel.Batch?.SetSelection(selected);
+        Details.Visibility = ToVisibility(selected.Length == 1);
+        Batch.Visibility = ToVisibility(selected.Length > 1);
+        Inspector.IsPaneOpen = selected.Length > 0;
         ViewModel.SetSelectedCount(Gallery.SelectedItems.Count);
         UpdateState();
     }
@@ -303,26 +384,26 @@ public sealed partial class MainWindow : Window
 
     private void OnFocusSearch(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_settingsVisible) return;
+        if (_settingsVisible || _catalogVisible) return;
         Search.Focus(FocusState.Keyboard);
         args.Handled = true;
     }
     private bool EditingText => FocusManager.GetFocusedElement(Root.XamlRoot) is TextBox or RichEditBox or PasswordBox;
     private void OnSelectAllShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_settingsVisible || EditingText) return;
+        if (_settingsVisible || _catalogVisible || EditingText) return;
         Gallery.SelectAll();
         args.Handled = true;
     }
     private void OnEscape(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_composing || _settingsVisible || EditingText) return;
+        if (_composing || _settingsVisible || _catalogVisible || EditingText) return;
         Gallery.SelectedItems.Clear();
         args.Handled = true;
     }
     private async void OnImportShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (!ImportButton.IsEnabled || _settingsVisible) return;
+        if (!ImportButton.IsEnabled || _settingsVisible || _catalogVisible) return;
         args.Handled = true;
         await StartImportAsync();
     }
@@ -360,7 +441,12 @@ public sealed partial class MainWindow : Window
         if (_canClose) return;
         args.Cancel = true;
         if (_stopping) return;
+        if (ViewModel.Details is { } detail && !await detail.CommitAsync()) return;
+        if (_stopping) return;
         _stopping = true;
+        Details.Shutdown();
+        Batch.Shutdown();
+        Catalog.Shutdown();
         Root.IsHitTestVisible = false;
         _lifetime.Cancel();
         ViewModel.RequestStop();
@@ -377,10 +463,145 @@ public sealed partial class MainWindow : Window
             ViewModel.PropertyChanged -= OnModelChanged;
             ViewModel.CatalogChanged -= OnCatalogChanged;
             ViewModel.ThumbnailInvalidated -= OnThumbnailInvalidated;
+            ViewModel.ContentChanged -= OnContentChanged;
+            Activated -= OnActivated;
+            if (ViewModel.Details is { } details) details.Deleted -= OnStickerDeleted;
+            if (ViewModel.Batch is { } batch)
+            {
+                batch.PropertyChanged -= OnModelChanged;
+                batch.Completed -= OnBatchCompleted;
+            }
             _searchCancellation?.Dispose();
             _lifetime.Dispose();
             _canClose = true;
             Close();
         }
+    }
+
+    private void OnInspectorSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        Inspector.DisplayMode = args.NewSize.Width >= 880 ? SplitViewDisplayMode.Inline : SplitViewDisplayMode.Overlay;
+        Inspector.OpenPaneLength = Math.Min(340, Math.Max(240, args.NewSize.Width - 32));
+    }
+    private void OnInspectorPaneClosed(SplitView sender, object args) => Details.SetActive(false);
+    private async void OnInspectorClose(object? sender, EventArgs args)
+    {
+        if (ViewModel.Batch?.IsRunning == true) return;
+        if (ViewModel.Details is { } detail && !await detail.CommitAsync()) return;
+        Gallery.SelectedItems.Clear();
+        Inspector.IsPaneOpen = false;
+        Details.SetActive(false);
+    }
+    private void OnActivated(object sender, WindowActivatedEventArgs args)
+    {
+        _windowActive = args.WindowActivationState != WindowActivationState.Deactivated;
+        Details.SetActive(_windowActive && Inspector.IsPaneOpen && !_settingsVisible && !_catalogVisible && Details.Visibility == Visibility.Visible);
+    }
+    private async void OnContentChanged(object? sender, string? id)
+    {
+        if (!_stopping && ViewModel.Details is { } detail && (id is null || id == detail.CurrentId)) await detail.RefreshAsync();
+    }
+    private void OnStickerDeleted(object? sender, EventArgs args)
+    {
+        Gallery.SelectedItems.Clear();
+        OperationBar.Severity = InfoBarSeverity.Success;
+        OperationBar.Message = Strings["sticker_deleted"];
+        OperationBar.IsOpen = true;
+    }
+    private async void OnUndoDelete(object sender, RoutedEventArgs args)
+    {
+        if (ViewModel.Details is not { } detail) return;
+        if (await detail.UndoDeleteAsync()) OperationBar.IsOpen = false;
+        else
+        {
+            OperationBar.Severity = InfoBarSeverity.Error;
+            OperationBar.Message = detail.ErrorText;
+            OperationBar.IsOpen = true;
+        }
+    }
+    private async void OnGalleryDoubleTapped(object sender, DoubleTappedRoutedEventArgs args)
+    {
+        if (Gallery.SelectedItems.Count == 1 && Gallery.SelectedItem is StickerCard card && ViewModel.Details is { } detail
+            && await detail.SelectAsync(card.Id) && detail.CurrentId == card.Id) await Details.ShowPreviewAsync();
+    }
+    private void OnGalleryItemClick(object sender, ItemClickEventArgs args)
+    {
+        if (Gallery.SelectedItems.Count == 1 && args.ClickedItem is StickerCard card && card.Id == ViewModel.Details?.CurrentId)
+        {
+            Inspector.IsPaneOpen = true;
+            UpdateState();
+        }
+    }
+    private async void OnGalleryKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (args.Key != global::Windows.System.VirtualKey.Enter || Gallery.SelectedItems.Count != 1
+            || Gallery.SelectedItem is not StickerCard card || ViewModel.Details is not { } detail) return;
+        args.Handled = true;
+        if (await detail.SelectAsync(card.Id) && detail.CurrentId == card.Id) await Details.ShowPreviewAsync();
+    }
+    private async void OnGalleryReordered(ListViewBase sender, DragItemsCompletedEventArgs args)
+    {
+        if (args.DropResult == global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.None
+            || args.Items.Count != 1 || args.Items[0] is not StickerCard card || ViewModel.Catalog is not { } catalog) return;
+        var collection = ViewModel.Collections.FirstOrDefault(item => item.Id == ViewModel.Filter.Id);
+        if (collection is null) return;
+        var index = ViewModel.Cards.IndexOf(card);
+        await catalog.MoveStickerAsync(collection, card, index + 1 < ViewModel.Cards.Count ? ViewModel.Cards[index + 1].Id : null);
+        await ViewModel.RetryAsync();
+    }
+    private void OnGalleryDragStarting(object sender, DragItemsStartingEventArgs args)
+        => args.Cancel = !Gallery.CanReorderItems || args.Items.Count != 1;
+
+    private async void OnBatchCompleted(object? sender, EventArgs args)
+    {
+        if (_stopping || ViewModel.Batch?.Report is not { } report) return;
+        var remaining = report.Items.Where(item => item.Outcome is BatchOutcome.Failed or BatchOutcome.Pending)
+            .Select(item => item.Id).ToHashSet();
+        _restoringSelection = true;
+        try
+        {
+            await ViewModel.RetryAsync();
+            if (_stopping) return;
+            Gallery.SelectedItems.Clear();
+            foreach (var card in ViewModel.Cards.Where(card => remaining.Contains(card.Id))) Gallery.SelectedItems.Add(card);
+            ViewModel.Batch?.RetainRemaining(Gallery.SelectedItems.OfType<StickerCard>());
+            ViewModel.SetSelectedCount(Gallery.SelectedItems.Count);
+            Details.Visibility = Visibility.Collapsed;
+            Batch.Visibility = Visibility.Visible;
+            Inspector.IsPaneOpen = true;
+        }
+        finally { _restoringSelection = false; }
+    }
+
+    private void OnGalleryRightTapped(object sender, RightTappedRoutedEventArgs args)
+    {
+        if (!Gallery.CanReorderItems || ViewModel.Catalog is not { } catalog) return;
+        DependencyObject? element = args.OriginalSource as DependencyObject;
+        while (element is not null && element is not GridViewItem) element = VisualTreeHelper.GetParent(element);
+        if (element is not GridViewItem { Content: StickerCard card } container) return;
+        var collection = ViewModel.Collections.FirstOrDefault(item => item.Id == ViewModel.Filter.Id);
+        if (collection is null) return;
+        var index = ViewModel.Cards.IndexOf(card);
+        var menu = new MenuFlyout();
+        var up = new MenuFlyoutItem { Text = Strings["move_up"], IsEnabled = index > 0 };
+        var down = new MenuFlyoutItem { Text = Strings["move_down"], IsEnabled = index >= 0 && index < ViewModel.Cards.Count - 1 };
+        up.Click += async (_, _) =>
+        {
+            var current = ViewModel.Cards.IndexOf(card);
+            if (current <= 0) return;
+            await catalog.MoveStickerAsync(collection, card, ViewModel.Cards[current - 1].Id);
+            await ViewModel.RetryAsync();
+        };
+        down.Click += async (_, _) =>
+        {
+            var current = ViewModel.Cards.IndexOf(card);
+            if (current < 0 || current >= ViewModel.Cards.Count - 1) return;
+            await catalog.MoveStickerAsync(collection, card, current + 2 < ViewModel.Cards.Count ? ViewModel.Cards[current + 2].Id : null);
+            await ViewModel.RetryAsync();
+        };
+        menu.Items.Add(up);
+        menu.Items.Add(down);
+        menu.ShowAt(container);
+        args.Handled = true;
     }
 }

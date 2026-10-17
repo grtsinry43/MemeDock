@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using MemeDock.Windows.Localization;
 using MemeDock.Windows.Services;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 
 namespace MemeDock.Windows.Views;
@@ -29,7 +30,8 @@ public sealed partial class SettingsView : UserControl
         try
         {
             Heading.Text = _strings["desktop_settings"];
-            LanguageSelector.Header = _strings["settings_language"];
+            LanguageLabel.Text = _strings["settings_language"];
+            AutomationProperties.SetName(LanguageSelector, _strings["settings_language"]);
             SystemLanguage.Content = _strings["language_system"];
             ChineseLanguage.Content = _strings["language_chinese"];
             EnglishLanguage.Content = _strings["language_english"];

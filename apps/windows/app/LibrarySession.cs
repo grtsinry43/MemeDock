@@ -104,6 +104,133 @@ internal sealed class LibrarySession : IAsyncDisposable
         }
     });
 
+    public Task<StickerDetail> DetailAsync(string id, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.StickerDetail(id);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<StickerMetadata> PatchAsync(EntityReference target, StickerEdit edit, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.PatchSticker(target, edit);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<bool> OrganizeAsync(EntityReference target, bool changeCollection, EntityReference? collection, EntityReference[]? tags, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.SetStickerOrganization(target, changeCollection, collection, tags);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<CollectionMetadata> CreateCollectionAsync(string name, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.CreateCollection(name, null);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<CollectionMetadata> RenameCollectionAsync(EntityReference target, string name, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.RenameCollection(target, name);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<CollectionMetadata> DeleteCollectionAsync(EntityReference target, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.DeleteCollection(target);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<CollectionMetadata> RestoreCollectionAsync(EntityReference target, long deletedRevision, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.RestoreCollection(target, deletedRevision);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<CollectionMetadata> MoveCollectionAsync(EntityReference target, string? before, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.MoveCollection(target, before);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<TagMetadata> CreateTagAsync(string name, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.CreateTag(name);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<TagMetadata> RenameTagAsync(EntityReference target, string name, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.RenameTag(target, name);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<TagMetadata> DeleteTagAsync(EntityReference target, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.DeleteTag(target);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<TagMetadata> RestoreTagAsync(EntityReference target, long deletedRevision, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.RestoreTag(target, deletedRevision);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<StickerMetadata> DeleteStickerAsync(EntityReference target, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.DeleteSticker(target);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<StickerMetadata> RestoreStickerAsync(EntityReference target, long deletedRevision, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.RestoreSticker(target, deletedRevision);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+    public Task MoveCollectionItemAsync(EntityReference collection, EntityReference sticker, string? before,
+        CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.MoveCollectionItem(collection, sticker, before);
+        using var registration = cancellation.Register(() => request.Cancel());
+        await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task<BatchTask> StartBatchAsync(BatchTarget[] targets, BatchAction action, CancellationToken cancellation)
+        => Task.Run(() =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            return _library.Batch(targets, action);
+        });
+
     public async ValueTask DisposeAsync()
     {
         try { await Task.Run(() => _library.Shutdown()).ConfigureAwait(false); }

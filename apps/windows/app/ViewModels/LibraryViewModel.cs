@@ -30,6 +30,10 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public int SelectedCount { get; private set; }
     public event EventHandler? CatalogChanged;
     public event EventHandler<string>? ThumbnailInvalidated;
+    public event EventHandler<string?>? ContentChanged;
+    public StickerDetailViewModel? Details { get; private set; }
+    public BatchOrganizeViewModel? Batch { get; private set; }
+    public CatalogViewModel? Catalog { get; private set; }
     internal ThumbnailLoader? Thumbnails { get; private set; }
 
     private LibrarySession? _session;
@@ -73,6 +77,9 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
 
     public void Relocalize()
     {
+        Details?.Relocalize();
+        Batch?.Relocalize();
+        Catalog?.Relocalize();
         foreach (var property in new[] { nameof(Heading), nameof(EmptyHeading), nameof(CountText), nameof(SelectionText),
             nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText) }) OnPropertyChanged(property);
     }
@@ -84,6 +91,9 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             _session ??= await LibrarySession.OpenAsync(root);
             if (_stopping) return;
             Thumbnails = new ThumbnailLoader(_session);
+            Details = new StickerDetailViewModel(_session, strings);
+            Batch = new BatchOrganizeViewModel(_session, strings);
+            Catalog = new CatalogViewModel(_session, strings, RefreshCatalogsAsync);
             _subscription = _session.Subscribe();
             IsReady = true;
             OnPropertyChanged(nameof(IsReady));
@@ -276,6 +286,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
                     ThumbnailInvalidated?.Invoke(this, thumbnail.StickerId);
                 else
                 {
+                    ContentChanged?.Invoke(this, notification is Notification.StickerChanged sticker ? sticker.StickerId : null);
                     if (notification is Notification.CollectionsChanged or Notification.TagsChanged or Notification.ReloadRequired)
                         await RefreshCatalogsAsync();
                     _dirty = true;
@@ -294,7 +305,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             {
                 _dirty = false;
                 await Task.Delay(200, _lifetime.Token);
-                if (IsImporting) { _dirty = true; continue; }
+                if (IsImporting || Batch?.IsRunning == true) { _dirty = true; continue; }
                 await RefreshAsync(preserveLoaded: true);
             }
         }
@@ -373,6 +384,9 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         await _queries.WaitAsync();
         try
         {
+            if (Details is not null) await Details.DisposeAsync();
+            if (Batch is not null) await Batch.DisposeAsync();
+            if (Catalog is not null) await Catalog.DisposeAsync();
             if (Thumbnails is not null) await Thumbnails.DisposeAsync();
             _cursor?.Dispose();
             _subscription?.Dispose();
