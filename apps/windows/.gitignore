@@ -1,5 +1,49 @@
-bin/
-obj/
+# .NET / MSBuild outputs, including nested bridge and test projects.
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio caches and per-user settings; keep .vsconfig and solution files.
 .vs/
-TestResults/
+*.rsuser
+*.suo
 *.user
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+*.VC.db
+*.VC.VC.opendb
+ipch/
+
+# Test, coverage, profiling and build diagnostics.
+[Tt]est[Rr]esults/
+BenchmarkDotNet.Artifacts/
+*.trx
+*.coverage
+*.coveragexml
+*.binlog
+*.tlog
+*.log
+*.dmp
+
+# Generated Windows application packages and local publishing output.
+AppPackages/
+BundleArtifacts/
+publish/
+*.appx
+*.appxbundle
+*.appxupload
+*.appxsym
+*.msix
+*.msixbundle
+*.msixupload
+*.msi
+*.cab
+
+# Private signing material and publishing credentials.
+*.pfx
+*.p12
+*.snk
+*.publishsettings
+*.pubxml.user
+
+# Project files, manifests, resource sources and packages.lock.json remain tracked.
