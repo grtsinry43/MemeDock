@@ -1,16 +1,21 @@
 import MemeDockBridge
 import SwiftUI
 
-/// Telegram pack import: credentials at the top, the pack's stickers below, and
-/// the import itself on the bottom bar. Nothing is committed until the user
-/// asks for it, so the sheet is also where a pack is reviewed and dropped.
+/// Telegram pack import. The sheet only shows what the current step needs: the
+/// token while there is none to use, the pack field until a pack is loaded,
+/// and then the pack's stickers with the import on the bottom bar. Nothing is
+/// committed until the user asks for it, so the sheet is also where a pack is
+/// reviewed and dropped.
 struct TelegramImportView: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var coordinator: TelegramCoordinator
     @ObservedObject private var previews: TelegramPreviewStore
 
-    @Environment(\.dismiss) private var dismiss
     @FocusState private var editing: Field?
+    /// A saved token is folded into one line; this unfolds it for replacing.
+    @State private var changingToken = false
 
     private enum Field { case token, pack }
 
@@ -19,103 +24,157 @@ struct TelegramImportView: View {
         _previews = ObservedObject(wrappedValue: coordinator.previews)
     }
 
+    private var loaded: Bool {
+        coordinator.metadata != nil
+    }
+
+    private var showsTokenField: Bool {
+        !coordinator.tokenSaved || changingToken
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Three rows that never need scrolling, so the grid below keeps the
-            // rest of the sheet whether a pack is loaded or not.
             VStack(alignment: .leading, spacing: 16) {
                 header
-                tokenFields
-                packFields
+                if let metadata = coordinator.metadata {
+                    packSummary(metadata)
+                } else {
+                    tokenArea
+                    packFields
+                }
             }
-            .padding(16)
+            .padding(20)
 
             if let metadata = coordinator.metadata {
                 Divider()
                 selectionBar
                 stickerGrid(metadata)
-            } else {
-                Spacer(minLength: 0)
             }
 
             Divider()
             footer
         }
         .frame(width: 720)
-        .frame(minHeight: 420, idealHeight: 620)
+        // Before a pack is loaded the sheet is only as tall as its fields; the
+        // grid gets the room once there is something to show in it.
+        .frame(minHeight: loaded ? 480 : nil, idealHeight: loaded ? 620 : nil)
         .font(MemeDockTypography.body)
         .foregroundStyle(MemeDockPalette(scheme).text)
         .tint(MemeDockPalette(scheme).text)
         .buttonStyle(MemeDockButtonStyle())
         .background(MemeDockPalette(scheme).canvas)
-        .task { await coordinator.start() }
+        .animation(reduceMotion ? nil : MemeDockMotion.panel, value: loaded)
+        .animation(reduceMotion ? nil : MemeDockMotion.panel, value: showsTokenField)
+        .task {
+            await coordinator.start()
+            // Whatever is missing is where typing starts.
+            editing = coordinator.tokenSaved ? .pack : .token
+        }
         // Closing with escape has to stop the work just like the close button.
         .onDisappear { coordinator.dismiss() }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(L10n.text(.telegram))
+            Text(L10n.text(.importFromTelegram))
                 .font(MemeDockTypography.sectionTitle)
-            Text(L10n.text(.telegramTokenHint))
-                .font(MemeDockTypography.body)
-                .foregroundStyle(.secondary)
+            if !loaded {
+                Text(L10n.text(.importFromTelegramHint))
+                    .font(MemeDockTypography.body)
+                    .foregroundStyle(MemeDockPalette(scheme).secondary)
+            }
         }
     }
 
-    private var tokenFields: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SecureField(L10n.text(.telegramToken), text: $coordinator.token)
-                .textFieldStyle(MemeDockFieldStyle(focused: editing == .token))
-                .focused($editing, equals: .token)
-                .disabled(coordinator.isBusy)
-            HStack(spacing: 12) {
-                Toggle(L10n.text(.rememberToken), isOn: $coordinator.remember)
-                Button(L10n.text(.clearToken)) {
-                    Task { await coordinator.forgetToken() }
+    @ViewBuilder
+    private var tokenArea: some View {
+        if showsTokenField {
+            VStack(alignment: .leading, spacing: 8) {
+                SecureField(L10n.text(.telegramToken), text: $coordinator.token)
+                    .textFieldStyle(MemeDockFieldStyle(focused: editing == .token))
+                    .focused($editing, equals: .token)
+                    .disabled(coordinator.isBusy)
+                    .onSubmit { editing = .pack }
+                HStack(spacing: 12) {
+                    Toggle(L10n.text(.rememberToken), isOn: $coordinator.remember)
+                    Spacer(minLength: 0)
+                    Text(L10n.text(.telegramTokenHint))
+                        .font(MemeDockTypography.caption)
+                        .foregroundStyle(MemeDockPalette(scheme).secondary)
                 }
-                .disabled(coordinator.isBusy || coordinator.token.isEmpty)
             }
-            .font(MemeDockTypography.body)
+            .transition(.opacity)
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: "key")
+                    .foregroundStyle(MemeDockPalette(scheme).secondary)
+                Text(L10n.text(.useSavedToken))
+                    .foregroundStyle(MemeDockPalette(scheme).secondary)
+                Spacer(minLength: 0)
+                Button(L10n.text(.change)) {
+                    changingToken = true
+                    editing = .token
+                }
+                .buttonStyle(MemeDockButtonStyle(kind: .quiet))
+                .disabled(coordinator.isBusy)
+            }
+            .transition(.opacity)
         }
     }
 
     private var packFields: some View {
         HStack(spacing: 8) {
-            TextField(L10n.text(.stickerPack), text: $coordinator.packQuery)
+            TextField(L10n.text(.packPlaceholder), text: $coordinator.packQuery)
                 .textFieldStyle(MemeDockFieldStyle(focused: editing == .pack))
                 .focused($editing, equals: .pack)
                 .disabled(coordinator.isBusy)
                 .onSubmit { Task { await coordinator.loadPack() } }
-            Button(coordinator.metadata == nil ? L10n.text(.viewStickers) : L10n.text(.chooseStickers)) {
+            Button(L10n.text(.viewStickers)) {
                 Task { await coordinator.loadPack() }
             }
             .disabled(coordinator.isBusy || coordinator.packQuery.isEmpty || coordinator.token.isEmpty)
         }
     }
 
-    private var selectionBar: some View {
+    /// The fields have done their job once a pack is open, so they fold into
+    /// the pack's name and the way back to them.
+    private func packSummary(_ metadata: TelegramPackMetadata) -> some View {
         HStack(spacing: 12) {
-            if let title = coordinator.metadata?.title, !title.isEmpty {
-                Text(title)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(metadata.title.isEmpty ? metadata.name : metadata.title)
                     .font(MemeDockTypography.rowTitle)
                     .lineLimit(1)
+                Text(L10n.text(.stickerCount, metadata.stickers.count))
+                    .font(MemeDockTypography.caption)
+                    .foregroundStyle(MemeDockPalette(scheme).secondary)
             }
+            Spacer(minLength: 0)
+            Button(L10n.text(.changePack)) {
+                coordinator.discardPack()
+                editing = .pack
+            }
+            .disabled(coordinator.isBusy)
+        }
+        .transition(.opacity)
+    }
+
+    private var selectionBar: some View {
+        HStack(spacing: 12) {
+            let count = coordinator.selected.count
+            Text(L10n.text(.selectedCount, count))
+                .font(MemeDockTypography.body)
+                .monospacedDigit()
+                .foregroundStyle(MemeDockPalette(scheme).secondary)
+                .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(count)))
+                .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: count)
             Spacer()
-            if !coordinator.selected.isEmpty {
-                Text(L10n.text(.selectedCount, coordinator.selected.count))
-                    .font(MemeDockTypography.body)
-                    .foregroundStyle(.secondary)
-            }
             Button(L10n.text(.selectNew)) { coordinator.selectNew() }
                 .disabled(coordinator.isBusy)
             Button(L10n.text(.clearSelection)) { coordinator.clearSelection() }
                 .disabled(coordinator.isBusy || coordinator.selected.isEmpty)
-            Button(L10n.text(.changePack)) { coordinator.discardPack() }
-                .disabled(coordinator.isBusy)
         }
         .controlSize(.small)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
         .padding(.vertical, 8)
     }
 
@@ -132,6 +191,7 @@ struct TelegramImportView: View {
             .padding(16)
         }
         .frame(maxHeight: .infinity)
+        .transition(.opacity)
     }
 
     private func cell(_ sticker: TelegramSticker) -> some View {
@@ -217,6 +277,8 @@ struct TelegramImportView: View {
                     .font(MemeDockTypography.body)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(counts.done)))
+                    .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: counts.done)
             } else if coordinator.phase == .loading {
                 ProgressView()
                     .controlSize(.small)
@@ -247,12 +309,14 @@ struct TelegramImportView: View {
                 coordinator.dismiss()
                 dismiss()
             }
-            Button(L10n.text(.importSelected)) {
-                Task { await coordinator.importSelected() }
+            if loaded {
+                Button(L10n.text(.importSelected)) {
+                    Task { await coordinator.importSelected() }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(MemeDockButtonStyle(kind: .primary))
+                .disabled(coordinator.selected.isEmpty || coordinator.isBusy)
             }
-            .keyboardShortcut(.defaultAction)
-            .buttonStyle(MemeDockButtonStyle(kind: .primary))
-            .disabled(coordinator.selected.isEmpty || coordinator.isBusy)
         }
         .padding(16)
         .background(MemeDockPalette(scheme).canvas)

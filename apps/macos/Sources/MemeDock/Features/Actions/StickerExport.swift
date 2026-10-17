@@ -10,6 +10,35 @@ enum StickerExport {
         let animation: AnimationPolicy
     }
 
+    /// Every preset, in the order the pickers list them.
+    static let presets: [ExportPreset] = [.original, .compatiblePng, .whiteBackground, .smallJpeg]
+
+    /// The generated enum carries no raw value, so the stored defaults use
+    /// these names. They are persisted and must not change.
+    static func storageKey(_ preset: ExportPreset) -> String {
+        switch preset {
+        case .original: return "original"
+        case .compatiblePng: return "compatiblePng"
+        case .whiteBackground: return "whiteBackground"
+        case .smallJpeg: return "smallJpeg"
+        }
+    }
+
+    static func preset(storageKey: String?) -> ExportPreset? {
+        presets.first { self.storageKey($0) == storageKey }
+    }
+
+    /// The extension a Quick Look copy needs: the stored original has none.
+    static func fileExtension(forMime mime: String) -> String? {
+        switch mime {
+        case "image/png": return "png"
+        case "image/jpeg": return "jpg"
+        case "image/gif": return "gif"
+        case "image/webp": return "webp"
+        default: return nil
+        }
+    }
+
     static func options(_ preset: ExportPreset, animation: AnimationPolicy) -> ExportOptions {
         ExportOptions(
             preset: preset,

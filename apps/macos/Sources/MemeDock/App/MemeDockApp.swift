@@ -18,27 +18,27 @@ struct MemeDockApp: App {
                 session: delegate.session,
                 status: delegate.status,
                 clipboard: delegate.clipboard,
-                navigation: delegate.navigation
+                navigation: delegate.navigation,
+                telegram: delegate.telegram
             )
         }
         .defaultSize(width: 1080, height: 720)
         .commands {
-            CommandGroup(replacing: .newItem) {}
             LibraryCommands()
         }
 
         // Appearance, language, the library's own facts and the operations that
         // reach outside it are about the app, not about the sticker being
         // browsed, so they live in the settings window (Command-,) instead of
-        // taking room from the grid.
+        // taking room from the grid. Its pages are native grouped forms, so
+        // they keep the platform's own controls rather than the library's.
         Settings {
             SettingsView(
                 session: delegate.session,
                 status: delegate.status,
-                navigation: delegate.navigation
+                navigation: delegate.navigation,
+                telegram: delegate.telegram
             )
-            .font(MemeDockTypography.body)
-            .buttonStyle(MemeDockButtonStyle())
         }
     }
 }
@@ -50,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shared because the settings window reaches the library through it.
     let navigation = LibraryNavigation()
     private(set) lazy var clipboard = ClipboardGuard(session: session)
+    /// Shared because the sheet lives on the library window while the saved
+    /// token is managed in the settings; one instance keeps both in step.
+    private(set) lazy var telegram = TelegramCoordinator(session: session, status: status)
 
     private var terminating = false
 

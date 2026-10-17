@@ -3,6 +3,11 @@ import Combine
 import Foundation
 import MemeDockBridge
 
+/// The four ways the keyboard cursor can move through the grid.
+enum GridDirection {
+    case left, right, up, down
+}
+
 /// Owns the models the library window needs and keeps them in step with the
 /// core's notification stream. One subscriber feeds every model, so the grid,
 /// the sidebar, and the detail pane cannot disagree about what changed.
@@ -23,6 +28,16 @@ final class LibraryModel: ObservableObject {
     /// detail pane: choosing many and inspecting one are different jobs, and the
     /// right column shows only one of them at a time.
     @Published private(set) var selecting = false
+
+    /// The tile the keyboard acts on. A click moves it, the arrow keys move it,
+    /// and 拷贝 copies it whether or not the detail column is showing it.
+    @Published private(set) var focusedId: String?
+    /// Bumped only by keyboard moves, so the grid scrolls to follow the
+    /// keyboard without re-centring a tile the user just clicked.
+    @Published private(set) var focusScroll = 0
+    /// Told by the grid how many tiles a row holds, which is what an up or
+    /// down move has to skip.
+    var columnCount = 3
 
     private var subscriptions: Set<AnyCancellable> = []
     private var started = false
@@ -72,6 +87,7 @@ final class LibraryModel: ObservableObject {
     /// A click moves the detail pane, or extends the selection while picking
     /// many. The modifier follows the usual macOS convention.
     func click(_ item: StickerItem) {
+        focusedId = item.id
         if selecting || NSEvent.modifierFlags.contains(.command) {
             selection.toggle(item)
             // One picked sticker can still be the one being inspected; from the
@@ -83,6 +99,97 @@ final class LibraryModel: ObservableObject {
         }
         selection.clear()
         Task { await detail.load(id: item.id) }
+    }
+
+    var focusedItem: StickerItem? {
+        guard let focusedId else { return nil }
+        return browser.items.first { $0.id == focusedId }
+    }
+
+    /// Moves the keyboard cursor. The detail column follows only when it is
+    /// already open.
+    func moveFocus(_ direction: GridDirection) {
+        let items = browser.items
+        guard !items.isEmpty else { return }
+        let current = focusedId.flatMap { id in items.firstIndex { $0.id == id } }
+        let target: Int
+        if let current {
+            switch direction {
+            case .left: target = current - 1
+            case .right: target = current + 1
+            case .up: target = current - columnCount
+            case .down: target = current + columnCount
+            }
+        } else {
+            target = 0
+        }
+        guard items.indices.contains(target) else { return }
+        let item = items[target]
+        focusedId = item.id
+        focusScroll += 1
+        if detail.id != nil || detail.loading {
+            Task { await detail.load(id: item.id) }
+        }
+    }
+
+    /// Return opens what the cursor is on, the way a click would without
+    /// disturbing a batch in progress.
+    func openFocused() {
+        guard let item = focusedItem, !selecting else { return }
+        Task { await detail.load(id: item.id) }
+    }
+
+    var canDeleteFocused: Bool {
+        guard !actions.busy, browser.filter != .deleted else { return false }
+        return focusedItem.map { !$0.isDeleted } ?? false
+    }
+
+    /// Trashes the focused sticker and leaves the cursor on a neighbour.
+    func deleteFocused() async {
+        guard canDeleteFocused, let item = focusedItem else { return }
+        let items = browser.items
+        let index = items.firstIndex { $0.id == item.id }
+        let neighbour = index.flatMap { index -> StickerItem? in
+            if items.indices.contains(index + 1) { return items[index + 1] }
+            return index > 0 ? items[index - 1] : nil
+        }
+        await delete(item)
+        if detail.id == item.id {
+            detail.clear()
+        }
+        focusedId = neighbour?.id == item.id ? nil : neighbour?.id
+    }
+
+    var canPaste: Bool {
+        session.library != nil && !imports.isRunning
+    }
+
+    /// ⌘V uses the same pipeline as a file import.
+    func paste() {
+        guard canPaste else { return }
+        let collectionId = importCollectionId
+        Task { await imports.importClipboard(collectionId: collectionId) }
+    }
+
+    /// What Quick Look needs for a sticker: its stored file, type and name.
+    struct QuickLookSource: Sendable {
+        let path: String
+        let mime: String
+        let title: String
+    }
+
+    func quickLookSource(for id: String) async -> QuickLookSource? {
+        let sticker: StickerDetail?
+        if detail.id == id, let loaded = detail.sticker {
+            sticker = loaded
+        } else {
+            sticker = try? await session.detail(id)
+        }
+        guard let sticker, let path = sticker.originalPath else { return nil }
+        let title = browser.items.first { $0.id == id }.map {
+            $0.sticker.title.isEmpty ? $0.sticker.originalName : $0.sticker.title
+        } ?? sticker.sticker.originalName
+        return QuickLookSource(path: path, mime: sticker.asset.mime, title: title)
     }
 
     /// Turns the picking mode on or off. Leaving it drops the selection: one
@@ -111,18 +218,15 @@ final class LibraryModel: ObservableObject {
         !selection.running && !browser.items.isEmpty
     }
 
-    /// The sticker 拷贝 acts on: the one the detail column has open, which is the
-    /// only row the library treats as focused. A trashed sticker is on its way
-    /// out, and while a batch is being picked the right column belongs to the
-    /// selection rather than to one sticker, so neither leaves anything to copy.
+    /// The sticker 拷贝 acts on: the keyboard cursor, whether or not its detail
+    /// is open. A trashed sticker is on its way out, so it is not copiable.
     var copyTarget: StickerItem? {
-        guard !selecting, browser.filter != .deleted, !detail.loading,
-              !actions.busy, detail.sticker?.originalPath != nil else { return nil }
-        return detail.item
+        guard !actions.busy, browser.filter != .deleted else { return nil }
+        return focusedItem
     }
 
-    /// Copies `copyTarget`. The row in the grid is what a click opens, so this is
-    /// the one-sticker copy the detail column already offers by button.
+    /// Copies `copyTarget`. The detail column and the keyboard share one
+    /// target, so this is the copy the detail pane offers by button too.
     func copyFocused() async {
         guard let item = copyTarget else { return }
         await perform(status) { try await self.actions.copyImage(item) }
@@ -216,6 +320,10 @@ final class LibraryModel: ObservableObject {
                     for item in items {
                         self.thumbnails.load(item)
                     }
+                    // A deleted or filtered-out row takes the cursor with it.
+                    if let focused = self.focusedId, !items.contains(where: { $0.id == focused }) {
+                        self.focusedId = nil
+                    }
                 }
             }
             .store(in: &subscriptions)
@@ -224,6 +332,8 @@ final class LibraryModel: ObservableObject {
     private func sectionChanged() {
         selection.clear()
         detail.clear()
+        focusedId = nil
+        focusScroll = 0
         // Collection order only means something inside a collection, so the
         // picker must not keep showing a choice the new section cannot honour.
         if !browser.filter.allowsCollectionOrder, browser.sort == .collectionOrder {

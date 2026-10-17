@@ -47,6 +47,17 @@ enum L10nKey: String {
     case createBackup, restoreBackup, backupHint, backupPreview, merge, replace, replaceHint
     case backupSaved, backupRestored, archiveContains
     case backupMergeHint, backupMergeSummary
+    case outputTab, backupTab, about
+    case outputDefaults, outputCopy, outputCopyHint, outputShare, outputShareHint, outputFooter
+    case outputDrag, outputDragHint
+    case followDefaults, followDefaultsHint
+    case tokenSaved, tokenNotSaved, forget, importFromTelegram, importFromTelegramHint, telegramSettingsHint
+    case open, backUp, backupSavedTo, restoreHintShort, chooseFile, restoreMode, discard
+    case checkpointHint, create, space, cleanUp, clean, cleanExportsHint, locations
+    case version, licenses, mitLicense, quicksandFont, openFontLicense, view, idCopied
+    case importFromFiles, importFromTelegramPack, useSavedToken, change, packPlaceholder, stickerCount
+    case largerStickers, smallerStickers, defaultStickerSize
+    case nothingToPaste, quickLookUnavailable
     case noHome
 }
 
@@ -80,7 +91,7 @@ enum L10n {
         .trash: "Trash", .backup: "Backup", .telegram: "Telegram",
         .originalCount: "Originals", .originalBytes: "Original size", .cacheBytes: "Thumbnails and cache",
         .createCheckpoint: "Create checkpoint", .cleanExports: "Clean prepared shares",
-        .libraryId: "Library", .deviceId: "Device",
+        .libraryId: "Library ID", .deviceId: "Device ID",
         .dataDirectory: "Library folder", .cacheDirectory: "Cache folder", .exportDirectory: "Share folder",
         .checkpointCreated: "Checkpoint created", .exportsCleaned: "Prepared shares cleaned",
         .imageCopied: "Image copied", .fileCopied: "File copied", .saved: "Saved",
@@ -158,6 +169,34 @@ enum L10n {
         .backupMergeSummary: "%d to be added, %d already present",
         .backupSaved: "Backup saved", .backupRestored: "Backup restored",
         .archiveContains: "%d stickers, %d collections, %d tags",
+        .outputTab: "Copy & drag", .backupTab: "Backup & restore", .about: "About",
+        .outputDefaults: "Default formats",
+        .outputCopy: "Copy", .outputCopyHint: "Copy image, copy file and ⌘C",
+        .outputShare: "Share and save", .outputShareHint: "The share menu and Save as",
+        .outputDrag: "Drag", .outputDragHint: "Files dragged into other apps",
+        .outputFooter: "Animations always keep their original format; only Copy first frame turns them into a still image. Dragging uses its own format. The format menu in the detail pane can override copy and share until the app quits.",
+        .followDefaults: "Use defaults", .followDefaultsHint: "Copy and share use the formats chosen in Settings",
+        .tokenSaved: "Saved in the keychain", .tokenNotSaved: "Not saved", .forget: "Forget",
+        .importFromTelegram: "Import from Telegram",
+        .importFromTelegramHint: "Look up a pack by name or link, then pick what to bring in",
+        .telegramSettingsHint: "Get a token by creating a bot with @BotFather. A remembered token is kept only in this Mac's keychain.",
+        .open: "Open…", .backUp: "Back up…", .backupSavedTo: "Saved to",
+        .restoreHintShort: "See what the backup holds before anything is written",
+        .chooseFile: "Choose file…", .restoreMode: "Restore mode", .discard: "Discard",
+        .checkpointHint: "Saves a snapshot of the library database in the library folder. Original files are not included.",
+        .create: "Create", .space: "Space", .cleanUp: "Clean up", .clean: "Clean",
+        .cleanExportsHint: "Removes expired temporary files made for copying and sharing; files still on the clipboard are kept. Thumbnails are managed by the app and rebuilt when needed. Originals are never touched.",
+        .locations: "Locations",
+        .version: "Version %@", .licenses: "Licenses", .mitLicense: "MIT License",
+        .quicksandFont: "Quicksand typeface", .openFontLicense: "SIL Open Font License", .view: "View",
+        .idCopied: "Copied to the clipboard",
+        .importFromFiles: "Import from files…", .importFromTelegramPack: "Import Telegram sticker pack…",
+        .useSavedToken: "Using the saved token", .change: "Change",
+        .packPlaceholder: "Pack name or t.me/addstickers/… link", .stickerCount: "%d stickers",
+        .largerStickers: "Larger stickers", .smallerStickers: "Smaller stickers",
+        .defaultStickerSize: "Default sticker size",
+        .nothingToPaste: "The clipboard holds no image to import",
+        .quickLookUnavailable: "Quick Look cannot show this sticker",
         .noHome: "The home folder could not be located",
     ]
 
@@ -190,7 +229,7 @@ enum L10n {
         .trash: "回收站", .backup: "备份", .telegram: "Telegram",
         .originalCount: "原图数量", .originalBytes: "原图占用", .cacheBytes: "缩略图与缓存",
         .createCheckpoint: "创建检查点", .cleanExports: "清理待分享副本",
-        .libraryId: "素材库", .deviceId: "设备",
+        .libraryId: "素材库 ID", .deviceId: "设备 ID",
         .dataDirectory: "素材库目录", .cacheDirectory: "缓存目录", .exportDirectory: "分享目录",
         .checkpointCreated: "已创建检查点", .exportsCleaned: "已清理待分享副本",
         .imageCopied: "已复制图片", .fileCopied: "已复制文件", .saved: "已保存",
@@ -266,6 +305,34 @@ enum L10n {
         .backupMergeSummary: "将新增 %d 项，跳过 %d 项已存在内容",
         .backupSaved: "已导出备份", .backupRestored: "已从备份恢复",
         .archiveContains: "%d 张表情、%d 个合集、%d 个标签",
+        .outputTab: "复制与拖拽", .backupTab: "备份与恢复", .about: "关于",
+        .outputDefaults: "默认格式",
+        .outputCopy: "复制", .outputCopyHint: "复制图片、复制文件和 ⌘C",
+        .outputShare: "分享与另存为", .outputShareHint: "分享菜单和另存为",
+        .outputDrag: "拖拽", .outputDragHint: "拖到其他应用时的格式",
+        .outputFooter: "动图始终保留原格式，只有“复制首帧”会转换为静图。拖拽使用自己的格式。详情栏的格式菜单可以临时覆盖复制与分享，直到退出应用。",
+        .followDefaults: "跟随默认", .followDefaultsHint: "复制与分享使用设置中的默认格式",
+        .tokenSaved: "已保存在钥匙串", .tokenNotSaved: "未保存", .forget: "清除",
+        .importFromTelegram: "从 Telegram 导入",
+        .importFromTelegramHint: "按名称或链接查找贴纸包，挑选后再导入",
+        .telegramSettingsHint: "用 @BotFather 创建机器人即可获得 Token。记住的 Token 只保存在本机钥匙串中。",
+        .open: "打开…", .backUp: "备份…", .backupSavedTo: "已保存到",
+        .restoreHintShort: "先预览备份内容，确认后才会写入",
+        .chooseFile: "选择文件…", .restoreMode: "恢复方式", .discard: "放弃",
+        .checkpointHint: "在素材库目录保存一份数据库快照，不包含原图文件。",
+        .create: "创建", .space: "空间", .cleanUp: "清理", .clean: "清理",
+        .cleanExportsHint: "删除复制、分享时生成且已过期的临时文件，剪贴板正在使用的会保留。缩略图由应用管理，需要时自动重建。原图不受影响。",
+        .locations: "位置",
+        .version: "版本 %@", .licenses: "许可", .mitLicense: "MIT 许可证",
+        .quicksandFont: "Quicksand 字体", .openFontLicense: "SIL 开放字体许可证", .view: "查看",
+        .idCopied: "已复制到剪贴板",
+        .importFromFiles: "从文件导入…", .importFromTelegramPack: "从 Telegram 贴纸包导入…",
+        .useSavedToken: "使用已保存的 Token", .change: "更换",
+        .packPlaceholder: "贴纸包名称或 t.me/addstickers/… 链接", .stickerCount: "%d 张贴纸",
+        .largerStickers: "放大贴纸", .smallerStickers: "缩小贴纸",
+        .defaultStickerSize: "默认贴纸大小",
+        .nothingToPaste: "剪贴板里没有可导入的图片",
+        .quickLookUnavailable: "无法用快速查看显示这张贴纸",
         .noHome: "无法定位用户主目录",
     ]
 

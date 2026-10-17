@@ -27,5 +27,13 @@ let package = Package(
                 .linkedLibrary("memedock_ffi")
             ]
         ),
+        // Tests link against the executable target; they cover the platform
+        // rules around the drag hand-off and Quick Look, not the core, which
+        // has its own Rust tests.
+        .testTarget(
+            name: "MemeDockTests",
+            dependencies: ["MemeDock"],
+            path: "Tests/MemeDockTests"
+        ),
     ]
 )

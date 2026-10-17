@@ -10,6 +10,8 @@ struct RootView: View {
     /// Handed to the library window, which is the only view that can answer what
     /// the settings window asks it to show.
     let navigation: LibraryNavigation
+    /// The app's one Telegram import, presented from the library window.
+    let telegram: TelegramCoordinator
     @StateObject private var model: LibraryModel
     /// Observed so a theme or language change re-renders this window; applying
     /// them is `Preferences`' own job.
@@ -19,11 +21,13 @@ struct RootView: View {
         session: LibrarySession,
         status: StatusCenter,
         clipboard: ClipboardGuard,
-        navigation: LibraryNavigation
+        navigation: LibraryNavigation,
+        telegram: TelegramCoordinator
     ) {
         _session = ObservedObject(wrappedValue: session)
         _status = ObservedObject(wrappedValue: status)
         self.navigation = navigation
+        self.telegram = telegram
         _model = StateObject(
             wrappedValue: LibraryModel(session: session, status: status, clipboard: clipboard)
         )
@@ -47,7 +51,7 @@ struct RootView: View {
         case .opening, .closed:
             OpeningView()
         case .ready:
-            LibraryWindow(model: model, navigation: navigation)
+            LibraryWindow(model: model, navigation: navigation, telegram: telegram)
         case let .failed(message):
             FailureView(message: message) {
                 Task { await session.start() }

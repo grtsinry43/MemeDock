@@ -1,295 +1,232 @@
 import AppKit
 import SwiftUI
 
-/// The settings window. It holds what is about the app rather than about the
-/// sticker being browsed: appearance and language, what the library occupies
-/// and where it lives, the maintenance actions, and the operations that reach
-/// outside it - the trash, Telegram and backups.
+/// The pages of the settings window, in sidebar order.
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general
+    case output
+    case importing
+    case backup
+    case storage
+    case about
+
+    var id: String { rawValue }
+
+    var title: L10nKey {
+        switch self {
+        case .general: return .general
+        case .output: return .outputTab
+        case .importing: return .importAction
+        case .backup: return .backupTab
+        case .storage: return .storage
+        case .about: return .about
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: return "gearshape"
+        case .output: return "doc.on.doc"
+        case .importing: return "square.and.arrow.down"
+        case .backup: return "clock.arrow.circlepath"
+        case .storage: return "internaldrive"
+        case .about: return "info.circle"
+        }
+    }
+
+    /// Pages that act on the open library rather than on the app.
+    var needsLibrary: Bool {
+        switch self {
+        case .general, .output: return false
+        case .importing, .backup, .storage, .about: return true
+        }
+    }
+}
+
+/// The settings window: the pages on the left, the selected page on the
+/// right. Everything here is about the app rather than about the sticker
+/// being browsed, so it lives behind Command-, instead of taking room from
+/// the grid.
 struct SettingsView: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var session: LibrarySession
     @ObservedObject var status: StatusCenter
-    /// The library window answers what this window asks of it; this window is
-    /// what the handle below is for, since handing a command over means getting
-    /// out of the way.
+    /// The import page hands the Telegram sheet over to the library window
+    /// through this, since that is where it is presented.
     let navigation: LibraryNavigation
+    @ObservedObject var telegram: TelegramCoordinator
     @ObservedObject private var preferences = Preferences.shared
 
-    @StateObject private var telegram: TelegramCoordinator
     @StateObject private var backups: BackupCoordinator
 
+    @State private var tab: SettingsTab = .general
     @State private var host = HostWindow()
-    @State private var showTelegram = false
-    @State private var showBackup = false
-    @State private var working = false
-    @State private var checkpoint: String?
+    @Namespace private var sidebarSelection
 
-    init(session: LibrarySession, status: StatusCenter, navigation: LibraryNavigation) {
+    init(
+        session: LibrarySession,
+        status: StatusCenter,
+        navigation: LibraryNavigation,
+        telegram: TelegramCoordinator
+    ) {
         _session = ObservedObject(wrappedValue: session)
         _status = ObservedObject(wrappedValue: status)
         self.navigation = navigation
-        _telegram = StateObject(wrappedValue: TelegramCoordinator(session: session, status: status))
+        _telegram = ObservedObject(wrappedValue: telegram)
         _backups = StateObject(wrappedValue: BackupCoordinator(session: session, status: status))
     }
 
-    /// Everything below the general section acts on an open library.
-    private var libraryReady: Bool {
-        session.library != nil
-    }
-
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: MemeDockGeometry.sectionGap) {
-                    generalSection
-                    librarySection
-                    storageSection
-                    locationSection
-                    maintenanceSection
-                    telegramSection
-                    backupSection
-                }
-                .padding(MemeDockGeometry.pageInset)
-            }
+        // The sidebar is the window's only navigation, so it cannot be put
+        // away: a collapse request is answered by keeping both columns.
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            sidebar
+                .navigationSplitViewColumnWidth(220)
+                .toolbar(removing: .sidebarToggle)
+        } detail: {
+            page
+                .toolbar(removing: .sidebarToggle)
         }
         .font(MemeDockTypography.body)
         .foregroundStyle(MemeDockPalette(scheme).text)
         .tint(MemeDockPalette(scheme).text)
-        .background(MemeDockPalette(scheme).canvas)
-        .frame(width: 540)
-        .frame(minHeight: 480, idealHeight: 640, maxHeight: 780)
+        .frame(width: 800)
+        .frame(minHeight: 480, idealHeight: 560, maxHeight: 800)
         .overlay(alignment: .bottom) { StatusBanner(status: status) }
         .background { HostWindowReader(host: host) }
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    Task { await session.refreshStatistics() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help(L10n.text(.retry))
-                .disabled(working || !libraryReady)
+    }
+
+    // MARK: - Sidebar
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(SettingsTab.allCases) { item in
+                row(item)
             }
+            Spacer(minLength: 0)
         }
-        .sheet(isPresented: $showTelegram) {
-            TelegramImportView(coordinator: telegram)
-                .presentationCornerRadius(MemeDockGeometry.dialog)
-        }
-        .sheet(isPresented: $showBackup) {
-            BackupView(coordinator: backups)
-                .presentationCornerRadius(MemeDockGeometry.dialog)
-        }
-        .task {
-            guard libraryReady else { return }
-            await session.refreshStatistics()
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(MemeDockGlass(sidebar: true))
+        .focusable()
+        .focusEffectDisabled()
+        .onMoveCommand(perform: move)
     }
 
-    private var generalSection: some View {
-        settingsSection(.general) {
-            Picker(L10n.text(.appearance), selection: $preferences.appearance) {
-                ForEach(AppearanceMode.allCases) { mode in
-                    Text(mode.label).tag(mode)
-                }
-            }
-            .pickerStyle(.menu)
-            separator
-            Picker(L10n.text(.language), selection: $preferences.language) {
-                ForEach(LanguageMode.allCases) { mode in
-                    Text(mode.label).tag(mode)
-                }
-            }
-            .pickerStyle(.menu)
-        }
-    }
-
-    private var librarySection: some View {
-        settingsSection(.library) {
-            LabeledContent(L10n.text(.libraryId)) {
-                Text(session.identity?.libraryId ?? "—")
-                    .textSelection(.enabled)
-            }
-            separator
-            LabeledContent(L10n.text(.deviceId)) {
-                Text(session.identity?.deviceId ?? "—")
-                    .textSelection(.enabled)
-            }
-        }
-    }
-
-    private var storageSection: some View {
-        settingsSection(.storage) {
-            if let statistics = session.statistics {
-                LabeledContent(L10n.text(.originalCount), value: "\(statistics.knownAssets)")
-                separator
-                LabeledContent(
-                    L10n.text(.originalBytes),
-                    value: Format.size(statistics.readyOriginalBytes)
-                )
-                separator
-                // A thumbnail and a prepared share are both rebuildable cache, so
-                // they are one line, the way Linux counts them.
-                LabeledContent(
-                    L10n.text(.cacheBytes),
-                    value: Format.size(statistics.thumbnailBytes + statistics.temporaryShareBytes)
-                )
-            } else {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(L10n.text(.loading))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            separator
-            // The library's own way to its trash, next to what it holds. It is
-            // the same move as the trash row in the library's sidebar.
-            Button(L10n.text(.trash)) { openTrash() }
-                .disabled(!libraryReady)
-        }
-    }
-
-    private var locationSection: some View {
-        settingsSection(.dataDirectory) {
-            location(L10n.text(.dataDirectory), session.paths.data)
-            separator
-            location(L10n.text(.cacheDirectory), session.paths.cache)
-            separator
-            location(L10n.text(.exportDirectory), session.paths.export)
-        }
-    }
-
-    private var maintenanceSection: some View {
-        settingsSection {
-            Button(L10n.text(.createCheckpoint)) { createCheckpoint() }
-                .disabled(working || !libraryReady)
-            if let checkpoint {
-                LabeledContent(L10n.text(.createCheckpoint)) {
-                    HStack(spacing: 8) {
-                        Text(URL(fileURLWithPath: checkpoint).lastPathComponent)
-                            .textSelection(.enabled)
-                        Button(L10n.text(.revealInFinder)) { reveal(checkpoint) }
-                            .buttonStyle(.link)
-                    }
-                }
-            }
-            separator
-            Button(L10n.text(.cleanExports)) { cleanExports() }
-                .disabled(working || !libraryReady)
-            if working {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(L10n.text(.applying))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var telegramSection: some View {
-        settingsSection(.telegram) {
-            Button(L10n.text(.telegram)) { showTelegram = true }
-                .disabled(!libraryReady)
-            Text(L10n.text(.telegramTokenHint))
-                .font(MemeDockTypography.body)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var backupSection: some View {
-        settingsSection(.backup) {
-            // Both directions are one file, so the sheet holds the two buttons
-            // and this is only the way in.
-            Button(L10n.text(.backup)) { showBackup = true }
-                .disabled(!libraryReady)
-            Text(L10n.text(.backupHint))
-                .font(MemeDockTypography.body)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    /// Use the same small labels and neutral grouped surfaces as Android.
-    /// Native pickers, labels and selectable values keep their desktop behavior.
-    private func settingsSection<Content: View>(
-        _ title: L10nKey? = nil,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let title {
-                Text(L10n.text(title))
-                    .font(MemeDockTypography.sectionLabel)
-                    .foregroundStyle(MemeDockPalette(scheme).secondary)
-                    .padding(.horizontal, 4)
-            }
-            VStack(alignment: .leading, spacing: 12, content: content)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .background(
-                    MemeDockPalette(scheme).raised,
-                    in: RoundedRectangle(cornerRadius: MemeDockGeometry.control)
-                )
-        }
-    }
-
-    private var separator: some View {
-        Rectangle()
-            .fill(MemeDockPalette(scheme).separator)
-            .frame(height: 0.5)
-            .accessibilityHidden(true)
-    }
-
-    private func location(_ title: String, _ url: URL) -> some View {
-        LabeledContent(title) {
+    /// The same neutral pill the library sidebar uses. One shape is shared by
+    /// every row, so changing page slides it over instead of swapping it.
+    private func row(_ item: SettingsTab) -> some View {
+        let palette = MemeDockPalette(scheme)
+        let selected = tab == item
+        return Button { select(item) } label: {
             HStack(spacing: 8) {
-                Text(url.path)
+                Image(systemName: item.symbol)
+                    .frame(width: 18)
+                Text(L10n.text(item.title))
                     .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .help(url.path)
-                Button(L10n.text(.revealInFinder)) { reveal(url.path) }
-                    .buttonStyle(.link)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(selected ? palette.raised : palette.text)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 34)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: MemeDockGeometry.control)
+                        .fill(palette.text)
+                        .matchedGeometryEffect(id: "selection", in: sidebarSelection)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func select(_ item: SettingsTab) {
+        guard item != tab else { return }
+        withAnimation(reduceMotion ? nil : MemeDockMotion.panel) {
+            tab = item
+        }
+    }
+
+    private func move(_ direction: MoveCommandDirection) {
+        let tabs = SettingsTab.allCases
+        guard let index = tabs.firstIndex(of: tab) else { return }
+        switch direction {
+        case .up where index > 0: select(tabs[index - 1])
+        case .down where index + 1 < tabs.count: select(tabs[index + 1])
+        default: break
+        }
+    }
+
+    // MARK: - Page
+
+    private var page: some View {
+        ZStack {
+            content(tab)
+                .id(tab)
+                .transition(pageTransition)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(MemeDockPalette(scheme).canvas)
+        .navigationTitle(L10n.text(tab.title))
+    }
+
+    /// The new page rises a little as it fades in while the old one fades
+    /// out, so the change reads as movement without crossing the sidebar.
+    private var pageTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: 8)),
+            removal: .opacity
+        )
+    }
+
+    @ViewBuilder
+    private func content(_ tab: SettingsTab) -> some View {
+        if tab.needsLibrary, session.library == nil {
+            unavailable
+        } else {
+            switch tab {
+            case .general:
+                GeneralSettings(preferences: preferences)
+            case .output:
+                OutputSettings(preferences: preferences)
+            case .importing:
+                ImportSettings(telegram: telegram, status: status, openTelegram: openTelegram)
+            case .backup:
+                BackupSettings(session: session, coordinator: backups, status: status)
+            case .storage:
+                StorageSettings(session: session, status: status)
+            case .about:
+                AboutSettings(session: session, status: status)
             }
         }
     }
 
-    private func createCheckpoint() {
-        guard !working, libraryReady else { return }
-        working = true
-        Task {
-            defer { working = false }
-            switch await session.createCheckpoint() {
-            case let .success(path):
-                checkpoint = path
-                status.show(.checkpointCreated)
-            case let .failure(error):
-                status.show(error)
-            }
-        }
-    }
-
-    private func cleanExports() {
-        guard !working, libraryReady else { return }
-        working = true
-        Task {
-            defer { working = false }
-            switch await session.cleanExportArtifacts() {
-            case .success:
-                status.show(.exportsCleaned)
-                await session.refreshStatistics()
-            case let .failure(error):
-                status.show(error)
-            }
-        }
-    }
-
-    /// Hands the library the move and gets out of the way, so what the user sees
-    /// next is the trash itself rather than the window that offered it.
-    private func openTrash() {
-        navigation.show(.deleted)
+    /// Hands the import to the library and gets out of the way, so what the
+    /// user sees next is the sheet over the library rather than this window.
+    private func openTelegram() {
+        navigation.show(.telegramImport)
         host.window?.close()
         navigation.bringForward()
     }
 
-    private func reveal(_ path: String) {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    /// Shown while the library is opening, or in place of a page that has
+    /// nothing to act on because it failed to open.
+    @ViewBuilder
+    private var unavailable: some View {
+        Group {
+            if case let .failed(message) = session.phase {
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(MemeDockPalette(scheme).secondary)
+            } else {
+                SettingsProgress(.loading)
+            }
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

@@ -13,13 +13,17 @@ struct LibraryWindow: View {
     /// Observed so a request from the settings window is answered as soon as it
     /// arrives, even while nothing else about the window changes.
     @ObservedObject var navigation: LibraryNavigation
+    let telegram: TelegramCoordinator
     @ObservedObject private var browser: StickerBrowser
     @ObservedObject private var detail: StickerDetailModel
     @ObservedObject private var imports: ImportCoordinator
+    @State private var showTelegram = false
+    @StateObject private var hero = HeroFlight()
 
-    init(model: LibraryModel, navigation: LibraryNavigation) {
+    init(model: LibraryModel, navigation: LibraryNavigation, telegram: TelegramCoordinator) {
         self.model = model
         self.navigation = navigation
+        self.telegram = telegram
         _browser = ObservedObject(wrappedValue: model.browser)
         _detail = ObservedObject(wrappedValue: model.detail)
         _imports = ObservedObject(wrappedValue: model.imports)
@@ -28,20 +32,40 @@ struct LibraryWindow: View {
     var body: some View {
         splitView
             .focusedSceneValue(\.librarySearchFocus, { searchFocused = true })
+            .focusedSceneValue(\.libraryFile, fileActions)
             .toolbar(removing: .sidebarToggle)
             .toolbar { sidebarToolbar }
             .toolbarBackground(.hidden, for: .windowToolbar)
             // What makes ⌘C and ⌘A land on the library instead of nowhere.
             .background { LibraryResponderInstaller(model: model) }
             // Where the settings window finds this one when it has to bring it
-            // forward, and what lets it ask for a section at all.
+            // forward, and what lets it ask for anything at all.
             .background { HostWindowReader(host: navigation.library) }
             .onChange(of: navigation.request) { _, request in
                 guard let request else { return }
-                model.select(request.section)
+                switch request.target {
+                case let .section(section): model.select(section)
+                case .telegramImport: showTelegram = true
+                }
+            }
+            .sheet(isPresented: $showTelegram) {
+                TelegramImportView(coordinator: telegram)
+                    .presentationCornerRadius(MemeDockGeometry.dialog)
             }
             .task { await model.start() }
             .onDisappear { model.shutdown() }
+    }
+
+    /// What the File menu offers for this window: the two ways in and the way
+    /// out, shared with the + menu.
+    private var fileActions: LibraryFileActions {
+        LibraryFileActions(
+            available: !imports.isRunning,
+            files: { imports.presentPicker(collectionId: model.importCollectionId) },
+            telegram: { showTelegram = true },
+            canDelete: model.canDeleteFocused,
+            delete: { Task { await model.deleteFocused() } }
+        )
     }
 
     private var splitView: some View {
@@ -61,26 +85,52 @@ struct LibraryWindow: View {
         }
         .background(MemeDockPalette(scheme).canvas)
         .toolbar(removing: .sidebarToggle)
-        .animation(reduceMotion ? nil : MemeDockMotion.fade, value: model.selecting)
+    }
+
+    /// What the right column is showing, if anything.
+    private enum Column: Equatable {
+        case none
+        case detail
+        case batch
+    }
+
+    private var column: Column {
+        // One column, one job: picking a batch takes it while it lasts, so an
+        // action can never land on the single open sticker by mistake.
+        if model.selecting { return .batch }
+        if detail.id != nil || detail.loading || detail.failure != nil { return .detail }
+        return .none
     }
 
     private var mainContent: some View {
         HStack(spacing: 0) {
-            StickerGrid(model: model)
-            // One column, one job: picking a batch takes it while it lasts,
-            // so an action can never land on the single open sticker by
-            // mistake.
-            if model.selecting {
-                BatchPane(model: model)
-                    .frame(width: 320)
-                    .transition(.opacity)
-            } else if detail.id != nil || detail.loading || detail.failure != nil {
-                StickerDetailPane(model: model)
-                    .frame(width: 320)
-                    .transition(.opacity)
+            StickerGrid(model: model, hero: hero)
+            if column != .none {
+                // The column itself slides in and out; switching between its
+                // two jobs only cross-fades in place.
+                ZStack {
+                    if column == .batch {
+                        BatchPane(model: model)
+                            .transition(.opacity)
+                    } else {
+                        StickerDetailPane(model: model, hero: hero)
+                            .transition(.opacity)
+                    }
+                }
+                .frame(width: 320)
+                .transition(columnTransition)
             }
         }
+        // The grid narrows and re-flows in the same animation the column
+        // slides in with, so tiles move to their new places instead of jumping.
+        .animation(reduceMotion ? nil : MemeDockMotion.panel, value: column)
+        .coordinateSpace(name: HeroFlight.space)
+        .overlay { HeroOverlay(hero: hero) }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var columnTransition: AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity)
     }
 
     @ToolbarContentBuilder
@@ -155,15 +205,22 @@ struct LibraryWindow: View {
             .font(MemeDockTypography.control)
             .fixedSize()
             .help(L10n.text(.selectItems))
-            Button {
-                imports.presentPicker(collectionId: model.importCollectionId)
+            // Every import starts by saying where the stickers come from, so the
+            // + is a menu of sources rather than a shortcut to one of them. The
+            // File menu carries the same two with their keys.
+            Menu {
+                Button(L10n.text(.importFromFiles), action: fileActions.files)
+                Button(L10n.text(.importFromTelegramPack), action: fileActions.telegram)
             } label: {
                 Label(L10n.text(.libraryAdd), systemImage: "plus")
                     .labelStyle(.iconOnly)
                     .frame(width: MemeDockGeometry.controlHeight, height: MemeDockGeometry.controlHeight)
+                    .contentShape(Rectangle())
             }
-            .keyboardShortcut("o")
+            .menuStyle(.button)
             .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
             .disabled(imports.isRunning)
             .help(L10n.text(.importAction))
         }

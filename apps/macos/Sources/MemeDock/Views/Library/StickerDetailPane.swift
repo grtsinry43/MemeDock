@@ -7,13 +7,18 @@ import SwiftUI
 /// value, so a rejected name or a stale generation is visible instead of assumed.
 struct StickerDetailPane: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: LibraryModel
+    /// Observed so the preview stays hidden while a thumbnail flies into it.
+    @ObservedObject private var hero: HeroFlight
     @ObservedObject private var detail: StickerDetailModel
     @ObservedObject private var collections: CollectionCatalog
     @ObservedObject private var tags: TagCatalog
     @ObservedObject private var thumbnails: ThumbnailStore
     @ObservedObject private var actions: StickerActions
-
+    /// Observed because the effective copy and share presets follow the
+    /// settings while no override is picked.
+    @ObservedObject private var preferences = Preferences.shared
     private enum Field {
         case title
         case note
@@ -28,8 +33,9 @@ struct StickerDetailPane: View {
     @State private var tagCreateError: String?
     @FocusState private var editing: Field?
 
-    init(model: LibraryModel) {
+    init(model: LibraryModel, hero: HeroFlight) {
         self.model = model
+        _hero = ObservedObject(wrappedValue: hero)
         _detail = ObservedObject(wrappedValue: model.detail)
         _collections = ObservedObject(wrappedValue: model.collections)
         _tags = ObservedObject(wrappedValue: model.tags)
@@ -42,10 +48,15 @@ struct StickerDetailPane: View {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: MemeDockGeometry.sectionGap) {
+                    // The slot is laid out from the first frame of a load, so a
+                    // thumbnail flying in has somewhere to land; while the next
+                    // sticker loads it keeps showing the previous picture.
+                    if detail.loading || detail.sticker != nil {
+                        previewSlot
+                    }
                     if detail.loading {
                         loadingState
                     } else if let sticker = detail.sticker {
-                        preview(sticker)
                         titleField(sticker)
                         if sticker.originalPath == nil {
                             Label(L10n.text(.restoreRequired), systemImage: "exclamationmark.triangle")
@@ -109,7 +120,7 @@ struct StickerDetailPane: View {
                 moreMenu(sticker)
             }
             Button {
-                detail.clear()
+                closeDetail()
             } label: {
                 Image(systemName: "xmark")
             }
@@ -121,14 +132,36 @@ struct StickerDetailPane: View {
         .background(MemeDockPalette(scheme).raised)
     }
 
-    private func preview(_ sticker: StickerDetail) -> some View {
-        OriginalPreview(
-            path: sticker.originalPath,
-            fallback: previewFallback(sticker),
-            animated: sticker.asset.animated,
-            mime: sticker.asset.mime
-        )
-        .frame(height: 190)
+    private var previewSlot: some View {
+        ZStack {
+            if let sticker = detail.sticker {
+                OriginalPreview(
+                    path: sticker.originalPath,
+                    fallback: previewFallback(sticker),
+                    animated: sticker.asset.animated,
+                    mime: sticker.asset.mime,
+                    reportPicture: hero.reportPreview
+                )
+                .id(sticker.sticker.id)
+                .transition(.opacity)
+                .stickerDragSource(actions, item: StickerItem(detail: sticker))
+            } else {
+                Color.clear
+                    .frame(height: OriginalPreview.pictureHeight)
+                    .onHeroFrame(hero.reportPreview)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+        .opacity(hero.isOpening ? 0 : 1)
+        .animation(reduceMotion ? nil : MemeDockMotion.fade, value: detail.sticker?.sticker.id)
+    }
+
+    /// Closing sends the thumbnail back to its tile before the column goes.
+    private func closeDetail() {
+        if !reduceMotion, let item = detail.item, let image = thumbnails.image(for: item) {
+            hero.close(item.id, image: image)
+        }
+        detail.clear()
     }
 
     private func previewFallback(_ sticker: StickerDetail) -> NSImage? {
@@ -321,15 +354,11 @@ struct StickerDetailPane: View {
         VStack(alignment: .leading, spacing: 8) {
             if let item = detail.item {
                 Menu {
-                    Picker(L10n.text(.exportPreset), selection: $actions.outputPreset) {
-                        ForEach([ExportPreset.original, .compatiblePng, .whiteBackground, .smallJpeg], id: \.self) { preset in
-                            Text(StickerExport.label(preset)).tag(preset)
-                        }
-                    }
-                    .pickerStyle(.inline)
+                    ExportOverridePicker(selection: $actions.override)
                 } label: {
                     HStack(spacing: 6) {
-                        Text(StickerExport.label(actions.outputPreset)).font(MemeDockTypography.control)
+                        Text(actions.override.map(StickerExport.label) ?? L10n.text(.followDefaults))
+                            .font(MemeDockTypography.control)
                         Image(systemName: "chevron.down").font(.system(size: 10, weight: .medium))
                     }
                     .frame(height: MemeDockGeometry.controlHeight)
@@ -337,8 +366,8 @@ struct StickerDetailPane: View {
                 .menuStyle(.button)
                 .buttonStyle(.plain)
                 .menuIndicator(.hidden)
-                .help(StickerExport.hint(actions.outputPreset))
-                if item.animated, actions.outputPreset != .original {
+                .help(actions.override.map(StickerExport.hint) ?? L10n.text(.followDefaultsHint))
+                if item.animated, actions.copyPreset != .original || actions.sharePreset != .original {
                     Text(L10n.text(.animatedUsesOriginal))
                         .font(MemeDockTypography.caption)
                         .foregroundStyle(MemeDockPalette(scheme).secondary)
@@ -473,15 +502,38 @@ struct StickerDetailPane: View {
     }
 }
 
+/// The detail pane's and the grid menu's way to pick one preset for copy and
+/// share for the rest of this run, or to go back to the settings' defaults.
+struct ExportOverridePicker: View {
+    @Binding var selection: ExportPreset?
+
+    var body: some View {
+        Picker(L10n.text(.exportPreset), selection: $selection) {
+            Text(L10n.text(.followDefaults)).tag(ExportPreset?.none)
+            Divider()
+            ForEach(StickerExport.presets, id: \.self) { preset in
+                Text(StickerExport.label(preset)).tag(ExportPreset?.some(preset))
+            }
+        }
+        .pickerStyle(.inline)
+    }
+}
+
 /// The stored original at its real size. An animated GIF or WebP is played (see
 /// `AnimatedPlayback`). Still-image file reads happen off the main thread;
 /// AppKit image creation and view updates stay on the main actor.
 private struct OriginalPreview: View {
+    /// The picture keeps one height whatever sits under it, so a flight lands
+    /// on exactly the area the picture is drawn in.
+    static let pictureHeight: CGFloat = 190
+
     @Environment(\.colorScheme) private var scheme
     let path: String?
     let fallback: NSImage?
     let animated: Bool
     let mime: String
+    /// Receives the picture's frame in the hero space.
+    let reportPicture: (CGRect) -> Void
 
     @StateObject private var playback = AnimatedPlayback()
     @State private var still: NSImage?
@@ -491,7 +543,9 @@ private struct OriginalPreview: View {
     var body: some View {
         VStack(spacing: 8) {
             picture
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.pictureHeight)
+                .onHeroFrame(reportPicture)
             if plays || note != nil {
                 HStack(spacing: 8) {
                     if let note {

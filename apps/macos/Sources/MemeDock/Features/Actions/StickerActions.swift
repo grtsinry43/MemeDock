@@ -9,11 +9,22 @@ import MemeDockBridge
 @MainActor
 final class StickerActions: ObservableObject {
     @Published private(set) var busy = false
-    @Published var outputPreset: ExportPreset = .compatiblePng
+    /// A preset picked in the detail pane for this run of the app. It replaces
+    /// the copy and share defaults while set; `nil` follows the settings.
+    @Published var override: ExportPreset?
+
+    /// What copying an image or a file hands over right now.
+    var copyPreset: ExportPreset { override ?? preferences.copyPreset }
+    /// What sharing and saving hand over right now.
+    var sharePreset: ExportPreset { override ?? preferences.sharePreset }
+    /// What a drag hands over; the detail pane's temporary choice never
+    /// changes it.
+    var dragPreset: ExportPreset { preferences.dragPreset }
 
     private let session: LibrarySession
     private let clipboard: ClipboardGuard
     private let status: StatusCenter
+    private let preferences = Preferences.shared
     /// Leases stay alive while the pasteboard, a drag, or a share sheet points
     /// at their file.
     private var retained: [String: ArtifactLeaseHandle] = [:]
@@ -26,7 +37,7 @@ final class StickerActions: ObservableObject {
 
     func copyImage(_ item: StickerItem, firstFrame: Bool = false) async throws {
         try await run {
-            let lease = try await self.export(item, preset: self.outputPreset, firstFrame: firstFrame)
+            let lease = try await self.export(item, preset: self.copyPreset, firstFrame: firstFrame)
             let artifact = try lease.metadata()
             try await self.clipboard.install(lease: lease) { pasteboard in
                 try Self.write(artifact: artifact, representation: .image, to: pasteboard)
@@ -38,7 +49,7 @@ final class StickerActions: ObservableObject {
 
     func copyFile(_ item: StickerItem) async throws {
         try await run {
-            let lease = try await self.export(item, preset: self.outputPreset, firstFrame: false)
+            let lease = try await self.export(item, preset: self.copyPreset, firstFrame: false)
             let artifact = try lease.metadata()
             try await self.clipboard.install(lease: lease) { pasteboard in
                 try Self.write(artifact: artifact, representation: .file, to: pasteboard)
@@ -50,7 +61,7 @@ final class StickerActions: ObservableObject {
 
     func save(_ item: StickerItem, firstFrame: Bool = false) async throws {
         try await run {
-            let lease = try await self.export(item, preset: self.outputPreset, firstFrame: firstFrame)
+            let lease = try await self.export(item, preset: self.sharePreset, firstFrame: firstFrame)
             let artifact = try lease.metadata()
             guard let destination = try await Self.askDestination(name: artifact.fileName) else { return }
             try Self.replace(source: URL(fileURLWithPath: artifact.path), destination: destination)
@@ -61,7 +72,7 @@ final class StickerActions: ObservableObject {
 
     func share(_ item: StickerItem, firstFrame: Bool = false) async throws {
         try await run {
-            let lease = try await self.export(item, preset: self.outputPreset, firstFrame: firstFrame)
+            let lease = try await self.export(item, preset: self.sharePreset, firstFrame: firstFrame)
             let artifact = try lease.metadata()
             let url = URL(fileURLWithPath: artifact.path)
             guard let view = Self.anchorView() else { throw AppFailure(.errorInternal) }
@@ -72,15 +83,59 @@ final class StickerActions: ObservableObject {
         }
     }
 
-    /// Prepares a file for a drag session and returns a provider that hands the
-    /// file URL (plus its bytes) to the drop target.
-    func dragProvider(for item: StickerItem, firstFrame: Bool = false) async throws -> NSItemProvider {
-        let lease = try await session
-            .requireLibrary()
-            .exportOriginal(id: item.id)
-            .awaitResult()
-        guard let artifact = try? lease.metadata() else { throw AppFailure(.errorInternal) }
-        return Self.provider(artifact: artifact)
+    /// Prepares the file a drag hands over.
+    ///
+    /// The export runs to completion first: some destinations read the offered
+    /// data immediately and ignore a promise. `NSItemProvider(contentsOf:)`
+    /// then derives the file's types and serves its bytes.
+    func dragProvider(for item: StickerItem) -> NSItemProvider {
+        guard let library = session.library else { return NSItemProvider() }
+        var outcome = exportedFile(
+            library: library,
+            id: item.id,
+            animated: item.animated,
+            preset: dragPreset,
+            timeout: 2
+        )
+        // A preset conversion can fail where the stored file is still usable.
+        if case .success? = outcome {} else {
+            outcome = exportedFile(
+                library: library,
+                id: item.id,
+                animated: item.animated,
+                preset: .original,
+                timeout: 1
+            )
+        }
+        let fileURL: URL
+        switch outcome {
+        case let .success(url)?:
+            fileURL = url
+        case let .failure(error)?:
+            status.show(error)
+            return NSItemProvider()
+        case nil:
+            status.show(L10n.text(.errorTimeout), isFailure: true)
+            return NSItemProvider()
+        }
+        return NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
+    }
+
+    private func exportedFile(
+        library: LibraryHandle,
+        id: String,
+        animated: Bool,
+        preset: ExportPreset,
+        timeout: TimeInterval
+    ) -> Result<URL, Error>? {
+        let resolution = StickerExport.resolve(preset: preset, animated: animated, firstFrame: false)
+        let options = StickerExport.options(resolution.preset, animation: resolution.animation)
+        let export = DragExport(task: Task.detached(priority: .userInitiated) {
+            let lease = try await library.export(id: id, options: options).awaitResult()
+            let artifact = try lease.metadata()
+            return URL(fileURLWithPath: artifact.path)
+        })
+        return export.wait(timeout: timeout)
     }
 
     private enum Representation {
@@ -153,30 +208,6 @@ final class StickerActions: ObservableObject {
         guard pasteboard.writeObjects([item]) else {
             throw AppFailure(.errorIo)
         }
-    }
-
-    private static func provider(artifact: ExportArtifact) -> NSItemProvider {
-        let provider = NSItemProvider()
-        let url = URL(fileURLWithPath: artifact.path)
-        let uti = pasteboardType(for: artifact.mime, representation: .file)?.rawValue ?? "public.data"
-        provider.registerFileRepresentation(
-            forTypeIdentifier: uti,
-            fileOptions: [],
-            visibility: .all
-        ) { completion in
-            completion(url, false, nil)
-            return nil
-        }
-        if let type = pasteboardType(for: artifact.mime, representation: .image) {
-            provider.registerDataRepresentation(
-                forTypeIdentifier: type.rawValue,
-                visibility: .all
-            ) { completion in
-                completion(try? Data(contentsOf: url), nil)
-                return nil
-            }
-        }
-        return provider
     }
 
     private static func pasteboardType(for mime: String, representation: Representation) -> NSPasteboard.PasteboardType? {

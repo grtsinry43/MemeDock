@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import MemeDockBridge
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
@@ -67,6 +68,10 @@ final class Preferences: ObservableObject {
     private enum Key {
         static let appearance = "appearance"
         static let language = "language"
+        static let copyPreset = "copyPreset"
+        static let sharePreset = "sharePreset"
+        static let dragPreset = "dragPreset"
+        static let tileSize = "tileSize"
     }
 
     private let defaults: UserDefaults
@@ -83,10 +88,56 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// What copying an image or a file hands over unless the detail pane
+    /// overrides it.
+    @Published var copyPreset: ExportPreset {
+        didSet { persist() }
+    }
+    /// What sharing and saving hand over; both produce one file for somewhere
+    /// else, so they share the choice.
+    @Published var sharePreset: ExportPreset {
+        didSet { persist() }
+    }
+    /// What a sticker dragged into another app hands over. The detail pane's
+    /// temporary choice never changes it.
+    @Published var dragPreset: ExportPreset {
+        didSet { persist() }
+    }
+
+    /// How wide one grid tile aims to be, within `tileSizeRange`. A grid
+    /// density is a display choice, so it survives relaunches.
+    @Published var tileSize: CGFloat {
+        didSet { persist() }
+    }
+
+    static var defaultTileSize: CGFloat { 112 }
+    static let tileSizeRange: ClosedRange<CGFloat> = 80 ... 200
+    private static let tileSizeStep: CGFloat = 16
+
+    func largerStickers() {
+        tileSize = min(Self.tileSizeRange.upperBound, tileSize + Self.tileSizeStep)
+    }
+
+    func smallerStickers() {
+        tileSize = max(Self.tileSizeRange.lowerBound, tileSize - Self.tileSizeStep)
+    }
+
+    func resetStickerSize() {
+        tileSize = Self.defaultTileSize
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.appearance = AppearanceMode(rawValue: defaults.string(forKey: Key.appearance) ?? "") ?? .system
         self.language = LanguageMode(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
+        self.copyPreset = StickerExport.preset(storageKey: defaults.string(forKey: Key.copyPreset)) ?? .compatiblePng
+        self.sharePreset = StickerExport.preset(storageKey: defaults.string(forKey: Key.sharePreset)) ?? .compatiblePng
+        self.dragPreset = StickerExport.preset(storageKey: defaults.string(forKey: Key.dragPreset)) ?? .compatiblePng
+        let storedSize = defaults.object(forKey: Key.tileSize) as? Double
+        self.tileSize = min(
+            Self.tileSizeRange.upperBound,
+            max(Self.tileSizeRange.lowerBound, storedSize.map { CGFloat($0) } ?? Self.defaultTileSize)
+        )
     }
 
     /// Applies to the running app. The language is read at render time, so no
@@ -99,5 +150,9 @@ final class Preferences: ObservableObject {
     private func persist() {
         defaults.set(appearance.rawValue, forKey: Key.appearance)
         defaults.set(language.rawValue, forKey: Key.language)
+        defaults.set(StickerExport.storageKey(copyPreset), forKey: Key.copyPreset)
+        defaults.set(StickerExport.storageKey(sharePreset), forKey: Key.sharePreset)
+        defaults.set(StickerExport.storageKey(dragPreset), forKey: Key.dragPreset)
+        defaults.set(Double(tileSize), forKey: Key.tileSize)
     }
 }

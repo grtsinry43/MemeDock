@@ -5,6 +5,7 @@ import SwiftUI
 /// rename, a deletion, or a restore shows up without reopening the window.
 struct LibrarySidebar: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: LibraryModel
     @ObservedObject private var browser: StickerBrowser
     @ObservedObject private var collections: CollectionCatalog
@@ -153,6 +154,8 @@ struct LibrarySidebar: View {
                     Text(String(count))
                         .font(MemeDockTypography.caption)
                         .monospacedDigit()
+                        .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(count)))
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: count)
                 }
             }
             .foregroundStyle(selected ? palette.raised : palette.text)

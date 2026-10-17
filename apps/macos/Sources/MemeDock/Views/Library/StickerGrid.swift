@@ -6,16 +6,22 @@ import SwiftUI
 /// the end asks for the next page, so scrolling keeps flowing.
 struct StickerGrid: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: LibraryModel
+    let hero: HeroFlight
     @ObservedObject private var browser: StickerBrowser
     @ObservedObject private var selection: StickerSelection
     @ObservedObject private var detail: StickerDetailModel
     @ObservedObject private var imports: ImportCoordinator
+    /// Read for the tile size, which the View menu changes.
+    @ObservedObject private var preferences = Preferences.shared
 
-    private static let columns = [GridItem(.adaptive(minimum: 96, maximum: 132), spacing: 12)]
+    private static let spacing: CGFloat = 12
+    private static let inset: CGFloat = 16
 
-    init(model: LibraryModel) {
+    init(model: LibraryModel, hero: HeroFlight) {
         self.model = model
+        self.hero = hero
         _browser = ObservedObject(wrappedValue: model.browser)
         _selection = ObservedObject(wrappedValue: model.selection)
         _detail = ObservedObject(wrappedValue: model.detail)
@@ -48,41 +54,69 @@ struct StickerGrid: View {
     }
 
     private var grid: some View {
-        ScrollView {
-            LazyVGrid(columns: Self.columns, spacing: 12) {
-                ForEach(browser.items) { item in
-                    StickerCell(
-                        item: item,
-                        selected: selection.isSelected(item.id),
-                        // While a batch is being picked the ring is nothing but
-                        // a second highlight on rows that are already tinted.
-                        focused: detail.id == item.id && !model.selecting && !detail.loading,
-                        model: model,
-                        actions: model.actions,
-                        thumbnails: model.thumbnails
-                    )
+        // Only the column count comes from the measured width; flexible
+        // columns then share whatever the scroll view leaves, scroll bar
+        // included, so a row always fills exactly.
+        GeometryReader { proxy in
+            let gridColumns = columns(for: proxy.size.width)
+            ScrollViewReader { scroller in
+                ScrollView {
+                    LazyVGrid(columns: gridColumns, spacing: Self.spacing) {
+                        ForEach(browser.items) { item in
+                            StickerCell(
+                                item: item,
+                                selected: selection.isSelected(item.id),
+                                cursor: model.focusedId == item.id,
+                                detailOpen: detail.id != nil || detail.loading || detail.failure != nil,
+                                model: model,
+                                hero: hero,
+                                actions: model.actions,
+                                thumbnails: model.thumbnails
+                            )
+                            .id(item.id)
+                        }
+                        // A page that failed after rows were already on screen keeps
+                        // those rows and offers a retry instead of asking again by
+                        // itself, which would spin while the failure lasts.
+                        if let failure = browser.failure {
+                            inlineFailure(failure)
+                        } else if browser.hasMore {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .onAppear { browser.loadMore() }
+                        }
+                    }
+                    .padding(Self.inset)
                 }
-                // A page that failed after rows were already on screen keeps
-                // those rows and offers a retry instead of asking again by
-                // itself, which would spin while the failure lasts.
-                if let failure = browser.failure {
-                    inlineFailure(failure)
-                } else if browser.hasMore {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .onAppear { browser.loadMore() }
+                // Only keyboard moves scroll the grid; a click is already in view.
+                .onChange(of: model.focusScroll) { _, _ in
+                    guard let id = model.focusedId else { return }
+                    withAnimation(reduceMotion ? nil : MemeDockMotion.panel) {
+                        scroller.scrollTo(id, anchor: .center)
+                    }
                 }
             }
-            .padding(16)
+            .onChange(of: gridColumns.count) { _, count in
+                model.columnCount = count
+            }
+            .onAppear { model.columnCount = gridColumns.count }
         }
+        .heroViewport(hero)
         .dropDestination(for: URL.self) { urls, _ in
             guard !urls.isEmpty else { return false }
             let collectionId = model.importCollectionId
             Task { await model.imports.importFiles(urls, collectionId: collectionId) }
             return true
         }
+    }
+
+    private func columns(for width: CGFloat) -> [GridItem] {
+        let usable = width - Self.inset * 2
+        let target = preferences.tileSize
+        let count = max(1, Int((usable + Self.spacing) / (target + Self.spacing)))
+        return Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: count)
     }
 
     private var importStrip: some View {
@@ -101,6 +135,8 @@ struct StickerGrid: View {
                     .font(MemeDockTypography.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(progress.index)))
+                    .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: progress.index)
             } else {
                 ProgressView()
                     .controlSize(.small)
@@ -225,63 +261,82 @@ private struct StickerCell: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
-    @FocusState private var keyboardFocused: Bool
+    /// Where the picture sits, for a flight that starts or ends here.
+    @State private var frame = FrameBox()
     let item: StickerItem
     let selected: Bool
-    let focused: Bool
+    /// Keyboard cursor: what ⌘C and the detail column follow.
+    let cursor: Bool
+    let detailOpen: Bool
     let model: LibraryModel
+    let hero: HeroFlight
     @ObservedObject var actions: StickerActions
     @ObservedObject var thumbnails: ThumbnailStore
 
     var body: some View {
-        Button { model.click(item) } label: {
-            VStack(spacing: 6) {
-                preview
-                if !item.sticker.title.isEmpty {
-                    Text(item.sticker.title)
-                        .font(MemeDockTypography.caption)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(.secondary)
-                }
+        VStack(spacing: 6) {
+            preview
+            if !item.sticker.title.isEmpty {
+                Text(item.sticker.title)
+                    .font(MemeDockTypography.caption)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.secondary)
             }
-            .padding(6)
         }
-        .buttonStyle(.plain)
-        .focused($keyboardFocused)
+        .padding(6)
         .background(background, in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
         .contentShape(RoundedRectangle(cornerRadius: MemeDockGeometry.control))
+        // A tap view, not a Button: the cursor is the grid's focus model.
+        .onTapGesture { open() }
         .onHover { hovering = $0 }
+        .stickerDragSource(actions, item: item)
         .animation(reduceMotion ? nil : MemeDockMotion.feedback, value: hovering)
         .animation(reduceMotion ? nil : MemeDockMotion.feedback, value: selected)
         .contextMenu { menu }
         .help(item.sticker.title.isEmpty ? item.sticker.originalName : item.sticker.title)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(item.sticker.title.isEmpty ? item.sticker.originalName : item.sticker.title)
-        .accessibilityAddTraits(selected || focused ? .isSelected : [])
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(selected || cursor ? .isSelected : [])
+        .accessibilityAction { open() }
     }
 
     private var preview: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: MemeDockGeometry.control)
-                .fill(.clear)
-            if let image = thumbnails.image(for: item) {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .padding(4)
-            } else if thumbnails.failed.contains(item.id) {
-                Image(systemName: "photo")
-                    .foregroundStyle(.tertiary)
-            } else {
-                ProgressView()
-                    .controlSize(.small)
+        // Square, so the picture grows with the tile.
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                if let image = thumbnails.image(for: item) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .padding(4)
+                } else if thumbnails.failed.contains(item.id) {
+                    Image(systemName: "photo")
+                        .foregroundStyle(.tertiary)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
+            .heroFrame(frame)
+            .overlay(alignment: .topTrailing) { badges }
+            .opacity(item.isDeleted ? 0.5 : 1)
+            .task(id: loadKey) { thumbnails.load(item) }
+            .onAppear { hero.register(item.id, frame) }
+            .onDisappear { hero.unregister(item.id, frame) }
+    }
+
+    /// Opening the detail from a closed column carries the thumbnail over to
+    /// it. Picking a batch, or moving within an open column, only switches.
+    private func open() {
+        let extending = model.selecting || NSEvent.modifierFlags.contains(.command)
+        if !reduceMotion, !detailOpen, !extending, let image = thumbnails.image(for: item) {
+            hero.open(item.id, image: image)
         }
-        .frame(height: 96)
-        .overlay(alignment: .topTrailing) { badges }
-        .opacity(item.isDeleted ? 0.5 : 1)
-        .task(id: loadKey) { thumbnails.load(item) }
+        model.click(item)
     }
 
     private var badges: some View {
@@ -308,7 +363,7 @@ private struct StickerCell: View {
 
     private var background: AnyShapeStyle {
         let palette = MemeDockPalette(scheme)
-        if selected || focused || keyboardFocused { return AnyShapeStyle(palette.pressed) }
+        if selected || cursor { return AnyShapeStyle(palette.pressed) }
         if hovering { return AnyShapeStyle(palette.input) }
         return AnyShapeStyle(Color.clear)
     }
@@ -335,12 +390,7 @@ private struct StickerCell: View {
         Button(L10n.text(.share)) { share() }
         .disabled(actions.busy)
         Menu(L10n.text(.exportPreset)) {
-            Picker(L10n.text(.exportPreset), selection: $actions.outputPreset) {
-                ForEach([ExportPreset.original, .compatiblePng, .whiteBackground, .smallJpeg], id: \.self) { preset in
-                    Text(StickerExport.label(preset)).tag(preset)
-                }
-            }
-            .pickerStyle(.inline)
+            ExportOverridePicker(selection: $actions.override)
         }
         .disabled(actions.busy)
         Divider()

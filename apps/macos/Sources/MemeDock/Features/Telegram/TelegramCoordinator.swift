@@ -20,7 +20,9 @@ final class TelegramCoordinator: ObservableObject {
     @Published var token = ""
     @Published var remember = false
     @Published var packQuery = ""
-
+    /// Whether the keychain holds a token, as last confirmed by a read or a
+    /// write that succeeded. The typed token alone says nothing about it.
+    @Published private(set) var tokenSaved = false
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var metadata: TelegramPackMetadata?
     @Published private(set) var states: [String: TelegramImportState] = [:]
@@ -76,6 +78,7 @@ final class TelegramCoordinator: ObservableObject {
             guard let saved = try await credentials.load() else { return }
             token = saved
             remember = true
+            tokenSaved = true
         } catch {
             failure = L10n.text(.tokenFailed)
         }
@@ -86,6 +89,7 @@ final class TelegramCoordinator: ObservableObject {
             try await credentials.clear()
             token = ""
             remember = false
+            tokenSaved = false
         } catch {
             failure = L10n.text(.tokenFailed)
         }
@@ -128,8 +132,14 @@ final class TelegramCoordinator: ObservableObject {
             )
             selected = []
             if remember {
-                // Only a working token is worth keeping.
-                try? await credentials.save(token)
+                // Only a working token is worth keeping. The pack is already
+                // loaded, so a keychain failure is reported without undoing it.
+                do {
+                    try await credentials.save(token)
+                    tokenSaved = true
+                } catch {
+                    failure = L10n.text(.tokenFailed)
+                }
             }
         } catch {
             failure = Self.message(for: error)

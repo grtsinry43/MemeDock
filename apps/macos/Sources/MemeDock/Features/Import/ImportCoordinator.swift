@@ -78,8 +78,7 @@ final class ImportCoordinator: ObservableObject {
         }
     }
 
-    func importFiles(_ urls: [URL], collectionId: String?) async {
-        guard !running else {
+    func importFiles(_ urls: [URL], collectionId: String?) async {        guard !running else {
             status.show(.busy)
             return
         }
@@ -156,6 +155,46 @@ final class ImportCoordinator: ObservableObject {
         if !summary.isEmpty {
             status.show(summary.message, isFailure: failed > 0)
         }
+    }
+
+    /// ⌘V: Finder copies images as file URLs, other apps as image data.
+    func importClipboard(collectionId: String?) async {
+        guard !running else {
+            status.show(.busy)
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        let objects = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) ?? []
+        let urls = objects.compactMap { $0 as? URL }
+        if !urls.isEmpty {
+            await importFiles(urls, collectionId: collectionId)
+            return
+        }
+        let png: Data?
+        if let data = pasteboard.data(forType: .png) {
+            png = data
+        } else if let data = pasteboard.data(forType: .tiff) {
+            png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:])
+        } else {
+            png = nil
+        }
+        guard let png else {
+            status.show(.nothingToPaste)
+            return
+        }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MemeDockClipboard-\(UUID().uuidString).png")
+        do {
+            try png.write(to: url)
+        } catch {
+            status.show(AppFailure(.errorIo))
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: url) }
+        await importFiles([url], collectionId: collectionId)
     }
 
     /// Dropped folders and unreadable entries are filtered out before staging.
