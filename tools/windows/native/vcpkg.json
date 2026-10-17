@@ -1,6 +1,6 @@
 {
   "name": "memedock-windows-media",
-  "version-string": "0.1.1",
+  "version-string": "0.1.2",
   "builtin-baseline": "3cd21e48a75f67acfef289da52893ce79144aaa1",
   "dependencies": [
     { "name": "ffmpeg", "default-features": false, "features": ["avcodec", "avfilter", "avformat", "swscale", "vpx"] },
