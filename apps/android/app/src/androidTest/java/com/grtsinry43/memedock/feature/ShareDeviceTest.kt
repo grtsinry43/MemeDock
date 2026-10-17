@@ -25,6 +25,35 @@ class ShareDeviceTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val helper = "com.grtsinry43.memedock.sharetest"
 
+    @Test fun bestCompatibilityGifIsDeliveredWithItsRealMimeAfterLeaseRelease() = runBlocking {
+        withTimeout(30_000) {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val repository = (context.applicationContext as MemeDockApplication).container.library
+            val input = repository.createInput()
+            File(input.path).writeBytes(android.util.Base64.decode(
+                "R0lGODlhDAAIAPAAAP8AAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAMgAAACwAAAAADAAIAAACCISPqcvtD2MqACH5BAAyAAAALAAAAAAMAAgAgAAA/wAAAAIIhI+py+0PYyoAOw==", android.util.Base64.DEFAULT))
+            val imported = try { repository.importInput(input, "compatible-motion.gif") { false } }
+                finally { repository.discardInput(input); input.close() }
+            val lease = repository.export(imported.id, com.grtsinry43.memedock.data.settings.ExportChoice.BestCompatibility, false)
+            var released = false
+            try {
+                val artifact = repository.prepareHandoff(lease)
+                assertEquals("image/gif", artifact.mime)
+                assertTrue(artifact.animated)
+                assertTrue(artifact.fileName.endsWith(".gif"))
+                val send = AndroidShareGateway().intentFor(context, artifact)
+                assertEquals("image/gif", send.type)
+                val expected = MessageDigest.getInstance("SHA-256").digest(File(artifact.path).readBytes()).joinToString("") { "%02x".format(it) }
+                val key = "adaptive-${System.nanoTime()}"
+                context.startActivity(send.setClassName(helper, "$helper.ReceiverActivity").putExtra("reportKey", key)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK))
+                lease.close()
+                released = true
+                assertEquals(listOf("read", artifact.byteSize.toString(), expected), report(context, key))
+            } finally { if (!released) lease.close() }
+        }
+    }
+
     @Test fun parserRejectsMalformedInputsAndDeduplicatesClipData() {
         val uri = Uri.parse("content://fixture/images/1")
         val send = Intent(Intent.ACTION_SEND).apply {

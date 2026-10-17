@@ -15,14 +15,15 @@ import com.grtsinry43.memedock.app.AppContainer
 fun SettingsRoute(container: AppContainer, contentPadding: PaddingValues, trash: () -> Unit, backup: () -> Unit, licenses: () -> Unit) {
     val factory = remember(container) { object : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            modelClass.cast(SettingsViewModel(container.appearance, container.language, container.library))!!
+            modelClass.cast(SettingsViewModel(container.appearance, container.language, container.library, container.exportPreferences))!!
     } }
     val model: SettingsViewModel = viewModel(factory = factory)
     val state by model.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val version = remember(context) { context.versionName() }
     LaunchedEffect(model) { model.refresh() }
-    SettingsScreen(state, version, model::select, model::selectLanguage, model::retry, trash, backup, licenses, contentPadding)
+    SettingsScreen(state, version, model::select, model::selectLanguage, model::retry, trash, backup, licenses, contentPadding,
+        model::selectOutput)
 }
 
 private fun Context.versionName(): String {

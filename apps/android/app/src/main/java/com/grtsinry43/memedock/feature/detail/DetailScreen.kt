@@ -205,8 +205,6 @@ private fun DetailBar(detail: StickerDetails, state: DetailUiState, choice: Expo
                 return@Column
             }
             val ready = outputsReady && !state.managing && detail.originalError == null
-            // Animated stickers lose their motion in the other presets, so the main action sends the original.
-            val firstFrameOnly = detail.animated && choice != ExportChoice.Original
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 PresetPill(choice, enabled = ready && !state.sharing, onClick = actions.choosePreset)
                 Spacer(Modifier.weight(1f))
@@ -221,11 +219,11 @@ private fun DetailBar(detail: StickerDetails, state: DetailUiState, choice: Expo
                 }
             }
             MemeDockButton(
-                stringResource(if (choice == ExportChoice.Original || firstFrameOnly) R.string.share_original else R.string.share_sticker),
+                stringResource(if (choice == ExportChoice.Original) R.string.share_original else R.string.share_sticker),
                 { actions.share(false) }, Modifier.testTag("share-sticker"), enabled = ready, busy = state.sharing,
                 busyText = stringResource(if (state.saving) R.string.image_saving else R.string.share_preparing), icon = MemeDockIcons.Share,
             )
-            if (firstFrameOnly) MemeDockTextButton(stringResource(R.string.share_first_frame_as, stringResource(choice.titleResource())),
+            if (detail.animated) MemeDockTextButton(stringResource(R.string.share_first_frame_as, stringResource(R.string.export_png)),
                 { actions.share(true) }, Modifier.testTag("share-first-frame"), enabled = ready && !state.sharing)
         }
     }

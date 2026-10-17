@@ -15,7 +15,6 @@ use memedock_core::batch::{BatchOutcome, BatchReport, BatchTarget};
 use memedock_core::events::{ChangeKind, Notification};
 use memedock_core::tasks::Priority;
 use memedock_core::{CoreError, Library, QueryCursor, QueryRequest, RequestId};
-use memedock_domain::export::ExportPreset;
 use memedock_domain::identity::{CollectionId, StickerId, TagId};
 use memedock_domain::version::{Generation, Revision};
 use std::cell::{Cell, RefCell};
@@ -71,7 +70,7 @@ struct Session {
     detail_sync: detail::DetailRefresh,
     open_id: Rc<Cell<Option<actions::OpenTarget>>>,
     clipboard: Rc<RefCell<Hold>>,
-    preset: Rc<Cell<ExportPreset>>,
+    preset: Rc<crate::output::Selection>,
     menu: Rc<RefCell<Option<gtk4::Popover>>>,
     focused: Rc<Cell<u32>>,
     query_task: Option<glib::JoinHandle<()>>,
@@ -113,6 +112,7 @@ pub fn attach(
     library: Library,
     imports: Rc<RefCell<crate::import::Batch>>,
     clipboard: Rc<RefCell<Hold>>,
+    preferences: Rc<RefCell<crate::preferences::Preferences>>,
 ) -> (glib::JoinHandle<()>, Rc<crate::import::Controls>) {
     install_style();
     let alive = Rc::new(Cell::new(true));
@@ -150,7 +150,10 @@ pub fn attach(
         detail_sync: Rc::new(RefCell::new(None)),
         open_id: Rc::new(Cell::new(None)),
         clipboard,
-        preset: Rc::new(Cell::new(ExportPreset::Original)),
+        preset: Rc::new(crate::output::Selection {
+            preferences,
+            temporary: Cell::new(None),
+        }),
         menu: Rc::new(RefCell::new(None)),
         focused: Rc::new(Cell::new(gtk4::INVALID_LIST_POSITION)),
         query_task: None,
@@ -819,7 +822,22 @@ fn wire_drag(factory: &gtk4::SignalListItemFactory, session: Rc<RefCell<Session>
                 .item()?
                 .downcast::<StickerObject>()
                 .ok()?;
-            object.identity().parse().ok()
+            let preset = session
+                .borrow()
+                .preset
+                .preferences
+                .borrow()
+                .output
+                .preset(crate::preferences::OutputAction::Drag, object.animated());
+            Some(crate::drag::Target {
+                request: crate::output::Request {
+                    id: object.identity().parse().ok()?,
+                    animated: object.animated(),
+                    preset,
+                    first_frame: false,
+                },
+                generation: object.entity_generation(),
+            })
         });
         let state = session.borrow();
         let toasts = state.toasts.clone();

@@ -14,6 +14,10 @@ import androidx.compose.ui.unit.dp
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.data.settings.LanguageMode
 import com.grtsinry43.memedock.data.settings.ThemeMode
+import com.grtsinry43.memedock.data.settings.ExportChoice
+import com.grtsinry43.memedock.data.settings.OutputAction
+import com.grtsinry43.memedock.feature.detail.ExportPresetSheet
+import com.grtsinry43.memedock.feature.detail.titleResource
 import com.grtsinry43.memedock.ui.components.*
 import com.grtsinry43.memedock.ui.failureText
 import com.grtsinry43.memedock.ui.theme.MemeDockLayout
@@ -22,8 +26,11 @@ private enum class SettingsSheet { Theme, Language }
 
 @Composable
 fun SettingsScreen(state: SettingsState, version: String, select: (ThemeMode) -> Unit, selectLanguage: (LanguageMode) -> Unit,
-    retry: () -> Unit, trash: () -> Unit, backup: () -> Unit, licenses: () -> Unit, contentPadding: PaddingValues) {
+    retry: () -> Unit, trash: () -> Unit, backup: () -> Unit, licenses: () -> Unit, contentPadding: PaddingValues,
+    selectOutput: (OutputAction, Boolean, ExportChoice) -> Unit) {
     var sheet by remember { mutableStateOf<SettingsSheet?>(null) }
+    var output by remember { mutableStateOf(OutputAction.Copy to false) }
+    var choosingOutput by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())
             .windowInsetsPadding(WindowInsets.statusBars)
@@ -38,6 +45,22 @@ fun SettingsScreen(state: SettingsState, version: String, select: (ThemeMode) ->
             row {
                 MemeDockRow(stringResource(R.string.backup_title), Modifier.testTag("settings-backup"), icon = MemeDockIcons.BackupRestore,
                     onClick = backup)
+            }
+        }
+        Spacer(Modifier.height(MemeDockLayout.SectionGap))
+        MemeDockGroup(title = stringResource(R.string.settings_output),
+            footer = if (state.outputError) stringResource(R.string.settings_output_failed) else stringResource(R.string.settings_output_hint)) {
+            for (action in OutputAction.entries) for (animated in listOf(false, true)) {
+                row {
+                    val label = when (action) {
+                        OutputAction.Copy -> if (animated) R.string.output_copy_animated else R.string.output_copy_static
+                        OutputAction.Share -> if (animated) R.string.output_share_animated else R.string.output_share_static
+                    }
+                    MemeDockRow(stringResource(label), Modifier.testTag("output-${action.name}-$animated"),
+                        value = state.outputs?.choice(action, animated)?.let { stringResource(it.titleResource()) },
+                        enabled = state.outputs != null && !state.savingOutput,
+                        onClick = { output = action to animated; choosingOutput = true })
+                }
             }
         }
         Spacer(Modifier.height(MemeDockLayout.SectionGap))
@@ -65,6 +88,12 @@ fun SettingsScreen(state: SettingsState, version: String, select: (ThemeMode) ->
                     onClick = licenses)
             }
         }
+    }
+    val (outputAction, outputAnimated) = output
+    ExportPresetSheet(choosingOutput, state.outputs?.choice(outputAction, outputAnimated) ?: ExportChoice.BestCompatibility,
+        { choosingOutput = false }, outputAnimated) { choice ->
+        selectOutput(outputAction, outputAnimated, choice)
+        choosingOutput = false
     }
     MemeDockSheet(sheet == SettingsSheet.Theme, { sheet = null }, title = stringResource(R.string.settings_appearance)) {
         ThemeMode.entries.forEach { mode ->

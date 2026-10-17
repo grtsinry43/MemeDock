@@ -44,8 +44,10 @@ class RustLibraryRepository(private val session: LibrarySession) : LibraryReposi
                 com.grtsinry43.memedock.data.settings.ExportChoice.CompatiblePng -> ExportPreset.COMPATIBLE_PNG
                 com.grtsinry43.memedock.data.settings.ExportChoice.WhiteBackground -> ExportPreset.WHITE_BACKGROUND
                 com.grtsinry43.memedock.data.settings.ExportChoice.SmallJpeg -> ExportPreset.SMALL_JPEG
+                com.grtsinry43.memedock.data.settings.ExportChoice.BestCompatibility -> ExportPreset.BEST_COMPATIBILITY
             }
-            val options = ExportOptions(preset,
+            val options = if (firstFrame) ExportOptions(ExportPreset.COMPATIBLE_PNG, 1024u, null, true, AnimationPolicy.FIRST_FRAME)
+                else ExportOptions(preset,
                 when (choice) { com.grtsinry43.memedock.data.settings.ExportChoice.CompatiblePng -> 1024u
                     com.grtsinry43.memedock.data.settings.ExportChoice.SmallJpeg -> 512u; else -> null },
                 if (choice == com.grtsinry43.memedock.data.settings.ExportChoice.WhiteBackground || choice == com.grtsinry43.memedock.data.settings.ExportChoice.SmallJpeg) UInt.MAX_VALUE else null,

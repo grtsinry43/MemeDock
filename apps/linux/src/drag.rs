@@ -1,5 +1,6 @@
 use crate::clipboard::{self, Prepared};
 use crate::i18n::{self, Key};
+use crate::output::Request;
 use gtk4::prelude::*;
 use gtk4::{gdk, glib};
 use memedock_core::Library;
@@ -7,10 +8,16 @@ use memedock_domain::identity::StickerId;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Target {
+    pub request: Request,
+    pub generation: i64,
+}
+
 /// One preparation and one ready payload per window, not one export per grid item.
 #[derive(Default)]
 pub struct State {
-    target: Option<StickerId>,
+    target: Option<Target>,
     ready: Option<Prepared>,
     failure: Option<&'static str>,
     pending: Option<Prepared>,
@@ -21,7 +28,7 @@ pub struct State {
 
 pub fn cancel(state: &Rc<RefCell<State>>, id: Option<StickerId>) {
     let mut state = state.borrow_mut();
-    if id.is_some() && state.target != id {
+    if id.is_some() && state.target.map(|target| target.request.id) != id {
         return;
     }
     state.target = None;
@@ -42,12 +49,7 @@ pub fn shutdown(state: &Rc<RefCell<State>>) {
     state.borrow_mut().pending.take();
 }
 
-fn prepare(
-    state: &Rc<RefCell<State>>,
-    id: StickerId,
-    library: &Library,
-    notify: &Rc<dyn Fn(&str)>,
-) {
+fn prepare(state: &Rc<RefCell<State>>, id: Target, library: &Library, notify: &Rc<dyn Fn(&str)>) {
     if state.borrow().closing
         || (state.borrow().target == Some(id)
             && (state.borrow().ready.is_some()
@@ -65,7 +67,13 @@ fn prepare(
     let library = library.clone();
     let notify = Rc::clone(notify);
     let task = glib::spawn_future_local(async move {
-        let result = match crate::output::export_original(&library, id).await {
+        let request = id.request;
+        let (preset, policy) = crate::output::resolve(request.animated, request.preset, false);
+        let result = match crate::output::export_resolved(
+            &library, request.id, preset, policy, None,
+        )
+        .await
+        {
             Ok(lease) => clipboard::prepare(lease, clipboard::Representation::Drag).await,
             Err(error) => Err(error),
         };
@@ -98,7 +106,7 @@ pub fn bind(
     widget: &impl IsA<gtk4::Widget>,
     state: Rc<RefCell<State>>,
     library: Library,
-    target: Rc<dyn Fn() -> Option<StickerId>>,
+    target: Rc<dyn Fn() -> Option<Target>>,
     notify: Rc<dyn Fn(&str)>,
 ) {
     let motion = gtk4::EventControllerMotion::new();
@@ -204,4 +212,42 @@ pub fn bind(
         }
     });
     widget.add_controller(drag);
+}
+
+#[cfg(test)]
+pub(crate) async fn verify_preparation(
+    library: &Library,
+    request: Request,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let state = Rc::new(RefCell::new(State::default()));
+    let notify: Rc<dyn Fn(&str)> = Rc::new(|message| panic!("drag preparation failed: {message}"));
+    let first = Target {
+        request,
+        generation: 0,
+    };
+    prepare(&state, first, library, &notify);
+    let second = Target {
+        request: Request {
+            preset: memedock_domain::export::ExportPreset::Original,
+            ..request
+        },
+        generation: 1,
+    };
+    // Supersede an in-flight GIF conversion with a new generation and recipe.
+    prepare(&state, second, library, &notify);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while state.borrow().task.is_some() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "drag export did not settle"
+        );
+        glib::timeout_future(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(state.borrow().target, Some(second));
+    let prepared = state.borrow().ready.clone().ok_or("drag payload missing")?;
+    assert!(prepared.lease.metadata().animated);
+    let original = library.export_original(request.id)?.wait().await?;
+    assert_eq!(prepared.lease.metadata().id, original.metadata().id);
+    shutdown(&state);
+    Ok(())
 }

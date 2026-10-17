@@ -115,6 +115,16 @@
     <string name="image_saving">Saving…</string>
     <string name="image_saved">Saved to gallery</string>
     <string name="export_choose">Export Format</string>
+    <string name="export_best">Best Compatibility</string>
+    <string name="export_default">Use Defaults</string>
+    <string name="export_best_hint">Transparent PNG for stills (1024px), GIF for animations (512px, up to 30 FPS)</string>
+    <string name="settings_output">Output Defaults</string>
+    <string name="settings_output_failed">Could not read or save output settings. Please try again.</string>
+    <string name="settings_output_hint">Separate defaults for stills and animations. Detail overrides apply temporarily; saving uses the sharing default.</string>
+    <string name="output_copy_static">Copy still images</string>
+    <string name="output_copy_animated">Copy animations</string>
+    <string name="output_share_static">Share and save still images</string>
+    <string name="output_share_animated">Share and save animations</string>
     <string name="export_original">Original</string>
     <string name="export_png">Transparent PNG</string>
     <string name="export_white">White PNG</string>

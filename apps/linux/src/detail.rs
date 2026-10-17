@@ -3,6 +3,7 @@ use crate::i18n::{self, Key};
 use crate::library_view::sticker::StickerObject;
 use crate::output::{self, CopyKind, Request};
 use crate::playback::{Clip, Event, PlayFault, Playback};
+use crate::preferences::OutputAction;
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
 use libadwaita as adw;
@@ -1795,6 +1796,7 @@ struct Dock {
     save: gtk4::Button,
     share: gtk4::Button,
     first: gtk4::Button,
+    cancel: gtk4::Button,
 }
 
 fn output_dock(
@@ -1809,8 +1811,14 @@ fn output_dock(
         save: gtk4::Button::from_icon_name("document-save-symbolic"),
         share: gtk4::Button::new(),
         first: gtk4::Button::new(),
+        cancel: gtk4::Button::new(),
     };
     i18n::bind(&dock.copy, "tooltip-text", Key::CopyImage);
+    i18n::bind(&dock.cancel, "label", Key::Cancel);
+    dock.cancel.set_visible(false);
+    let cancel_hold = Rc::clone(&host.clipboard);
+    dock.cancel
+        .connect_clicked(move |_| cancel_hold.borrow().cancel_output());
     i18n::bind(&dock.save, "tooltip-text", Key::SaveImage);
     dock.format
         .set_tooltip_text(Some(i18n::text(Key::ExportChoose)));
@@ -1819,7 +1827,12 @@ fn output_dock(
     dock.first.add_css_class("flat");
     dock.first.set_hexpand(true);
     let preset = Rc::clone(&host.preset);
-    apply_dock(&dock, animated, preset.get());
+    apply_dock(
+        &dock,
+        animated,
+        preset.get(OutputAction::Share, animated),
+        preset.effective_override(animated).is_none(),
+    );
 
     let popover = gtk4::Popover::new();
     popover.set_parent(&dock.format);
@@ -1827,12 +1840,22 @@ fn output_dock(
     let choices = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     choices.set_margin_top(6);
     choices.set_margin_bottom(6);
-    for choice in [
-        ExportPreset::Original,
-        ExportPreset::CompatiblePng,
-        ExportPreset::WhiteBackground,
-        ExportPreset::SmallJpeg,
-    ] {
+    let defaults = i18n::button(Key::ExportDefault);
+    let reset_preset = Rc::clone(&preset);
+    let reset_dock = dock.clone();
+    let reset_popover = popover.clone();
+    defaults.connect_clicked(move |_| {
+        reset_preset.temporary.set(None);
+        apply_dock(
+            &reset_dock,
+            animated,
+            reset_preset.get(OutputAction::Share, animated),
+            true,
+        );
+        reset_popover.popdown();
+    });
+    choices.append(&defaults);
+    for &choice in output::presets(animated) {
         choices.append(&preset_choice(
             &popover,
             choice,
@@ -1858,6 +1881,7 @@ fn output_dock(
     row.append(&spacer);
     row.append(&dock.copy);
     row.append(&dock.save);
+    row.append(&dock.cancel);
     let bar = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
     bar.set_margin_top(12);
     bar.set_margin_bottom(16);
@@ -1875,7 +1899,12 @@ fn output_dock(
     let preset_settled = Rc::clone(&preset);
     let settled: OutputSettled = Rc::new(move |message| {
         set_dock_busy(&dock_settled, false);
-        apply_dock(&dock_settled, animated, preset_settled.get());
+        apply_dock(
+            &dock_settled,
+            animated,
+            preset_settled.get(OutputAction::Share, animated),
+            preset_settled.effective_override(animated).is_none(),
+        );
         if let Some(message) = message {
             toasts.add_toast(adw::Toast::new(message));
         }
@@ -1891,7 +1920,7 @@ fn output_dock(
 fn preset_choice(
     popover: &gtk4::Popover,
     choice: ExportPreset,
-    preset: Rc<Cell<ExportPreset>>,
+    preset: Rc<output::Selection>,
     dock: Dock,
     animated: bool,
 ) -> gtk4::Button {
@@ -1915,28 +1944,33 @@ fn preset_choice(
     button.set_child(Some(&column));
     let popover = popover.clone();
     button.connect_clicked(move |_| {
-        preset.set(choice);
-        apply_dock(&dock, animated, choice);
+        preset.temporary.set(Some(choice));
+        apply_dock(&dock, animated, choice, false);
         popover.popdown();
     });
     button
 }
 
-fn apply_dock(dock: &Dock, animated: bool, preset: ExportPreset) {
+fn apply_dock(dock: &Dock, animated: bool, preset: ExportPreset, follows_defaults: bool) {
     let name = output::preset_name(preset);
-    dock.format.set_label(name);
-    let share = if preset == ExportPreset::Original || output::flattens(animated, preset) {
+    dock.format.set_label(if follows_defaults {
+        i18n::text(Key::ExportDefault)
+    } else {
+        name
+    });
+    let share = if preset == ExportPreset::Original && !follows_defaults {
         i18n::text(Key::ShareOriginal)
     } else {
         i18n::text(Key::Share)
     };
     dock.share.set_label(share);
-    let first = i18n::share_first_frame(name);
+    let first = i18n::share_first_frame(output::preset_name(ExportPreset::CompatiblePng));
     dock.first.set_label(&first);
-    dock.first.set_visible(output::flattens(animated, preset));
+    dock.first.set_visible(animated);
 }
 
 fn set_dock_busy(dock: &Dock, busy: bool) {
+    dock.cancel.set_visible(busy);
     for button in [
         &dock.format,
         &dock.copy,
@@ -1955,7 +1989,7 @@ fn bind_copy(
     dock: &Dock,
     host: &Host,
     item: OutputItem,
-    preset: &Rc<Cell<ExportPreset>>,
+    preset: &Rc<output::Selection>,
     settled: &OutputSettled,
 ) {
     let library = host.library.clone();
@@ -1974,7 +2008,7 @@ fn bind_copy(
             Request {
                 id: item.id,
                 animated: item.animated,
-                preset: preset.get(),
+                preset: preset.get(OutputAction::Copy, item.animated),
                 first_frame: false,
             },
             CopyKind::Image,
@@ -1990,7 +2024,7 @@ fn bind_save(
     dock: &Dock,
     host: &Host,
     item: OutputItem,
-    preset: &Rc<Cell<ExportPreset>>,
+    preset: &Rc<output::Selection>,
     settled: &OutputSettled,
 ) {
     let library = host.library.clone();
@@ -2009,7 +2043,7 @@ fn bind_save(
             Request {
                 id: item.id,
                 animated: item.animated,
-                preset: preset.get(),
+                preset: preset.get(OutputAction::Share, item.animated),
                 first_frame: false,
             },
             move |message| settled(message),
@@ -2024,7 +2058,7 @@ fn bind_share(
     dock: &Dock,
     host: &Host,
     item: OutputItem,
-    preset: &Rc<Cell<ExportPreset>>,
+    preset: &Rc<output::Selection>,
     settled: &OutputSettled,
     first_frame: bool,
 ) {
@@ -2048,7 +2082,7 @@ fn bind_share(
             Request {
                 id: item.id,
                 animated: item.animated,
-                preset: preset.get(),
+                preset: preset.get(OutputAction::Share, item.animated),
                 first_frame,
             },
             move |message| settled(message),

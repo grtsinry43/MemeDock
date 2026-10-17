@@ -115,6 +115,16 @@
     <string name="image_saving">正在保存…</string>
     <string name="image_saved">已保存至相册</string>
     <string name="export_choose">发送格式</string>
+    <string name="export_best">最佳兼容</string>
+    <string name="export_default">使用默认设置</string>
+    <string name="export_best_hint">静态图输出透明 PNG（1024px），动图输出 GIF（512px，最高 30 帧/秒）</string>
+    <string name="settings_output">输出默认设置</string>
+    <string name="settings_output_failed">输出设置读写失败，请重试</string>
+    <string name="settings_output_hint">静态图与动图分别记忆。详情页的临时格式只影响当前操作，保存使用分享默认值。</string>
+    <string name="output_copy_static">复制静态图</string>
+    <string name="output_copy_animated">复制动图</string>
+    <string name="output_share_static">分享与保存静态图</string>
+    <string name="output_share_animated">分享与保存动图</string>
     <string name="export_original">原图</string>
     <string name="export_png">透明 PNG</string>
     <string name="export_white">白底 PNG</string>

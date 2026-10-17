@@ -24,6 +24,7 @@ pub fn present(host: Host) -> adw::PreferencesDialog {
     let dialog = adw::PreferencesDialog::new();
     i18n::bind(&dialog, "title", Key::Settings);
     let page = adw::PreferencesPage::new();
+    let saving = Rc::new(Cell::new(false));
     dialog.add(&page);
     let library = adw::PreferencesGroup::new();
     i18n::bind(&library, "title", Key::Library);
@@ -105,13 +106,99 @@ pub fn present(host: Host) -> adw::PreferencesDialog {
     });
     language.add(&choice);
     page.add(&language);
+    let output = adw::PreferencesGroup::new();
+    i18n::bind(&output, "title", Key::OutputDefaults);
+    i18n::bind(&output, "description", Key::OutputHint);
+    use crate::preferences::OutputAction;
+    for (action, animated, title) in [
+        (OutputAction::Copy, false, Key::OutputCopyStatic),
+        (OutputAction::Copy, true, Key::OutputCopyAnimated),
+        (OutputAction::Share, false, Key::OutputShareStatic),
+        (OutputAction::Share, true, Key::OutputShareAnimated),
+        (OutputAction::Drag, false, Key::OutputDragStatic),
+        (OutputAction::Drag, true, Key::OutputDragAnimated),
+    ] {
+        let keys: &'static [Key] = if animated {
+            &[Key::ExportBest, Key::ExportOriginal]
+        } else {
+            &[
+                Key::ExportBest,
+                Key::ExportOriginal,
+                Key::ExportWhite,
+                Key::ExportSmall,
+            ]
+        };
+        let row = combo(title, keys);
+        let presets = crate::output::presets(animated);
+        let selected = host.preferences.borrow().output.preset(action, animated);
+        row.set_selected(presets.iter().position(|p| *p == selected).unwrap_or(0) as u32);
+        output.add(&row);
+        let host = host.clone();
+        let saving = Rc::clone(&saving);
+        let page = page.downgrade();
+        let dialog = dialog.downgrade();
+        row.connect_selected_notify(move |row| {
+            if !row.is_sensitive() || saving.get() {
+                return;
+            }
+            let Some(&preset) = presets.get(row.selected() as usize) else {
+                return;
+            };
+            let previous = *host.preferences.borrow();
+            let mut value = previous;
+            value.output.set(action, animated, preset);
+            if value == previous {
+                return;
+            }
+            saving.set(true);
+            if let Some(page) = page.upgrade() {
+                page.set_sensitive(false);
+            }
+            let host = host.clone();
+            let saving = Rc::clone(&saving);
+            let page = page.clone();
+            let dialog = dialog.clone();
+            let row = row.downgrade();
+            glib::spawn_future_local(async move {
+                let saved = gtk4::gio::spawn_blocking(move || {
+                    let path = crate::paths::config_dir()
+                        .map_err(|_| std::io::Error::other("config directory unavailable"))?
+                        .join("settings.json");
+                    crate::preferences::save(&path, value)
+                })
+                .await;
+                if matches!(saved, Ok(Ok(()))) {
+                    *host.preferences.borrow_mut() = value;
+                } else {
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.add_toast(adw::Toast::new(i18n::text(Key::SettingsFailed)));
+                    }
+                    if let Some(row) = row.upgrade() {
+                        row.set_selected(
+                            presets
+                                .iter()
+                                .position(|p| *p == previous.output.preset(action, animated))
+                                .unwrap_or(0) as u32,
+                        );
+                    }
+                }
+                if let Some(page) = page.upgrade() {
+                    page.set_sensitive(true);
+                }
+                saving.set(false);
+            });
+        });
+    }
+    page.add(&output);
     for (row, is_theme) in [(theme.clone(), true), (choice.clone(), false)] {
+        let saving = Rc::clone(&saving);
+        let page = page.downgrade();
         let host = host.clone();
         let dialog = dialog.downgrade();
         let theme = theme.downgrade();
         let language = choice.downgrade();
         row.connect_selected_notify(move |row| {
-            if !row.is_sensitive() {
+            if !row.is_sensitive() || saving.get() {
                 return;
             }
             let mut value = *host.preferences.borrow();
@@ -132,6 +219,10 @@ pub fn present(host: Host) -> adw::PreferencesDialog {
                 return;
             }
             let previous = *host.preferences.borrow();
+            saving.set(true);
+            if let Some(page) = page.upgrade() {
+                page.set_sensitive(false);
+            }
             if let Some(t) = theme.upgrade() {
                 t.set_sensitive(false);
             }
@@ -142,6 +233,8 @@ pub fn present(host: Host) -> adw::PreferencesDialog {
             let dialog = dialog.clone();
             let theme = theme.clone();
             let language = language.clone();
+            let saving = Rc::clone(&saving);
+            let page = page.clone();
             glib::spawn_future_local(async move {
                 let saved = gtk4::gio::spawn_blocking(move || {
                     let path = crate::paths::config_dir()
@@ -178,6 +271,10 @@ pub fn present(host: Host) -> adw::PreferencesDialog {
                 if let Some(l) = language.upgrade() {
                     l.set_sensitive(true);
                 }
+                if let Some(page) = page.upgrade() {
+                    page.set_sensitive(true);
+                }
+                saving.set(false);
             });
         });
     }
@@ -262,6 +359,10 @@ mod tests {
         assert_eq!(button.label().as_deref(), Some("Settings"));
         assert_eq!(custom.text(), "My own album");
         crate::telegram::verify_grid_reentrancy(&context)?;
+        context.block_on(crate::output::tests::verify_platform_output(
+            &library,
+            window.upcast_ref(),
+        ))?;
         let toolbar = adw::ToolbarView::new();
         let header = adw::HeaderBar::new();
         toolbar.add_top_bar(&header);
@@ -271,6 +372,7 @@ mod tests {
             library.clone(),
             Rc::new(RefCell::new(crate::import::Batch::new())),
             Rc::new(RefCell::new(crate::output::Hold::new())),
+            Rc::new(RefCell::new(Preferences::default())),
         );
         let old_content = toolbar.content().ok_or("missing library page")?.downgrade();
         // Restore can detach a newly created page before its subscription is

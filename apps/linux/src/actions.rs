@@ -1,12 +1,12 @@
 use crate::detail::{self, DetailRefresh};
 use crate::i18n::{self, Key};
 use crate::output::{self, CopyKind, Hold, Request};
+use crate::preferences::OutputAction;
 use gtk4::glib;
 use gtk4::prelude::*;
 use libadwaita as adw;
 use memedock_core::Library;
 use memedock_domain::change::{FieldPatch, StickerPatch};
-use memedock_domain::export::ExportPreset;
 use memedock_domain::identity::StickerId;
 use memedock_domain::version::{Generation, Revision};
 use std::cell::{Cell, RefCell};
@@ -26,10 +26,10 @@ pub enum MenuRow {
     Restore,
 }
 
-pub fn menu_rows(deleted: bool, starred: bool, flattens: bool) -> &'static [MenuRow] {
+pub fn menu_rows(deleted: bool, starred: bool, animated: bool) -> &'static [MenuRow] {
     if deleted {
         &[MenuRow::Restore]
-    } else if flattens && starred {
+    } else if animated && starred {
         &[
             MenuRow::Share,
             MenuRow::ShareFirstFrame,
@@ -40,7 +40,7 @@ pub fn menu_rows(deleted: bool, starred: bool, flattens: bool) -> &'static [Menu
             MenuRow::Organize,
             MenuRow::Delete,
         ]
-    } else if flattens {
+    } else if animated {
         &[
             MenuRow::Share,
             MenuRow::ShareFirstFrame,
@@ -88,7 +88,7 @@ pub fn default_use(host: &Host, target: OpenTarget) {
         Request {
             id: target.id,
             animated: target.animated,
-            preset: host.preset.get(),
+            preset: host.preset.get(OutputAction::Copy, target.animated),
             first_frame: false,
         },
         CopyKind::Image,
@@ -110,7 +110,7 @@ pub struct Target {
 pub struct Host {
     pub library: Library,
     pub clipboard: Rc<RefCell<Hold>>,
-    pub preset: Rc<Cell<ExportPreset>>,
+    pub preset: Rc<output::Selection>,
     pub toasts: adw::ToastOverlay,
     pub navigation: adw::NavigationView,
     pub open_id: Rc<Cell<Option<OpenTarget>>>,
@@ -128,9 +128,8 @@ pub fn popup(host: &Host, anchor: &gtk4::Widget, target: Target) {
     let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     column.set_margin_top(6);
     column.set_margin_bottom(6);
-    let flattens = output::flattens(target.animated, host.preset.get());
-    for row in menu_rows(target.deleted, target.starred, flattens) {
-        column.append(&row_button(host, &popover, &target, *row, flattens));
+    for row in menu_rows(target.deleted, target.starred, target.animated) {
+        column.append(&row_button(host, &popover, &target, *row, target.animated));
     }
     let select = i18n::button(Key::SelectItems);
     let callback = Rc::clone(&host.select);
@@ -173,16 +172,18 @@ fn row_button(
     popover: &gtk4::Popover,
     target: &Target,
     row: MenuRow,
-    flattens: bool,
+    animated: bool,
 ) -> gtk4::Button {
     let button = gtk4::Button::new();
     button.add_css_class("flat");
     button.set_hexpand(true);
-    if row == MenuRow::Share && flattens {
+    if row == MenuRow::Share && animated {
         let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         let title = gtk4::Label::new(Some(label(row)));
         title.set_halign(gtk4::Align::Start);
-        let hint = i18n::label(Key::QuickAnimatedOriginal);
+        let hint = gtk4::Label::new(Some(output::preset_hint(
+            host.preset.get(OutputAction::Share, target.animated),
+        )));
         hint.set_halign(gtk4::Align::Start);
         hint.set_wrap(true);
         hint.add_css_class("caption");
@@ -242,11 +243,13 @@ fn run(host: &Host, target: &Target, row: MenuRow) {
             );
         }
         MenuRow::CopyImage => {
+            let mut request = request(host, target, false);
+            request.preset = host.preset.get(OutputAction::Copy, target.animated);
             output::spawn_copy(
                 host.library.clone(),
                 Rc::clone(&host.clipboard),
                 &host.navigation,
-                request(host, target, false),
+                request,
                 CopyKind::Image,
                 notify(host),
             );
@@ -281,7 +284,7 @@ fn request(host: &Host, target: &Target, first_frame: bool) -> Request {
     Request {
         id: target.id,
         animated: target.animated,
-        preset: host.preset.get(),
+        preset: host.preset.get(OutputAction::Share, target.animated),
         first_frame,
     }
 }

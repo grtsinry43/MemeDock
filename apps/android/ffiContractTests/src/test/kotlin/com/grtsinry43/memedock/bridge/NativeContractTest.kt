@@ -9,6 +9,63 @@ import java.nio.file.Files
 import java.io.File
 
 class NativeContractTest {
+    @Test fun bestCompatibilityPreservesAnimationAndFirstFrameIsExplicitAcrossBindings() = runBlocking {
+        withTimeout(30_000) {
+            val root = Files.createTempDirectory("memedock-adaptive-contract-").toFile()
+            try {
+                openLibrary(LibraryConfiguration(File(root, "data").path, File(root, "cache").path,
+                    File(root, "share").path, defaultResourceConfiguration())).use { library ->
+                    try {
+                        // Two distinct frames, 500 ms each, infinite loop.
+                        val bytes = java.util.Base64.getDecoder().decode("R0lGODlhDAAIAPAAAP8AAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAMgAAACwAAAAADAAIAAACCISPqcvtD2MqACH5BAAyAAAALAAAAAAMAAgAgAAA/wAAAAIIhI+py+0PYyoAOw==")
+                        val id = library.createImportInput().use { it.awaitResult() }.use { input ->
+                            File(input.path()).writeBytes(bytes)
+                            library.importStaged(input, ImportOptions("motion.gif", null, null)).use { it.awaitResult().sticker.id }
+                        }
+                        val adaptive = ExportOptions(ExportPreset.BEST_COMPATIBILITY, null, null, true, AnimationPolicy.PRESERVE)
+                        var adaptiveId = ""
+                        library.export(id, adaptive).use { it.awaitResult() }.use { lease ->
+                            val artifact = library.prepareHandoff(lease).use { it.awaitResult() }
+                            adaptiveId = artifact.id
+                            assertEquals("image/gif", artifact.mime)
+                            assertTrue(artifact.animated)
+                            assertTrue(artifact.fileName.endsWith(".gif"))
+                            val reader = javax.imageio.ImageIO.getImageReadersByFormatName("gif").next()
+                            javax.imageio.ImageIO.createImageInputStream(File(artifact.path)).use { input ->
+                                try {
+                                    reader.input = input
+                                    assertEquals(2, reader.getNumImages(true))
+                                    assertNotEquals(reader.read(0).getRGB(1, 1), reader.read(1).getRGB(1, 1))
+                                } finally { reader.dispose() }
+                            }
+                        }
+                        library.export(id, adaptive).use { it.awaitResult() }.use { assertEquals(adaptiveId, it.metadata().id) }
+                        val frame = ExportOptions(ExportPreset.COMPATIBLE_PNG, 1024u, null, true, AnimationPolicy.FIRST_FRAME)
+                        library.export(id, frame).use { it.awaitResult() }.use { lease ->
+                            val artifact = library.prepareHandoff(lease).use { it.awaitResult() }
+                            assertEquals("image/png", artifact.mime)
+                            assertFalse(artifact.animated)
+                        }
+                        val staticId = library.createImportInput().use { it.awaitResult() }.use { input ->
+                            val pixels = java.awt.image.BufferedImage(8, 4, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                            pixels.setRGB(1, 1, 0x804080C0.toInt())
+                            assertTrue(javax.imageio.ImageIO.write(pixels, "png", File(input.path())))
+                            library.importStaged(input, ImportOptions("still.png", null, null)).use { it.awaitResult().sticker.id }
+                        }
+                        library.export(staticId, adaptive).use { it.awaitResult() }.use { lease ->
+                            val artifact = library.prepareHandoff(lease).use { it.awaitResult() }
+                            assertEquals("image/png", artifact.mime)
+                            assertFalse(artifact.animated)
+                            assertEquals(128, javax.imageio.ImageIO.read(File(artifact.path)).getRGB(1, 1) ushr 24)
+                        }
+                        expectCode(ErrorCode.INVALID_INPUT) {
+                            library.export(id, adaptive.copy(maxEdge = 512u)).close()
+                        }
+                    } finally { library.shutdown() }
+                }
+            } finally { assertTrue(root.deleteRecursively()) }
+        }
+    }
     @Test fun telegramInputsFailAcrossBindingsWithoutLeakingCredentials() = runBlocking {
         withTimeout(30_000) {
             val root = Files.createTempDirectory("memedock-telegram-contract-").toFile()

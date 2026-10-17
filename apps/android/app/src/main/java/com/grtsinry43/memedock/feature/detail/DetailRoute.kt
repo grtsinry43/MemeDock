@@ -17,6 +17,8 @@ import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.app.AppContainer
 import com.grtsinry43.memedock.data.library.LibraryItem
 import com.grtsinry43.memedock.data.settings.ExportChoice
+import com.grtsinry43.memedock.data.settings.OutputPreferencesState
+import com.grtsinry43.memedock.data.settings.OutputAction as DefaultAction
 import com.grtsinry43.memedock.feature.trash.RestoreSheet
 import com.grtsinry43.memedock.ui.components.*
 import com.grtsinry43.memedock.ui.failureTextRes
@@ -38,8 +40,12 @@ fun DetailRoute(id: String, container: AppContainer, initialItem: LibraryItem?, 
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val messages = LocalMemeDockMessages.current
-    val preference by container.exportPreferences.choice.collectAsStateWithLifecycle<ExportChoice?>(null)
-    val choice = preference ?: ExportChoice.Original
+    val outputPreferences by container.exportPreferences.state.collectAsStateWithLifecycle(OutputPreferencesState())
+    val preference = outputPreferences.defaults
+    val animated = state.detail?.animated ?: initialItem?.animated ?: false
+    var temporaryChoice by rememberSaveable(id) { mutableStateOf<ExportChoice?>(null) }
+    val effectiveOverride = temporaryChoice?.takeIf { it in ExportChoice.applicable(animated) }
+    val choice = effectiveOverride ?: preference?.choice(DefaultAction.Share, animated) ?: ExportChoice.BestCompatibility
     val saveState by container.saves.state.collectAsStateWithLifecycle()
     var choosingPreset by rememberSaveable(id) { mutableStateOf(false) }
     var more by rememberSaveable(id) { mutableStateOf(false) }
@@ -52,11 +58,14 @@ fun DetailRoute(id: String, container: AppContainer, initialItem: LibraryItem?, 
         val message = MemeDockMessage(resources.getString(text), type)
         scope.launch { messages.showMemeDockMessage(message) }
     }
+    LaunchedEffect(outputPreferences.failed) {
+        if (outputPreferences.failed) notify(R.string.settings_output_failed, MemeDockMessageType.Error)
+    }
     fun request(action: OutputAction, firstFrame: Boolean) {
         if (preference == null || saveState.artifact != null || state.sharing) return
         container.saves.clearFeedback()
-        // Animated stickers keep their motion unless the first frame is asked for explicitly.
-        val selected = if (state.detail?.animated == true && !firstFrame) ExportChoice.Original else choice
+        val selected = effectiveOverride ?: preference.choice(
+            if (action == OutputAction.Copy) DefaultAction.Copy else DefaultAction.Share, animated)
         when (action) {
             OutputAction.Share -> context.findActivity()?.let { activity ->
                 model.share(selected, firstFrame) { container.shares.share(activity, it) }
@@ -128,12 +137,10 @@ fun DetailRoute(id: String, container: AppContainer, initialItem: LibraryItem?, 
         ),
     )
 
-    ExportPresetSheet(choosingPreset, choice, { choosingPreset = false }) { selected ->
-        scope.launch {
-            try { container.exportPreferences.select(selected); choosingPreset = false }
-            catch (cancel: CancellationException) { throw cancel }
-            catch (_: java.io.IOException) { notify(failureTextRes("IO"), MemeDockMessageType.Error) }
-        }
+    ExportPresetSheet(choosingPreset, choice, { choosingPreset = false }, animated,
+        reset = { temporaryChoice = null; choosingPreset = false }, followsDefaults = effectiveOverride == null) { selected ->
+        temporaryChoice = selected
+        choosingPreset = false
     }
     val detail = rememberRetained(state.detail)
     MemeDockSheet(more && state.detail?.deleted == false, { more = false }, title = detail?.title) {

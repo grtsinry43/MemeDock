@@ -18,17 +18,30 @@ data class SettingsState(
     val error: String? = null,
     val appearanceError: Boolean = false,
     val languageError: Boolean = false,
+    val outputs: OutputDefaults? = null,
+    val savingOutput: Boolean = false,
+    val outputError: Boolean = false,
 )
 
 class SettingsViewModel(
     private val appearance: AppearancePreferences,
     private val language: LanguagePreferences,
     private val repository: CollectionRepository,
+    private val exports: ExportPreferences,
 ) : ViewModel() {
     private val mutable = MutableStateFlow(SettingsState())
     val state = mutable.asStateFlow()
     private var statisticsJob: Job? = null
     init {
+        viewModelScope.launch {
+            exports.defaults.retryWhen { error, _ ->
+                if (error is IOException) {
+                    mutable.update { it.copy(outputError = true, outputs = null) }
+                    delay(1_000)
+                    true
+                } else false
+            }.collect { value -> mutable.update { it.copy(outputs = value, outputError = false) } }
+        }
         viewModelScope.launch {
             appearance.mode.retryWhen { error, _ ->
                 if (error is IOException) {
@@ -52,6 +65,16 @@ class SettingsViewModel(
                 if (error is CancellationException) throw error
                 mutable.update { it.copy(languageError = true) }
             }.collect { mode -> mutable.update { it.copy(languageMode = mode, languageError = false) } }
+        }
+    }
+    fun selectOutput(action: OutputAction, animated: Boolean, choice: ExportChoice) {
+        if (mutable.value.savingOutput) return
+        mutable.update { it.copy(savingOutput = true, outputError = false) }
+        viewModelScope.launch {
+            try { exports.select(action, animated, choice) }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (_: IOException) { mutable.update { it.copy(outputError = true) } }
+            finally { mutable.update { it.copy(savingOutput = false) } }
         }
     }
     fun select(mode: ThemeMode) {

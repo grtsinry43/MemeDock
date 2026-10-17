@@ -304,6 +304,7 @@ fn start_open(session: Rc<RefCell<WindowState>>) {
                     library.clone(),
                     imports,
                     clipboard,
+                    Rc::clone(&state.preferences),
                 );
                 state.library = Some(library);
                 state.browse_task = Some(handle);

@@ -20,6 +20,7 @@ import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.app.AppContainer
 import com.grtsinry43.memedock.data.library.LibraryItem
 import com.grtsinry43.memedock.data.settings.ExportChoice
+import com.grtsinry43.memedock.data.settings.OutputPreferencesState
 import com.grtsinry43.memedock.feature.detail.StickerRelationsSheet
 import com.grtsinry43.memedock.feature.importing.ImportItemStatus
 import com.grtsinry43.memedock.feature.importing.ImportPhase
@@ -165,10 +166,15 @@ internal fun rememberStickerActions(container: AppContainer, openTrash: () -> Un
         StickerActionsViewModel(container.library, container.library)
     })
     val state by model.state.collectAsStateWithLifecycle()
-    val choice by container.exportPreferences.choice.collectAsStateWithLifecycle(ExportChoice.Original)
+    val outputPreferences by container.exportPreferences.state.collectAsStateWithLifecycle(OutputPreferencesState())
+    val defaults = outputPreferences.defaults
     val messages = LocalMemeDockMessages.current
     val context = LocalContext.current
     val trash by rememberUpdatedState(openTrash)
+    LaunchedEffect(outputPreferences.failed) {
+        if (outputPreferences.failed) messages.showMemeDockMessage(MemeDockMessage(
+            context.getString(R.string.settings_output_failed), MemeDockMessageType.Error))
+    }
     var target by remember { mutableStateOf<LibraryItem?>(null) }
     LaunchedEffect(model) {
         model.events.collect { event ->
@@ -189,14 +195,18 @@ internal fun rememberStickerActions(container: AppContainer, openTrash: () -> Un
     }
     StickerQuickSheet(
         item = target,
-        choice = choice,
+        choice = defaults?.choice(com.grtsinry43.memedock.data.settings.OutputAction.Share, target?.animated == true)
+            ?: ExportChoice.BestCompatibility,
+        ready = defaults != null,
         onDismissRequest = { target = null },
         share = { item, selected, firstFrame ->
             context.findActivity()?.let { activity ->
                 model.share(item, selected, firstFrame) { container.shares.share(activity, it) }
             }
         },
-        copy = { item, selected -> model.copy(item, selected, false, container.clipboard) },
+        copy = { item, _ -> defaults?.let {
+            model.copy(item, it.choice(com.grtsinry43.memedock.data.settings.OutputAction.Copy, item.animated), false, container.clipboard)
+        } },
         star = model::toggleStar,
         organize = model::organize,
         delete = model::delete,

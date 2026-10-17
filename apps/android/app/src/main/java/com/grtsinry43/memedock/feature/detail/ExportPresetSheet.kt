@@ -17,6 +17,7 @@ fun ExportChoice.titleResource() = when (this) {
     ExportChoice.CompatiblePng -> R.string.export_png
     ExportChoice.WhiteBackground -> R.string.export_white
     ExportChoice.SmallJpeg -> R.string.export_small
+    ExportChoice.BestCompatibility -> R.string.export_best
 }
 
 private fun ExportChoice.hintResource() = when (this) {
@@ -24,15 +25,20 @@ private fun ExportChoice.hintResource() = when (this) {
     ExportChoice.CompatiblePng -> R.string.export_png_hint
     ExportChoice.WhiteBackground -> R.string.export_white_hint
     ExportChoice.SmallJpeg -> R.string.export_small_hint
+    ExportChoice.BestCompatibility -> R.string.export_best_hint
 }
 
 /** Picking a format applies it right away; the caller closes the sheet once the choice is stored. */
 @Composable
-fun ExportPresetSheet(visible: Boolean, selected: ExportChoice, dismiss: () -> Unit, select: (ExportChoice) -> Unit) {
+fun ExportPresetSheet(visible: Boolean, selected: ExportChoice, dismiss: () -> Unit, animated: Boolean = false,
+    reset: (() -> Unit)? = null, followsDefaults: Boolean = false,
+    select: (ExportChoice) -> Unit) {
     MemeDockSheet(visible, dismiss, title = stringResource(R.string.export_choose)) {
         Column(Modifier.fillMaxWidth().selectableGroup()) {
-            ExportChoice.entries.forEach { choice ->
-                val checked = choice == selected
+            if (reset != null) MemeDockSheetChoice(stringResource(R.string.export_default), followsDefaults, reset,
+                Modifier.testTag("export-preset-default"))
+            ExportChoice.applicable(animated).forEach { choice ->
+                val checked = !followsDefaults && choice == selected
                 MemeDockSheetChoice(stringResource(choice.titleResource()), checked, { if (checked) dismiss() else select(choice) },
                     Modifier.testTag("export-preset-${choice.name}"), supporting = stringResource(choice.hintResource()))
             }
