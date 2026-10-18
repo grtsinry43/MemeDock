@@ -1,0 +1,109 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/quicksand';
+@import '@fontsource-variable/noto-sans-sc';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:root {
+  color-scheme: light;
+  --canvas: #f6f7f9;
+  --surface: #ffffff;
+  --input: #ebedf1;
+  --hover: #e2e5ea;
+  --foreground: #16181c;
+  --secondary: #565d68;
+  --separator: #e1e4e9;
+  --accent: #1f6feb;
+  --on-inverse: #f1f2f4;
+  --danger: #b3261e;
+  --success: #17653a;
+  --success-surface: #dcfce7;
+  --scrim: rgb(15 17 20 / .32);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --canvas: #0f1114;
+  --surface: #181b20;
+  --input: #23272d;
+  --hover: #2c3037;
+  --foreground: #e8eaed;
+  --secondary: #a4aab4;
+  --separator: #2a2e35;
+  --accent: #6ea8ff;
+  --on-inverse: #1a1d21;
+  --danger: #ff8a80;
+  --success: #abefbe;
+  --success-surface: #123b25;
+  --scrim: rgb(0 0 0 / .64);
+}
+
+@theme inline {
+  --font-sans: 'Quicksand Variable', 'Noto Sans SC Variable', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-input: var(--input);
+  --color-hover: var(--hover);
+  --color-foreground: var(--foreground);
+  --color-secondary: var(--secondary);
+  --color-separator: var(--separator);
+  --color-accent: var(--accent);
+  --color-on-inverse: var(--on-inverse);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-success-surface: var(--success-surface);
+  --color-scrim: var(--scrim);
+  --radius-badge: 6px;
+  --radius-control: 10px;
+  --radius-message: 16px;
+  --radius-panel: 16px;
+  --radius-group: 20px;
+  --radius-sheet: 28px;
+  --text-page: 26px;
+  --text-title: 26px;
+  --text-title--line-height: 34px;
+  --text-page--line-height: 34px;
+  --text-section: 20px;
+  --text-section--line-height: 28px;
+  --text-row: 16px;
+  --text-row--line-height: 22px;
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+  --ease-memedock: cubic-bezier(.2, 0, 0, 1);
+}
+
+@layer base {
+  body { @apply m-0 bg-canvas font-sans text-body text-foreground antialiased; }
+  button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
+  button:not(:disabled), summary { cursor: pointer; }
+  ::selection { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+}
+
+@utility action {
+  @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-control px-4 text-body font-semibold transition-[background-color,color,opacity,transform] duration-180 ease-memedock disabled:cursor-not-allowed disabled:opacity-40 md:min-h-9 md:px-3;
+}
+@utility action-primary { @apply bg-foreground text-on-inverse hover:opacity-90 active:scale-[.98]; }
+@utility action-secondary { @apply bg-input text-foreground hover:bg-hover active:scale-[.98]; }
+@utility action-quiet { @apply bg-transparent text-secondary hover:bg-input hover:text-foreground; }
+@utility action-danger { @apply bg-danger text-canvas hover:opacity-90; }
+@utility field {
+  @apply min-h-12 w-full rounded-control border border-transparent bg-input px-3 text-body text-foreground transition-colors duration-180 placeholder:text-secondary/70 hover:bg-hover focus:border-foreground/25 focus:bg-surface focus:outline-2 focus:outline-accent/50 focus:outline-offset-1 disabled:opacity-40 md:min-h-10;
+}
+@utility panel { @apply rounded-group bg-surface; }
+@utility popup {
+  @apply z-50 min-w-44 rounded-message bg-surface p-1.5 shadow-[0_12px_48px_-8px_rgb(0_0_0_/_0.2)] ring-1 ring-separator/60 outline-none;
+}
+@utility menu-item {
+  @apply flex min-h-11 cursor-pointer items-center gap-2.5 rounded-control px-3 text-body text-foreground outline-none data-[highlighted]:bg-input data-[disabled]:pointer-events-none data-[disabled]:opacity-40 md:min-h-9;
+}
+@utility dialog-panel {
+  @apply fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-group bg-surface p-6 shadow-[0_24px_80px_rgb(0_0_0_/_0.18)] outline-none data-[state=open]:animate-[panel-in_200ms_cubic-bezier(.2,0,0,1)];
+}
+@keyframes panel-in { from { opacity: 0; margin-top: 8px; } to { opacity: 1; margin-top: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}

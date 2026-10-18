@@ -1,0 +1,35 @@
+{
+  "name": "@memedock/server-web",
+  "private": true,
+  "type": "module",
+  "imports": { "#lib/*": "./src/lib/*" },
+  "packageManager": "pnpm@11.22.0",
+  "dependencies": {
+    "bits-ui": "2.19.5",
+    "@tanstack/svelte-query": "6.3.4",
+    "@fontsource-variable/quicksand": "5.3.0",
+    "@fontsource-variable/noto-sans-sc": "5.3.1",
+    "@lucide/svelte": "1.59.0"
+  },
+  "scripts": {
+    "generate": "cargo run --quiet --manifest-path ../../Cargo.toml -p memedock-export-api-types -- src/lib/generated/api.ts",
+    "dev": "pnpm generate && vite --host 127.0.0.1",
+    "check": "pnpm generate && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "build": "pnpm generate && vite build",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "tailwindcss": "4.3.3",
+    "@tailwindcss/vite": "4.3.3",
+    "@opentelemetry/api": "1.9.1",
+    "@playwright/test": "1.64.1",
+    "@sveltejs/adapter-static": "4.0.0",
+    "@sveltejs/kit": "3.1.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/node": "26.6.5",
+    "svelte": "5.57.2",
+    "svelte-check": "4.7.7",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  }
+}

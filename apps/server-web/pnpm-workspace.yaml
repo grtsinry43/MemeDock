@@ -1,0 +1,4 @@
+minimumReleaseAgeExclude:
+  - '@tanstack/query-core@5.104.4'
+  - '@tanstack/svelte-query@6.3.4'
+  - '@lucide/svelte@1.59.0'
