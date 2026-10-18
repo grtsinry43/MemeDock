@@ -40,6 +40,12 @@ __pycache__/
 # Local runtime data must not enter the source repository.
 /data/
 /cache/
+/apps/server-web/node_modules/
+/apps/server-web/.svelte-kit/
+/apps/server-web/dist/
+/apps/server-web/src/lib/generated/
+/apps/server-web/test-results/
+/apps/server-web/playwright-report/
 *.sqlite
 *.sqlite-*
 *.db

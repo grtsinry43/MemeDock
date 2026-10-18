@@ -65,6 +65,22 @@ impl Sticker {
     pub fn lifecycle(&self) -> &Lifecycle {
         &self.lifecycle
     }
+    pub fn purge(
+        &mut self,
+        observed: Generation,
+        expected: Revision,
+        at: TimestampMs,
+        revision: Revision,
+    ) -> Result<bool, DomainError> {
+        let changed = self.lifecycle.purge(observed, expected, at, revision)?;
+        if changed {
+            self.title.clear();
+            self.original_name.clear();
+            self.note.clear();
+            self.starred = false;
+        }
+        Ok(changed)
+    }
     pub fn patch(
         &mut self,
         observed: Generation,
@@ -94,6 +110,8 @@ impl Sticker {
         }
         Ok(if self.lifecycle.is_active() {
             ImportDisposition::Reuse
+        } else if self.lifecycle.is_purged() {
+            ImportDisposition::Reimport
         } else {
             ImportDisposition::RestoreRequired
         })
@@ -119,6 +137,7 @@ impl Sticker {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImportDisposition {
+    Reimport,
     Reuse,
     RestoreRequired,
 }

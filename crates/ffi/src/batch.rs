@@ -17,6 +17,7 @@ pub enum BatchAction {
     Star { value: bool },
     Delete,
     Restore,
+    Purge,
 }
 
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
@@ -123,6 +124,7 @@ impl LibraryHandle {
             BatchAction::Star { value } => c::BatchAction::Star(value),
             BatchAction::Delete => c::BatchAction::Delete,
             BatchAction::Restore => c::BatchAction::Restore,
+            BatchAction::Purge => c::BatchAction::Purge,
         };
         let inner = self.inner.batch(targets, action)?;
         Ok(Arc::new(BatchTask {

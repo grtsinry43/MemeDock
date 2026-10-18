@@ -16,7 +16,14 @@ pub(crate) async fn cleanup(services: &Arc<Services>, now: i64) -> Result<u64> {
         }
         after = records.last().map(|r| r.id);
         for mut record in records {
-            if record.retained_until > now
+            let purged = services
+                .db
+                .sticker(memedock_domain::identity::StickerId::new(
+                    record.source_hash,
+                ))
+                .await?
+                .is_some_and(|v| v.lifecycle().is_purged());
+            if (!purged && record.retained_until > now)
                 || services.artifacts.active(record.id)?
                 || services.db.artifact_clipboard_protected(record.id).await?
             {

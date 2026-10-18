@@ -105,7 +105,7 @@ internal static class Program
 
     private static void EditDrafts()
     {
-        var original = new StickerMetadata("sticker", "old", "original.png", "note", false, new EntityLifecycle(1, 1, 0, 0, null));
+        var original = new StickerMetadata("sticker", "old", "original.png", "note", false, new EntityLifecycle(1, 1, 0, 0, null, null));
         var draft = new StickerEditState(original) { Title = "sent" };
         var sent = draft.Capture();
         Check(sent.Target == new EntityReference("sticker", 1) && sent.Edit.Note is null, "Patch included unrelated draft fields.");

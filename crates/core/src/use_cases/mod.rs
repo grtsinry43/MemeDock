@@ -7,6 +7,7 @@ mod collection_management;
 mod export;
 pub(crate) mod import;
 pub(crate) mod maintenance;
+pub(crate) mod purge;
 pub(crate) mod query;
 pub(crate) mod recovery;
 pub(crate) mod restore;

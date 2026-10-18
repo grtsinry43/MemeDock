@@ -85,6 +85,7 @@ impl LibraryDatabase {
     pub async fn collections(&self, deleted: bool) -> Result<Vec<Collection>> {
         let col = entities::collection::Column::DeletedAt;
         let rows = entities::collection::Entity::find()
+            .filter(entities::collection::Column::PurgedAt.is_null())
             .filter(if deleted {
                 col.is_not_null()
             } else {

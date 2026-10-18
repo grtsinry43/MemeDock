@@ -12,6 +12,20 @@ pub struct DerivedStore {
     root: PathBuf,
 }
 impl DerivedStore {
+    pub fn remove_for(&self, hash: ContentHash) -> Result<()> {
+        for path in [
+            self.thumbnail_path(hash),
+            self.preview_path(hash),
+            self.source_preview_path(hash),
+        ] {
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        sync_directory(&self.root)
+    }
     pub fn bytes_used(&self, cancelled: impl FnMut() -> bool) -> Result<u64> {
         super::directory_bytes(&self.root, cancelled)
     }

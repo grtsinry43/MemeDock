@@ -100,7 +100,7 @@ impl LibraryDatabase {
             sql.push_str("LEFT JOIN local_usage u ON u.sticker_id=s.id ");
         }
         sql.push_str(if q.deleted {
-            "WHERE s.deleted_at IS NOT NULL "
+            "WHERE s.deleted_at IS NOT NULL AND s.purged_at IS NULL "
         } else {
             "WHERE s.deleted_at IS NULL "
         });

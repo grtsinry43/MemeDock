@@ -30,6 +30,7 @@ impl LibraryDatabase {
     pub async fn tags(&self, deleted: bool) -> Result<Vec<Tag>> {
         let col = entities::tag::Column::DeletedAt;
         entities::tag::Entity::find()
+            .filter(entities::tag::Column::PurgedAt.is_null())
             .filter(if deleted {
                 col.is_not_null()
             } else {

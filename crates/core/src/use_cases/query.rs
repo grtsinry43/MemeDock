@@ -238,6 +238,7 @@ impl Library {
                     CoreError::new(ErrorCode::CorruptData, "sticker asset missing")
                 })?;
                 let tags = services.db.sticker_tags(id).await?;
+                let purged = sticker.lifecycle().is_purged();
                 let collection = services.db.sticker_collection(id).await?;
                 let blobs = services.blobs.clone();
                 let bytes = asset.byte_size().get();
@@ -251,6 +252,12 @@ impl Library {
                             return Err(CoreError::new(
                                 ErrorCode::CorruptData,
                                 "original size changed",
+                            ));
+                        }
+                        if purged {
+                            return Err(CoreError::new(
+                                ErrorCode::EntityDeleted,
+                                "sticker permanently deleted",
                             ));
                         }
                         Ok(blobs.original_path(id.content_hash()))

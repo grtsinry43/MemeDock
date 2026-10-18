@@ -30,6 +30,7 @@ pub(crate) struct Shared {
     pub(crate) wake: Arc<Notify>,
     pub(crate) events: Arc<EventHub>,
     pub(crate) closed: watch::Receiver<Option<Result<()>>>,
+    pub(crate) sync_status: watch::Sender<crate::sync::SyncStatus>,
     sender: mpsc::Sender<Job>,
     admission: Arc<Semaphore>,
 }
@@ -49,6 +50,7 @@ impl Shared {
                 wake: Arc::new(Notify::new()),
                 events: EventHub::new(event_capacity),
                 closed,
+                sync_status: watch::channel(crate::sync::SyncStatus::default()).0,
                 sender,
                 admission: Arc::new(Semaphore::new(capacity)),
             }),
@@ -96,6 +98,16 @@ pub struct Library {
     client: Arc<Client>,
 }
 impl Library {
+    pub fn subscribe_sync(&self) -> Result<crate::sync::SyncSubscription> {
+        let gate = self.client.shared.gate()?;
+        if gate.phase != LibraryState::Open {
+            return Err(CoreError::new(ErrorCode::Closed, "library is closing"));
+        }
+        Ok(crate::sync::SyncSubscription::new(
+            self.client.shared.sync_status.subscribe(),
+            self.client.shared.closed.clone(),
+        ))
+    }
     pub async fn open(config: LibraryConfig) -> Result<Self> {
         crate::runtime::open(config).await
     }

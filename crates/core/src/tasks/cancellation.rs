@@ -19,9 +19,16 @@ pub(crate) struct TaskControl {
     pub(crate) progress: watch::Sender<TaskSnapshot>,
     cancelled: AtomicBool,
     wake: Arc<Notify>,
+    deadline: Option<std::time::Instant>,
 }
 impl TaskControl {
     pub(crate) fn new(wake: Arc<Notify>) -> Arc<Self> {
+        Self::create(wake, None)
+    }
+    pub(crate) fn with_deadline(wake: Arc<Notify>, deadline: std::time::Instant) -> Arc<Self> {
+        Self::create(wake, Some(deadline))
+    }
+    fn create(wake: Arc<Notify>, deadline: Option<std::time::Instant>) -> Arc<Self> {
         let id = TaskId::new();
         let (progress, _) = watch::channel(TaskSnapshot {
             id,
@@ -34,6 +41,7 @@ impl TaskControl {
             progress,
             cancelled: AtomicBool::new(false),
             wake,
+            deadline,
         })
     }
     pub(crate) fn cancel(&self) -> CancelResult {
@@ -59,6 +67,9 @@ impl TaskControl {
     }
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
+            || self
+                .deadline
+                .is_some_and(|deadline| std::time::Instant::now() >= deadline)
     }
     pub(crate) fn check(&self) -> Result<()> {
         if self.is_cancelled() {

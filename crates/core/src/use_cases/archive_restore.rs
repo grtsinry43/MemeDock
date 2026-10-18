@@ -104,6 +104,25 @@ impl Library {
                     ));
                 }
                 let _budget = services.image_budget.acquire().await?;
+                let _write = services
+                    .write_permit
+                    .acquire()
+                    .await
+                    .map_err(|_| CoreError::internal("write service closed"))?;
+                let preserved_purges: std::collections::BTreeSet<_> = if mode == RestoreMode::Merge
+                {
+                    services
+                        .db
+                        .archive_data_bounded(services.config.limits.max_archive_metadata_bytes)
+                        .await?
+                        .stickers
+                        .into_iter()
+                        .filter(|v| v.lifecycle().is_purged())
+                        .map(|v| v.id())
+                        .collect()
+                } else {
+                    Default::default()
+                };
                 let worker = services.clone();
                 let check = control.clone();
                 let proof = prepared.clone();
@@ -115,7 +134,10 @@ impl Library {
                     }
                     let mut zip = zip::ZipArchive::new(std::fs::File::open(&proof.path)?)
                         .map_err(archive::zip)?;
-                    for asset in &data.assets {
+                    for asset in data.originals() {
+                        if preserved_purges.contains(&asset.sticker_id()) {
+                            continue;
+                        }
                         check.check()?;
                         let mut entry = zip
                             .by_name(&format!("originals/{}", asset.hash()))
@@ -148,11 +170,6 @@ impl Library {
                     Ok(())
                 })
                 .await??;
-                let _write = services
-                    .write_permit
-                    .acquire()
-                    .await
-                    .map_err(|_| CoreError::internal("write service closed"))?;
                 let revision = services.db.archive_target_revision().await?;
                 if revision != prepared.target_revision {
                     return Err(CoreError::new(
@@ -189,7 +206,7 @@ impl Library {
                 let mut tx = db.begin_write().await?;
                 tx.import_archive(&state).await?;
                 let at = crate::writes::now()?;
-                for asset in &state.assets {
+                for asset in state.originals() {
                     let mut local = tx
                         .local_asset(asset.hash())
                         .await?

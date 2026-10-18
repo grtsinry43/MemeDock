@@ -183,6 +183,31 @@ task_handle!(
     |value: memedock_domain::identity::OperationId| Ok(value.to_string())
 );
 task_handle!(ClipboardUpdateTask, (), (), |value| Ok(value));
+task_handle!(PurgeTask, (), (), |value| Ok(value));
+task_handle!(
+    TrashSnapshotTask,
+    Vec<memedock_core::TrashTarget>,
+    Vec<crate::TrashTarget>,
+    |values: Vec<memedock_core::TrashTarget>| Ok(values
+        .into_iter()
+        .map(|v| {
+            use memedock_domain::lifecycle::EntityId;
+            let (kind, id) = match v.entity {
+                EntityId::Sticker(id) => (crate::TrashEntityKind::Sticker, id.to_string()),
+                EntityId::Collection(id) => (crate::TrashEntityKind::Collection, id.to_string()),
+                EntityId::Tag(id) => (crate::TrashEntityKind::Tag, id.to_string()),
+            };
+            crate::TrashTarget {
+                kind,
+                target: crate::EntityReference {
+                    id,
+                    generation: v.generation.get(),
+                },
+                deleted_revision: v.deleted_revision.get(),
+            }
+        })
+        .collect())
+);
 task_handle!(
     StickerDetailTask,
     memedock_core::StickerDetail,
@@ -229,6 +254,12 @@ task_handle!(
         .map_err(|_| BridgeError::new(ErrorCode::InvalidInput, "checkpoint path is not UTF-8"))
 );
 task_handle!(OrganizationMutationTask, bool, bool, |value| Ok(value));
+task_handle!(
+    SyncStatusTask,
+    memedock_core::sync::SyncStatus,
+    crate::SyncStatus,
+    |value| Ok(value.into())
+);
 task_handle!(
     CollectionSummariesTask,
     Vec<memedock_core::CollectionSummary>,

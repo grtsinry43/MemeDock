@@ -25,6 +25,255 @@ fn png() -> TestResult<Vec<u8>> {
     image.write_to(&mut output, image::ImageFormat::Png)?;
     Ok(output.into_inner())
 }
+
+#[tokio::test]
+async fn permanent_delete_reclaims_files_and_explicit_import_starts_a_clean_generation()
+-> TestResult {
+    use memedock_domain::lifecycle::EntityId;
+    let dir = tempfile::tempdir()?;
+    let settings = config(dir.path());
+    let library = Library::open(settings.clone()).await?;
+    let bytes = png()?;
+    let original = import(&library, &bytes, "first.png").await?.sticker;
+    let thumb = library
+        .request_thumbnail(original.id(), Priority::Visible)?
+        .wait()
+        .await?;
+    let deleted = library
+        .delete_sticker(original.id(), original.lifecycle().generation())?
+        .wait()
+        .await?;
+    library
+        .purge_entity(
+            EntityId::Sticker(original.id()),
+            deleted.lifecycle().generation(),
+            deleted.lifecycle().revision(),
+        )?
+        .wait()
+        .await?;
+    let blobs = memedock_storage::files::FsBlobStore::open(&settings.data_dir)?;
+    assert!(!blobs.original_path(original.id().content_hash()).exists());
+    assert!(!thumb.path.exists());
+    assert!(library.trash_snapshot()?.wait().await?.is_empty());
+    assert!(
+        library
+            .restore_sticker(
+                original.id(),
+                deleted.lifecycle().generation(),
+                deleted.lifecycle().revision()
+            )?
+            .wait()
+            .await
+            .is_err()
+    );
+    let next = import(&library, &bytes, "new.png").await?.sticker;
+    assert_eq!(next.id(), original.id());
+    assert_eq!(
+        next.lifecycle().generation(),
+        original.lifecycle().generation().checked_next()?
+    );
+    assert_eq!(next.title(), "new");
+    assert!(!next.starred());
+    assert!(next.note().is_empty());
+    library.retry_purge_cleanup()?.wait().await?;
+    assert!(blobs.original_path(next.id().content_hash()).exists());
+    assert!(
+        library
+            .purge_entity(
+                EntityId::Sticker(next.id()),
+                deleted.lifecycle().generation(),
+                deleted.lifecycle().revision()
+            )?
+            .wait()
+            .await
+            .is_err()
+    );
+    library.close().await?;
+    let library = Library::open(settings).await?;
+    assert_eq!(
+        library.sticker_detail(next.id())?.wait().await?.sticker,
+        next
+    );
+    library.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_file_cleanup_is_durable_and_retried_on_open() -> TestResult {
+    use memedock_domain::lifecycle::EntityId;
+    let dir = tempfile::tempdir()?;
+    let settings = config(dir.path());
+    let library = Library::open(settings.clone()).await?;
+    let original = import(&library, &png()?, "retry.png").await?.sticker;
+    // Drain the thumbnail worker before replacing the original with a directory.
+    library
+        .request_thumbnail(original.id(), Priority::Visible)?
+        .wait()
+        .await?;
+    let deleted = library
+        .delete_sticker(original.id(), original.lifecycle().generation())?
+        .wait()
+        .await?;
+    let blobs = memedock_storage::files::FsBlobStore::open(&settings.data_dir)?;
+    let path = blobs.original_path(original.id().content_hash());
+    let preserved = dir.path().join("interrupted-original");
+    std::fs::rename(&path, &preserved)?;
+    std::fs::create_dir(&path)?;
+    assert!(
+        library
+            .purge_entity(
+                EntityId::Sticker(original.id()),
+                deleted.lifecycle().generation(),
+                deleted.lifecycle().revision()
+            )?
+            .wait()
+            .await
+            .is_err()
+    );
+    assert!(library.trash_snapshot()?.wait().await?.is_empty());
+    library.close().await?;
+    std::fs::remove_dir(&path)?;
+    std::fs::rename(preserved, &path)?;
+    let library = Library::open(settings.clone()).await?;
+    assert!(!path.exists());
+    let database = db(&settings.data_dir).await?;
+    assert!(database.purge_jobs().await?.is_empty());
+    database.close().await?;
+    library.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn stale_cleanup_job_cannot_remove_a_reimported_original() -> TestResult {
+    use memedock_domain::lifecycle::EntityId;
+    let dir = tempfile::tempdir()?;
+    let settings = config(dir.path());
+    let library = Library::open(settings.clone()).await?;
+    let bytes = png()?;
+    let original = import(&library, &bytes, "old.png").await?.sticker;
+    library
+        .request_thumbnail(original.id(), Priority::Visible)?
+        .wait()
+        .await?;
+    let deleted = library
+        .delete_sticker(original.id(), original.lifecycle().generation())?
+        .wait()
+        .await?;
+    let blobs = memedock_storage::files::FsBlobStore::open(&settings.data_dir)?;
+    let path = blobs.original_path(original.id().content_hash());
+    std::fs::remove_file(&path)?;
+    std::fs::create_dir(&path)?;
+    assert!(
+        library
+            .purge_entity(
+                EntityId::Sticker(original.id()),
+                deleted.lifecycle().generation(),
+                deleted.lifecycle().revision()
+            )?
+            .wait()
+            .await
+            .is_err()
+    );
+    std::fs::remove_dir(&path)?;
+    let fresh = import(&library, &bytes, "fresh.png").await?.sticker;
+    assert!(fresh.lifecycle().is_active());
+    let database = db(&settings.data_dir).await?;
+    assert!(!database.purge_jobs().await?.is_empty());
+    library.retry_purge_cleanup()?.wait().await?;
+    assert!(database.purge_jobs().await?.is_empty());
+    assert_eq!(std::fs::read(path)?, bytes);
+    database.close().await?;
+    library.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn purging_organization_keeps_images_and_trash_snapshot_cannot_delete_a_restored_item()
+-> TestResult {
+    use memedock_domain::{lifecycle::EntityId, tag::Name, version::Generation};
+    let dir = tempfile::tempdir()?;
+    let library = Library::open(config(dir.path())).await?;
+    let sticker = import(&library, &png()?, "kept.png").await?.sticker;
+    let collection = library
+        .create_collection(Name::new("collection".into())?, None)?
+        .wait()
+        .await?;
+    let tag = library.create_tag(Name::new("tag".into())?)?.wait().await?;
+    library
+        .set_sticker_organization(
+            sticker.id(),
+            Generation::INITIAL,
+            Some(Some((collection.id(), Generation::INITIAL))),
+            Some(vec![(tag.id(), Generation::INITIAL)]),
+        )?
+        .wait()
+        .await?;
+    let collection = library
+        .delete_collection(collection.id(), Generation::INITIAL)?
+        .wait()
+        .await?;
+    let tag = library
+        .delete_tag(tag.id(), Generation::INITIAL)?
+        .wait()
+        .await?;
+    let snapshot = library.trash_snapshot()?.wait().await?;
+    assert_eq!(snapshot.len(), 2);
+    library
+        .purge_entity(
+            EntityId::Collection(collection.id()),
+            Generation::INITIAL,
+            collection.lifecycle().revision(),
+        )?
+        .wait()
+        .await?;
+    library
+        .purge_entity(
+            EntityId::Tag(tag.id()),
+            Generation::INITIAL,
+            tag.lifecycle().revision(),
+        )?
+        .wait()
+        .await?;
+    assert!(library.collections(true)?.wait().await?.is_empty());
+    assert!(library.tags(true)?.wait().await?.is_empty());
+    let detail = library.sticker_detail(sticker.id())?.wait().await?;
+    assert!(detail.original_path.ok_or("original")?.exists());
+    assert!(detail.collection.is_none());
+    assert!(detail.tags.is_empty());
+    let deleted = library
+        .delete_sticker(sticker.id(), Generation::INITIAL)?
+        .wait()
+        .await?;
+    let snapshot = library.trash_snapshot()?.wait().await?;
+    assert_eq!(snapshot.len(), 1);
+    library
+        .restore_sticker(
+            sticker.id(),
+            Generation::INITIAL,
+            deleted.lifecycle().revision(),
+        )?
+        .wait()
+        .await?;
+    let target = &snapshot[0];
+    assert!(
+        library
+            .purge_entity(target.entity, target.generation, target.deleted_revision)?
+            .wait()
+            .await
+            .is_err()
+    );
+    assert!(
+        library
+            .sticker_detail(sticker.id())?
+            .wait()
+            .await?
+            .original_path
+            .ok_or("restored original")?
+            .exists()
+    );
+    library.close().await?;
+    Ok(())
+}
 async fn import(
     library: &Library,
     bytes: &[u8],

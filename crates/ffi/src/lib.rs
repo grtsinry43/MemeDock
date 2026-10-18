@@ -12,6 +12,7 @@ mod import;
 mod library;
 mod management;
 mod streams;
+mod sync;
 mod tasks;
 mod telegram;
 
@@ -27,6 +28,7 @@ pub use import::*;
 pub use library::*;
 pub use management::*;
 pub use streams::*;
+pub use sync::*;
 pub use tasks::*;
 pub use telegram::*;
 

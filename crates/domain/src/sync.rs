@@ -1,4 +1,6 @@
 //! Versioned sync contracts only; no HTTP client, credentials or sync runtime.
+//! Protocol v1 first ships with MemeDock 0.2.0, the initial sync compatibility
+//! baseline. Application releases and wire protocol versions evolve separately.
 use crate::{
     asset::Asset,
     change::Operation,
@@ -121,6 +123,9 @@ impl OperationEnvelope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventKind {
+    EntityPurged {
+        entity: Tombstone,
+    },
     StickerCreated {
         asset: Asset,
         entity: Sticker,
@@ -217,6 +222,14 @@ impl SyncEvent {
     ) -> Result<Self, DomainError> {
         let revision = Revision::from(seq);
         match &event {
+            EventKind::EntityPurged { entity } => {
+                if entity.purged_at().is_none() {
+                    return Err(DomainError::InvalidTransition);
+                }
+                if entity.revision() != revision {
+                    return Err(DomainError::StaleRevision);
+                }
+            }
             EventKind::StickerCreated { asset, entity }
             | EventKind::StickerRestored { asset, entity } => {
                 if entity.id() != asset.sticker_id() {

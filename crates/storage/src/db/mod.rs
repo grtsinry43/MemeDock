@@ -1,4 +1,5 @@
 mod connection;
+mod migrations;
 mod schema;
 mod snapshot;
 

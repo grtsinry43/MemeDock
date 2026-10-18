@@ -19,13 +19,14 @@ impl Library {
                     tokio::task::spawn_blocking(move || archive_directory(&root)).await??;
                 let cleanup_directory = directory.clone();
                 let result = async {
+                    // Keep snapshot originals alive until they have been copied.
+                    let _originals = services
+                        .write_permit
+                        .acquire()
+                        .await
+                        .map_err(|_| crate::CoreError::internal("write service closed"))?;
                     let snapshot = directory.join("snapshot.sqlite");
                     {
-                        let _permit = services
-                            .write_permit
-                            .acquire()
-                            .await
-                            .map_err(|_| crate::CoreError::internal("write service closed"))?;
                         control.check()?;
                         control.stage("creating_backup_snapshot");
                         services.db.snapshot(&snapshot).await?;

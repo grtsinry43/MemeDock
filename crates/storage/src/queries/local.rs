@@ -147,7 +147,7 @@ impl LibraryDatabase {
     /// Logical known/ready byte totals, not a filesystem allocation measurement.
     pub async fn space_statistics(&self) -> Result<SpaceStatistics> {
         let row=self.connection.query_one_raw(Statement::from_string(DbBackend::Sqlite,
-            "SELECT count(*) AS known_assets,coalesce(sum(a.byte_size),0) AS known_original_bytes,coalesce(sum(CASE WHEN l.blob_status='ready' THEN a.byte_size ELSE 0 END),0) AS ready_original_bytes FROM assets a LEFT JOIN local_assets l ON l.hash=a.hash".to_owned()))
+            "SELECT count(*) AS known_assets,coalesce(sum(a.byte_size),0) AS known_original_bytes,coalesce(sum(CASE WHEN l.blob_status='ready' THEN a.byte_size ELSE 0 END),0) AS ready_original_bytes FROM assets a LEFT JOIN local_assets l ON l.hash=a.hash WHERE NOT EXISTS(SELECT 1 FROM stickers s WHERE s.id=a.hash AND s.purged_at IS NOT NULL)".to_owned()))
             .await?.ok_or(StorageError::Integrity("space query missing"))?;
         Ok(SpaceStatistics {
             known_assets: row.try_get("", "known_assets")?,

@@ -2,7 +2,7 @@ use crate::Result;
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, TransactionTrait};
 
 // An exact identifier for the current structure, never an upgrade target.
-pub(super) const SCHEMA_VERSION: i64 = 4;
+pub(super) const SCHEMA_VERSION: i64 = 6;
 pub(super) const APPLICATION_ID: i64 = 0x4d444f43;
 
 pub(super) async fn initialize(db: &DatabaseConnection) -> Result<()> {
@@ -10,6 +10,7 @@ pub(super) async fn initialize(db: &DatabaseConnection) -> Result<()> {
     for sql in STATEMENTS {
         tx.execute_unprepared(sql).await?;
     }
+    super::migrations::v0_1_0_to_v0_2_0::apply(&tx).await?;
     tx.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         "INSERT INTO library_metadata(singleton,library_id,device_id) VALUES(1,?,?)",

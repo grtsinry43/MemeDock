@@ -154,6 +154,21 @@ async fn apply(
         )
         .await
         .map(|_| true),
+        BatchAction::Purge => {
+            let revision = target.deleted_revision.ok_or_else(|| {
+                CoreError::new(ErrorCode::InvalidInput, "purge needs deleted revision")
+            })?;
+            wait_item(
+                state,
+                library.purge_entity(
+                    memedock_domain::lifecycle::EntityId::Sticker(target.id),
+                    target.generation,
+                    revision,
+                )?,
+            )
+            .await
+            .map(|_| true)
+        }
         BatchAction::Delete => {
             wait_item(state, library.delete_sticker(target.id, target.generation)?)
                 .await

@@ -109,6 +109,34 @@ impl SubscriptionHandle {
 pub struct TaskProgressHandle {
     stream: Stream<memedock_core::tasks::TaskProgress>,
 }
+
+#[derive(uniffi::Object)]
+pub struct SyncSubscriptionHandle {
+    stream: Stream<memedock_core::sync::SyncSubscription>,
+}
+impl SyncSubscriptionHandle {
+    pub(crate) fn new(value: memedock_core::sync::SyncSubscription) -> Arc<Self> {
+        Arc::new(Self {
+            stream: Stream::new(value),
+        })
+    }
+}
+#[uniffi::export]
+impl SyncSubscriptionHandle {
+    pub fn unsubscribe(&self) -> Result<()> {
+        self.stream.close()
+    }
+    pub async fn next(&self) -> Result<Option<crate::SyncStatus>> {
+        let Some(mut lease) = self.stream.lease()? else {
+            return Ok(None);
+        };
+        let mut closed = self.stream.closed.subscribe();
+        if *closed.borrow() {
+            return Ok(None);
+        }
+        tokio::select! {result=lease.get()?.next()=>Ok(result?.map(Into::into)),_=closed.changed()=>Ok(None)}
+    }
+}
 impl TaskProgressHandle {
     pub(crate) fn new(value: memedock_core::tasks::TaskProgress) -> Arc<Self> {
         Arc::new(Self {

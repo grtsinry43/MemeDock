@@ -1,0 +1,13 @@
+[package]
+name = "memedock-export-api-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+memedock-api-contracts = { path = "../../crates/api-contracts", features = ["typescript"] }
+ts-rs = "=12.0.1"
+
+[lints]
+workspace = true

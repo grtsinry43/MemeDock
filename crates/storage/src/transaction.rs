@@ -168,7 +168,7 @@ impl WriteTransaction {
         Ok(true)
     }
     save!(
-        save_sticker,
+        save_sticker_row,
         sticker,
         Sticker,
         |v: &Sticker| v.id().to_string(),
@@ -182,6 +182,23 @@ impl WriteTransaction {
         true
     );
     save!(save_tag, tag, Tag, |v: &Tag| v.id().to_string(), true);
+    pub async fn save_sticker(&mut self, value: &Sticker) -> Result<()> {
+        let needs_cleanup = value.lifecycle().is_purged()
+            && self.sticker(value.id()).await?.is_none_or(|old| {
+                !old.lifecycle().is_purged()
+                    || old.lifecycle().generation() != value.lifecycle().generation()
+            });
+        self.save_sticker_row(value).await?;
+        if needs_cleanup {
+            use sea_orm::{ConnectionTrait, DbBackend, Statement};
+            let result = self.inner.execute_raw(Statement::from_sql_and_values(DbBackend::Sqlite,
+                "INSERT INTO purge_cleanup(hash,generation) VALUES(?,?) ON CONFLICT(hash) DO UPDATE SET generation=excluded.generation",
+                [value.id().to_string().into(), value.lifecycle().generation().get().into()])).await;
+            self.failed |= result.is_err();
+            result?;
+        }
+        Ok(())
+    }
     save!(
         save_collection_item,
         collection_item,

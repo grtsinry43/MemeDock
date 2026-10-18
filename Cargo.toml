@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/domain", "crates/storage", "crates/core", "crates/ffi", "tools/uniffi-bindgen", "tools/ffi-fixtures", "apps/linux"]
+members = ["crates/domain", "crates/storage", "crates/core", "crates/ffi", "crates/api-contracts", "tools/export-api-types", "tools/uniffi-bindgen", "tools/ffi-fixtures", "apps/server", "apps/linux"]
 exclude = ["third-party/rlottie"]
 resolver = "3"
 
@@ -9,7 +9,7 @@ resolver = "3"
 rlottie = { path = "third-party/rlottie" }
 
 [workspace.package]
-version = "0.1.3"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.94.1"
 publish = false

@@ -128,6 +128,15 @@ impl NamePatch {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OperationKind {
+    PurgeEntity {
+        entity: crate::lifecycle::EntityId,
+        generation: Generation,
+        expected_deleted_revision: Revision,
+    },
+    ReimportSticker {
+        generation: Generation,
+        rebuild: StickerRebuild,
+    },
     /// Current local restore audit; never replay imported historical outbox entries.
     ImportArchive {
         archive_hash: crate::identity::ContentHash,

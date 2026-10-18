@@ -21,6 +21,8 @@ pub(crate) struct Services {
     pub(crate) derived: DerivedStore,
     pub(crate) image_budget: crate::images::budget::ImageBudget,
     pub(crate) write_permit: tokio::sync::Semaphore,
+    pub(crate) sync_permit: tokio::sync::Semaphore,
+    pub(crate) sync_status: watch::Sender<crate::sync::SyncStatus>,
     pub(crate) thumbnail_locks: std::sync::Mutex<
         std::collections::HashMap<
             memedock_domain::identity::StickerId,
@@ -103,6 +105,8 @@ fn owner(config: LibraryConfig, ready: oneshot::Sender<Result<Library>>) {
             derived: DerivedStore::open(&config.cache_dir)?,
             image_budget: crate::images::budget::ImageBudget::new(&config.limits)?,
             write_permit: tokio::sync::Semaphore::new(1),
+            sync_permit: tokio::sync::Semaphore::new(1),
+            sync_status: shared.sync_status.clone(),
             thumbnail_locks: std::sync::Mutex::new(Default::default()),
             db,
             blobs,

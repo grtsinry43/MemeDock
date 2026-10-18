@@ -8,6 +8,8 @@ publish.workspace = true
 [dependencies]
 memedock-domain = { path = "../domain" }
 memedock-storage = { path = "../storage" }
+memedock-api-contracts = { path = "../api-contracts" }
+tokio-util = { version = "=0.7.19", features = ["io"] }
 tokio = { workspace = true, features = ["macros"] }
 uuid.workspace = true
 image.workspace = true

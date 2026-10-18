@@ -39,8 +39,7 @@ pub(crate) fn write(
         metadata_hash: digest(&metadata),
         metadata_bytes: metadata.len() as u64,
         originals: data
-            .assets
-            .iter()
+            .originals()
             .map(|v| ArchiveOriginal {
                 hash: v.hash(),
                 byte_size: v.byte_size().get() as u64,
@@ -67,7 +66,7 @@ pub(crate) fn write(
         writer.write_all(&manifest)?;
         writer.start_file("library.json", options).map_err(zip)?;
         writer.write_all(&metadata)?;
-        for asset in &data.assets {
+        for asset in data.originals() {
             control.check()?;
             control.stage("copying_backup_originals");
             let size = asset.byte_size().get() as u64;

@@ -27,6 +27,17 @@ impl Library {
             move |services, control| async move {
                 let _same_image = image_lock(&services, id).await?;
                 control.check()?;
+                if services
+                    .db
+                    .sticker(id)
+                    .await?
+                    .is_some_and(|v| v.lifecycle().is_purged())
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::EntityDeleted,
+                        "sticker permanently deleted",
+                    ));
+                }
                 let asset = services
                     .db
                     .asset(id.content_hash())
@@ -91,6 +102,17 @@ impl Library {
             move |services, control| async move {
                 let _same_image = image_lock(&services, id).await?;
                 control.check()?;
+                if services
+                    .db
+                    .sticker(id)
+                    .await?
+                    .is_some_and(|v| v.lifecycle().is_purged())
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::EntityDeleted,
+                        "sticker permanently deleted",
+                    ));
+                }
                 let asset = services
                     .db
                     .asset(id.content_hash())
@@ -128,7 +150,7 @@ impl Library {
     }
 }
 
-async fn image_lock(
+pub(crate) async fn image_lock(
     services: &Services,
     id: StickerId,
 ) -> Result<tokio::sync::OwnedSemaphorePermit> {

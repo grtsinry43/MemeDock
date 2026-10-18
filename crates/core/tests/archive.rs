@@ -55,6 +55,74 @@ async fn inspect(
 }
 
 #[tokio::test]
+async fn purged_records_backup_without_original_and_old_merge_does_not_restore_bytes() -> TestResult
+{
+    use memedock_domain::lifecycle::EntityId;
+    let root = tempfile::tempdir()?;
+    let library = Library::open(config(root.path())).await?;
+    let sticker = import(&library, 77).await?;
+    let before = backup(&library).await?;
+    let deleted = library
+        .delete_sticker(sticker.id(), Generation::INITIAL)?
+        .wait()
+        .await?;
+    library
+        .purge_entity(
+            EntityId::Sticker(sticker.id()),
+            Generation::INITIAL,
+            deleted.lifecycle().revision(),
+        )?
+        .wait()
+        .await?;
+    let after = backup(&library).await?;
+    let mut zip = zip::ZipArchive::new(Cursor::new(&after))?;
+    assert!(zip.by_name(&format!("originals/{}", sticker.id())).is_err());
+    let preview = inspect(&library, &before).await?;
+    let result = library
+        .restore_archive(preview, RestoreMode::Merge)?
+        .wait()
+        .await?;
+    library.complete_restore(result).await?;
+    assert!(
+        library
+            .sticker_detail(sticker.id())?
+            .wait()
+            .await?
+            .sticker
+            .lifecycle()
+            .is_purged()
+    );
+    assert!(
+        library
+            .sticker_detail(sticker.id())?
+            .wait()
+            .await?
+            .original_path
+            .is_none()
+    );
+    let target = tempfile::tempdir()?;
+    let restored = Library::open(config(target.path())).await?;
+    let preview = inspect(&restored, &after).await?;
+    let result = restored
+        .restore_archive(preview, RestoreMode::Merge)?
+        .wait()
+        .await?;
+    restored.complete_restore(result).await?;
+    assert!(restored.trash_snapshot()?.wait().await?.is_empty());
+    assert!(
+        restored
+            .sticker_detail(sticker.id())?
+            .wait()
+            .await?
+            .original_path
+            .is_none()
+    );
+    restored.close().await?;
+    library.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn real_archive_preserves_original_relations_deletion_and_restart() -> TestResult {
     let source = tempfile::tempdir()?;
     let library = Library::open(config(source.path())).await?;
@@ -161,6 +229,59 @@ async fn real_archive_preserves_original_relations_deletion_and_restart() -> Tes
         );
         db.close().await?;
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn released_v1_archive_is_readable_but_cannot_claim_permanent_delete_semantics() -> TestResult
+{
+    let root = tempfile::tempdir()?;
+    let library = Library::open(config(root.path())).await?;
+    let sticker = import(&library, 41).await?;
+    for purged in [false, true] {
+        if purged {
+            let deleted = library
+                .delete_sticker(sticker.id(), Generation::INITIAL)?
+                .wait()
+                .await?;
+            library
+                .purge_entity(
+                    memedock_domain::lifecycle::EntityId::Sticker(sticker.id()),
+                    Generation::INITIAL,
+                    deleted.lifecycle().revision(),
+                )?
+                .wait()
+                .await?;
+        }
+        let bytes = backup(&library).await?;
+        let mut reader = zip::ZipArchive::new(Cursor::new(bytes))?;
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for index in 0..reader.len() {
+            let mut entry = reader.by_index(index)?;
+            let name = entry.name().to_owned();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes)?;
+            if name == "manifest.json" {
+                let mut value: serde_json::Value = serde_json::from_slice(&bytes)?;
+                value["format_version"] = 1.into();
+                bytes = serde_json::to_vec(&value)?;
+            }
+            writer.start_file(
+                name,
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored),
+            )?;
+            writer.write_all(&bytes)?;
+        }
+        let v1 = writer.finish()?.into_inner();
+        let result = inspect(&library, &v1).await;
+        if purged {
+            assert!(result.is_err());
+        } else {
+            library.discard_prepared_archive(result?)?.wait().await?;
+        }
+    }
+    library.close().await?;
     Ok(())
 }
 

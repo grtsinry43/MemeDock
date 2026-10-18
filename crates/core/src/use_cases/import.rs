@@ -195,6 +195,12 @@ pub(crate) async fn process(
 ) -> Result<ImportOutcome> {
     control.stage("validating_image");
     let allowance = services.image_budget.acquire().await?;
+    // Serialize original publication with permanent-delete cleanup.
+    let _write = services
+        .write_permit
+        .acquire()
+        .await
+        .map_err(|_| CoreError::internal("write service closed"))?;
     if let Err(error) = control.check() {
         tokio::task::spawn_blocking(move || input.pending.discard()).await??;
         return Err(error);
@@ -246,11 +252,6 @@ pub(crate) async fn process(
         result
     })
     .await??;
-    let _write = services
-        .write_permit
-        .acquire()
-        .await
-        .map_err(|_| CoreError::internal("write service closed"))?;
     control.check()?;
     let mut tx = services.db.begin_write().await?;
     let existing = tx.sticker(validated.sticker_id()).await?;
@@ -298,7 +299,9 @@ pub(crate) async fn process(
         None => None,
     };
     let at = crate::writes::now()?;
-    let status = if existing.is_some() {
+    let reimport = existing.as_ref().filter(|v| v.lifecycle().is_purged());
+    let previous_generation = reimport.map(|v| v.lifecycle().generation());
+    let status = if existing.is_some() && reimport.is_none() {
         ImportStatus::Reused
     } else {
         ImportStatus::Created
@@ -316,20 +319,43 @@ pub(crate) async fn process(
             .unwrap_or("未命名图片")
             .to_owned()
     });
-    let sticker =
-        existing.unwrap_or_else(|| Sticker::new(&validated, title, options.original_name, at));
+    let sticker = if let Some(old) = reimport {
+        Sticker::from_state(
+            validated.sticker_id(),
+            title,
+            options.original_name,
+            String::new(),
+            false,
+            old.lifecycle().reimport(at, old.lifecycle().revision())?,
+        )
+    } else {
+        existing.unwrap_or_else(|| Sticker::new(&validated, title, options.original_name, at))
+    };
     control.begin_commit()?;
     tx.insert_asset(&validated).await?;
     if status == ImportStatus::Created {
         tx.save_sticker(&sticker).await?;
         tx.append_change(
             OperationId::new(),
-            Operation::new(OperationKind::CreateSticker {
-                asset: validated.clone(),
-                title: sticker.title().into(),
-                original_name: sticker.original_name().into(),
-                note: sticker.note().into(),
-                starred: sticker.starred(),
+            Operation::new(if let Some(generation) = previous_generation {
+                OperationKind::ReimportSticker {
+                    generation,
+                    rebuild: memedock_domain::change::StickerRebuild {
+                        asset: validated.clone(),
+                        title: sticker.title().into(),
+                        original_name: sticker.original_name().into(),
+                        note: String::new(),
+                        starred: false,
+                    },
+                }
+            } else {
+                OperationKind::CreateSticker {
+                    asset: validated.clone(),
+                    title: sticker.title().into(),
+                    original_name: sticker.original_name().into(),
+                    note: sticker.note().into(),
+                    starred: sticker.starred(),
+                }
             })?,
             at,
         )

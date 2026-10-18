@@ -70,7 +70,7 @@ pub(crate) fn inspect(
         limits.max_archive_metadata_bytes,
     )?)
     .map_err(json)?;
-    if manifest.format_version != FORMAT_VERSION {
+    if ![1, FORMAT_VERSION].contains(&manifest.format_version) {
         return Err(crate::CoreError::new(
             crate::ErrorCode::UnsupportedFormat,
             "unsupported archive format",
@@ -86,9 +86,16 @@ pub(crate) fn inspect(
     }
     let data: ArchiveData = serde_json::from_slice(&bytes).map_err(json)?;
     data.validate()?;
+    if manifest.format_version == 1
+        && (data.stickers.iter().any(|v| v.lifecycle().is_purged())
+            || data.collections.iter().any(|v| v.lifecycle().is_purged())
+            || data.tags.iter().any(|v| v.lifecycle().is_purged())
+            || data.tombstones.iter().any(|v| v.purged_at().is_some()))
+    {
+        return Err(corrupt("purged state requires archive format 2"));
+    }
     let expected: BTreeSet<_> = data
-        .assets
-        .iter()
+        .originals()
         .map(|v| (v.hash(), v.byte_size().get() as u64))
         .collect();
     let declared: BTreeSet<_> = manifest

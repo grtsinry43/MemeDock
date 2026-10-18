@@ -13,7 +13,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -63,7 +63,24 @@ pub struct RestoreSummary {
 }
 
 impl ArchiveData {
+    pub fn originals(&self) -> impl Iterator<Item = &Asset> {
+        self.assets.iter().filter(|asset| {
+            self.stickers
+                .iter()
+                .any(|v| v.id() == asset.sticker_id() && !v.lifecycle().is_purged())
+        })
+    }
     pub fn validate(&self) -> Result<(), DomainError> {
+        if self
+            .stickers
+            .iter()
+            .map(|v| v.lifecycle())
+            .chain(self.collections.iter().map(|v| v.lifecycle()))
+            .chain(self.tags.iter().map(|v| v.lifecycle()))
+            .any(|life| life.is_purged() && life.deleted_at().is_none())
+        {
+            return Err(DomainError::InvalidTransition);
+        }
         let assets = unique(self.assets.iter().map(|v| (v.hash(), v)))?;
         let stickers = unique(self.stickers.iter().map(|v| (v.id(), v)))?;
         let collections = unique(self.collections.iter().map(|v| (v.id(), v)))?;
@@ -130,7 +147,7 @@ impl ArchiveData {
         Ok(())
     }
     pub fn summary(&self) -> Result<RestoreSummary, DomainError> {
-        let original_bytes = self.assets.iter().try_fold(0u64, |total, asset| {
+        let original_bytes = self.originals().try_fold(0u64, |total, asset| {
             total
                 .checked_add(asset.byte_size().get() as u64)
                 .ok_or(DomainError::InvalidValue("archive size overflow"))

@@ -84,6 +84,15 @@ impl Collection {
     ) -> Result<bool, DomainError> {
         self.lifecycle.delete(observed, at, revision)
     }
+    pub fn purge(
+        &mut self,
+        observed: Generation,
+        expected: Revision,
+        at: TimestampMs,
+        revision: Revision,
+    ) -> Result<bool, DomainError> {
+        self.lifecycle.purge(observed, expected, at, revision)
+    }
     /// Caller verifies original availability for stickers and server authority when synced.
     pub fn restore(
         &mut self,

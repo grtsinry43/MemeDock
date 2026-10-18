@@ -4,7 +4,7 @@ use memedock_domain::identity::{DeviceId, LibraryId};
 use sea_orm::sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous};
 use sea_orm::{
     ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, EntityTrait,
-    Statement,
+    SqliteTransactionMode, Statement, TransactionOptions, TransactionTrait,
 };
 use std::{
     path::{Path, PathBuf},
@@ -76,7 +76,7 @@ impl LibraryDatabase {
         let connection = Database::connect(options).await?;
         let version = pragma(&connection, "PRAGMA user_version", "user_version").await?;
         let application = pragma(&connection, "PRAGMA application_id", "application_id").await?;
-        if ![0, SCHEMA_VERSION].contains(&version)
+        if ![0, 4, 5, SCHEMA_VERSION].contains(&version)
             || (version > 0 && application != APPLICATION_ID)
             || (version == 0 && application != 0)
         {
@@ -89,6 +89,21 @@ impl LibraryDatabase {
                 return Err(StorageError::UnsupportedSchema);
             }
             schema::initialize(&connection).await?;
+        } else if version == 4 || version == 5 {
+            let tx = connection
+                .begin_with_options(TransactionOptions {
+                    sqlite_transaction_mode: Some(SqliteTransactionMode::Immediate),
+                    ..Default::default()
+                })
+                .await?;
+            // Recheck after taking the writer lock, including another opener's upgrade.
+            match pragma(&tx, "PRAGMA user_version", "user_version").await? {
+                4 => super::migrations::v0_1_0_to_v0_2_0::apply(&tx).await?,
+                5 => super::migrations::v0_1_0_to_v0_2_0::add_purge(&tx).await?,
+                SCHEMA_VERSION => {}
+                _ => return Err(StorageError::UnsupportedSchema),
+            }
+            tx.commit().await?;
         }
         if pragma(&connection, "PRAGMA user_version", "user_version").await? != SCHEMA_VERSION {
             return Err(StorageError::UnsupportedSchema);
@@ -139,7 +154,7 @@ impl LibraryDatabase {
         Ok(())
     }
 }
-async fn pragma(db: &DatabaseConnection, sql: &str, field: &str) -> Result<i64> {
+async fn pragma(db: &impl ConnectionTrait, sql: &str, field: &str) -> Result<i64> {
     let row = db
         .query_one_raw(Statement::from_string(DbBackend::Sqlite, sql.to_owned()))
         .await?

@@ -47,6 +47,113 @@ async fn restart_preserves_identity_models_and_log() -> TestResult {
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn sync_development_schema_upgrade_preserves_data_and_rolls_back_purge_ddl() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("library.sqlite");
+    let db = LibraryDatabase::open(&path).await?;
+    let identity = db.identity();
+    let (asset, sticker) = fixture(b"before-purge", "retained", 123)?;
+    insert(&db, &asset, &sticker).await?;
+    db.close().await?;
+    let conn = raw(&path).await?;
+    for table in ["stickers", "collections", "tags", "entity_tombstones"] {
+        conn.execute_unprepared(&format!("ALTER TABLE {table} DROP COLUMN purged_at"))
+            .await?;
+    }
+    conn.execute_unprepared("DROP TABLE purge_cleanup").await?;
+    conn.execute_unprepared("CREATE TABLE purge_cleanup(collision INTEGER)")
+        .await?;
+    conn.execute_unprepared("PRAGMA user_version=5").await?;
+    assert!(LibraryDatabase::open(&path).await.is_err());
+    let columns = conn
+        .query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA table_info(stickers)".to_owned(),
+        ))
+        .await?;
+    assert!(!columns.iter().any(|v| {
+        v.try_get::<String>("", "name")
+            .is_ok_and(|name| name == "purged_at")
+    }));
+    let version = conn
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA user_version".to_owned(),
+        ))
+        .await?
+        .ok_or("version")?;
+    assert_eq!(version.try_get::<i64>("", "user_version")?, 5);
+    conn.execute_unprepared("DROP TABLE purge_cleanup").await?;
+    conn.close().await?;
+    let db = LibraryDatabase::open(&path).await?;
+    assert_eq!(db.identity(), identity);
+    assert_eq!(db.sticker(sticker.id()).await?, Some(sticker));
+    assert_eq!(db.asset(asset.hash()).await?, Some(asset));
+    assert!(db.purge_jobs().await?.is_empty());
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn sync_upgrade_preserves_v0_1_data_and_recovers_after_rollback() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("library.sqlite");
+    let db = LibraryDatabase::open(&path).await?;
+    let identity = db.identity();
+    let (asset, sticker) = fixture(b"released-library", "existing title", 123)?;
+    insert(&db, &asset, &sticker).await?;
+    let history = db.changes_after(None, 10).await?;
+    db.close().await?;
+    let conn = raw(&path).await?;
+    // The released schema 4 has the same business tables, without sync state.
+    for table in ["stickers", "collections", "tags", "entity_tombstones"] {
+        conn.execute_unprepared(&format!("ALTER TABLE {table} DROP COLUMN purged_at"))
+            .await?;
+    }
+    conn.execute_unprepared("DROP TABLE purge_cleanup").await?;
+    conn.execute_unprepared("DROP TABLE client_sync_jobs")
+        .await?;
+    conn.execute_unprepared("DROP TABLE client_sync").await?;
+    conn.execute_unprepared("PRAGMA user_version=4").await?;
+    // Force failure after the first CREATE to verify that it rolls back too.
+    conn.execute_unprepared("CREATE TABLE client_sync_jobs (collision INTEGER)")
+        .await?;
+    conn.close().await?;
+    assert!(LibraryDatabase::open(&path).await.is_err());
+    let conn = raw(&path).await?;
+    let marker = conn
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA user_version".to_owned(),
+        ))
+        .await?
+        .ok_or("version")?;
+    assert_eq!(marker.try_get::<i64>("", "user_version")?, 4);
+    let created = conn
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT count(*) AS n FROM sqlite_schema WHERE name='client_sync'".to_owned(),
+        ))
+        .await?
+        .ok_or("table count")?;
+    assert_eq!(created.try_get::<i64>("", "n")?, 0);
+    conn.execute_unprepared("DROP TABLE client_sync_jobs")
+        .await?;
+    conn.close().await?;
+    let db = LibraryDatabase::open(&path).await?;
+    assert_eq!(db.identity(), identity);
+    assert_eq!(db.asset(asset.hash()).await?, Some(asset));
+    assert_eq!(db.sticker(sticker.id()).await?, Some(sticker));
+    assert_eq!(db.changes_after(None, 10).await?, history);
+    assert!(db.sync_binding(1024).await?.is_none());
+    assert!(db.sync_jobs(1024).await?.is_empty());
+    db.close().await?;
+    // A migrated library is reopened without running the transition again.
+    LibraryDatabase::open(&path).await?.close().await?;
+    Ok(())
+}
 #[tokio::test]
 async fn rejects_non_current_schema_and_unrelated_database() -> TestResult {
     let dir = tempfile::tempdir()?;

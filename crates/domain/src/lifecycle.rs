@@ -13,6 +13,8 @@ pub struct Lifecycle {
     created_at: TimestampMs,
     updated_at: TimestampMs,
     deleted_at: Option<TimestampMs>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    purged_at: Option<TimestampMs>,
 }
 impl Lifecycle {
     pub fn new(at: TimestampMs) -> Self {
@@ -22,6 +24,7 @@ impl Lifecycle {
             created_at: at,
             updated_at: at,
             deleted_at: None,
+            purged_at: None,
         }
     }
     /// Rehydrate typed state from a current-schema database row or snapshot.
@@ -38,6 +41,7 @@ impl Lifecycle {
             created_at,
             updated_at,
             deleted_at,
+            purged_at: None,
         }
     }
     pub const fn generation(&self) -> Generation {
@@ -56,7 +60,54 @@ impl Lifecycle {
         self.deleted_at
     }
     pub const fn is_active(&self) -> bool {
-        self.deleted_at.is_none()
+        self.deleted_at.is_none() && self.purged_at.is_none()
+    }
+    pub const fn purged_at(&self) -> Option<TimestampMs> {
+        self.purged_at
+    }
+    pub const fn is_purged(&self) -> bool {
+        self.purged_at.is_some()
+    }
+    pub fn with_purged_at(mut self, at: Option<TimestampMs>) -> Self {
+        self.purged_at = at;
+        self
+    }
+    pub fn purge(
+        &mut self,
+        observed: Generation,
+        expected: Revision,
+        at: TimestampMs,
+        revision: Revision,
+    ) -> Result<bool, DomainError> {
+        if self.generation != observed {
+            return Err(DomainError::StaleGeneration);
+        }
+        if self.is_active() {
+            return Err(DomainError::EntityActive);
+        }
+        if self.is_purged() {
+            return Ok(false);
+        }
+        if self.revision != expected {
+            return Err(DomainError::StaleRevision);
+        }
+        self.touch(at, revision)?;
+        self.purged_at = Some(at);
+        Ok(true)
+    }
+    /// Explicit import is the only operation that may start a new incarnation.
+    pub fn reimport(&self, at: TimestampMs, revision: Revision) -> Result<Self, DomainError> {
+        if !self.is_purged() {
+            return Err(DomainError::InvalidTransition);
+        }
+        self.ensure_revision(revision)?;
+        Ok(Self::from_state(
+            self.generation.checked_next()?,
+            revision,
+            at,
+            at,
+            None,
+        ))
     }
     pub fn ensure_active(&self, observed: Generation) -> Result<(), DomainError> {
         if !self.is_active() {
@@ -105,6 +156,9 @@ impl Lifecycle {
         at: TimestampMs,
         revision: Revision,
     ) -> Result<(), DomainError> {
+        if self.is_purged() {
+            return Err(DomainError::InvalidTransition);
+        }
         if self.is_active() {
             return Err(DomainError::EntityActive);
         }
@@ -136,6 +190,8 @@ pub struct Tombstone {
     generation: Generation,
     revision: Revision,
     deleted_at: TimestampMs,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    purged_at: Option<TimestampMs>,
 }
 impl Tombstone {
     pub fn new(
@@ -149,6 +205,7 @@ impl Tombstone {
             generation,
             revision,
             deleted_at,
+            purged_at: None,
         }
     }
     pub const fn entity(&self) -> EntityId {
@@ -163,7 +220,17 @@ impl Tombstone {
     pub const fn deleted_at(&self) -> TimestampMs {
         self.deleted_at
     }
+    pub const fn purged_at(&self) -> Option<TimestampMs> {
+        self.purged_at
+    }
+    pub fn with_purged_at(mut self, at: Option<TimestampMs>) -> Self {
+        self.purged_at = at;
+        self
+    }
     pub fn ensure_restore(&self, expected: Revision) -> Result<Generation, DomainError> {
+        if self.purged_at.is_some() {
+            return Err(DomainError::InvalidTransition);
+        }
         if expected != self.revision {
             return Err(DomainError::StaleRevision);
         }

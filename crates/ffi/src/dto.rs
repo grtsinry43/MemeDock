@@ -12,6 +12,7 @@ pub struct EntityLifecycle {
     pub created_at: i64,
     pub updated_at: i64,
     pub deleted_at: Option<i64>,
+    pub purged_at: Option<i64>,
 }
 impl From<&Lifecycle> for EntityLifecycle {
     fn from(v: &Lifecycle) -> Self {
@@ -21,6 +22,7 @@ impl From<&Lifecycle> for EntityLifecycle {
             created_at: v.created_at().get(),
             updated_at: v.updated_at().get(),
             deleted_at: v.deleted_at().map(|t| t.get()),
+            purged_at: v.purged_at().map(|t| t.get()),
         }
     }
 }

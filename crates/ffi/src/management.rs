@@ -23,8 +23,60 @@ pub struct RestoreSuggestions {
     pub tags: Vec<TagMetadata>,
 }
 
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum TrashEntityKind {
+    Sticker,
+    Collection,
+    Tag,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct TrashTarget {
+    pub kind: TrashEntityKind,
+    pub target: EntityReference,
+    pub deleted_revision: i64,
+}
+
 #[uniffi::export]
 impl LibraryHandle {
+    pub fn trash_snapshot(&self) -> Result<Arc<TrashSnapshotTask>> {
+        Ok(TrashSnapshotTask::new(self.inner.trash_snapshot()?))
+    }
+    pub fn purge_sticker(
+        &self,
+        target: EntityReference,
+        deleted_revision: i64,
+    ) -> Result<Arc<PurgeTask>> {
+        Ok(PurgeTask::new(self.inner.purge_entity(
+            memedock_domain::lifecycle::EntityId::Sticker(target.id.parse()?),
+            Generation::new(target.generation)?,
+            Revision::new(deleted_revision)?,
+        )?))
+    }
+    pub fn purge_collection(
+        &self,
+        target: EntityReference,
+        deleted_revision: i64,
+    ) -> Result<Arc<PurgeTask>> {
+        Ok(PurgeTask::new(self.inner.purge_entity(
+            memedock_domain::lifecycle::EntityId::Collection(target.id.parse()?),
+            Generation::new(target.generation)?,
+            Revision::new(deleted_revision)?,
+        )?))
+    }
+    pub fn purge_tag(
+        &self,
+        target: EntityReference,
+        deleted_revision: i64,
+    ) -> Result<Arc<PurgeTask>> {
+        Ok(PurgeTask::new(self.inner.purge_entity(
+            memedock_domain::lifecycle::EntityId::Tag(target.id.parse()?),
+            Generation::new(target.generation)?,
+            Revision::new(deleted_revision)?,
+        )?))
+    }
+    pub fn retry_purge_cleanup(&self) -> Result<Arc<PurgeTask>> {
+        Ok(PurgeTask::new(self.inner.retry_purge_cleanup()?))
+    }
     pub fn delete_sticker(&self, target: EntityReference) -> Result<Arc<StickerMutationTask>> {
         Ok(StickerMutationTask::new(self.inner.delete_sticker(
             target.id.parse()?,

@@ -1,6 +1,6 @@
 # Stable version is derived from Cargo.toml by tools/release/version.py --sync-arch.
 pkgname=memedock-bin
-pkgver=0.1.3
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='Unified sticker manager for easy importing and quick sharing (prebuilt release)'
 arch=('x86_64')

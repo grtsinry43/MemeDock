@@ -3,12 +3,15 @@
 
 pub mod archive;
 pub mod artifacts;
+pub mod client_sync;
 pub mod db;
 mod entities;
 pub mod error;
 pub mod files;
 mod mapping;
+mod purge;
 pub mod queries;
+pub mod server;
 pub mod transaction;
 
 pub use db::LibraryDatabase;

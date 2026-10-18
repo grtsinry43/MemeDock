@@ -76,6 +76,29 @@ impl FsBlobStore {
         }
         Ok(File::open(path)?)
     }
+    /// Idempotent removal of an owned, content-addressed original.
+    pub fn remove_original(&self, hash: ContentHash) -> Result<()> {
+        let path = self.original_path(hash);
+        match self.check_shards(hash) {
+            Err(StorageError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(());
+            }
+            result => result?,
+        }
+        match fs::symlink_metadata(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e.into()),
+            Ok(m) if !m.is_file() || m.file_type().is_symlink() => {
+                return Err(StorageError::Integrity("unsafe original"));
+            }
+            Ok(_) => {}
+        }
+        fs::remove_file(&path)?;
+        sync_directory(
+            path.parent()
+                .ok_or(StorageError::Integrity("blob parent"))?,
+        )
+    }
     /// Core must validate actual image format/dimensions before calling this.
     /// NOREPLACE rename atomically publishes without overwrite on Android/Linux,
     /// require staging and originals to be on the same filesystem.

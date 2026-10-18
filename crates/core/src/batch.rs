@@ -30,6 +30,7 @@ pub enum BatchAction {
     Star(bool),
     Delete,
     Restore,
+    Purge,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
