@@ -53,6 +53,12 @@ struct LibraryWindow: View {
                     .presentationCornerRadius(MemeDockGeometry.dialog)
             }
             .task { await model.start() }
+            .alert(L10n.text(.purge), isPresented: $model.confirmingPurge) {
+                Button(L10n.text(.cancel), role: .cancel) { }
+                Button(L10n.text(.purge), role: .destructive) { Task { await model.confirmPurge() } }
+            } message: {
+                Text(L10n.text(.purgeConfirmation, model.purgeTargets.count))
+            }
             .onDisappear { model.shutdown() }
     }
 
@@ -170,6 +176,12 @@ struct LibraryWindow: View {
     private var header: some View {
         HStack(spacing: 12) {
             searchField
+            if browser.filter == .deleted {
+                Button(L10n.text(.emptyTrash), role: .destructive) { Task { await model.requestEmptyTrash() } }
+                    .buttonStyle(.borderless)
+                    .disabled(model.purging)
+                    .fixedSize()
+            }
             Menu {
                 Picker(L10n.text(.sortHint), selection: $browser.sort) {
                     Text(L10n.text(.sortRecent)).tag(StickerSort.recent)

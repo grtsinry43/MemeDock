@@ -31,6 +31,12 @@ struct BatchPane: View {
                     Divider()
                     if trashed {
                         restoreButton
+                        Button(L10n.text(.purge), role: .destructive) {
+                            model.requestPurge(selection.targets.values.compactMap { value in
+                                guard let revision = value.deletedRevision else { return nil }
+                                return TrashTarget(kind: .sticker, target: value.target, deletedRevision: revision)
+                            })
+                        }.disabled(busy || model.purging)
                     } else {
                         collectionRow
                         tagRows

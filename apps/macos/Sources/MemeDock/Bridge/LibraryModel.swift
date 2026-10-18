@@ -28,6 +28,76 @@ final class LibraryModel: ObservableObject {
     /// detail pane: choosing many and inspecting one are different jobs, and the
     /// right column shows only one of them at a time.
     @Published private(set) var selecting = false
+    @Published var confirmingPurge = false
+    @Published private(set) var purgeTargets: [TrashTarget] = []
+    @Published private(set) var purging = false
+    private var purgeLibraryId: String?
+
+    func requestPurge(_ targets: [TrashTarget]) {
+        guard !purging, !targets.isEmpty else { return }
+        purgeLibraryId = session.identity?.libraryId
+        purgeTargets = targets
+        confirmingPurge = true
+    }
+
+    func requestPurge(_ item: StickerItem) {
+        requestPurge([TrashTarget(kind: .sticker, target: item.reference, deletedRevision: item.sticker.lifecycle.revision)])
+    }
+
+    func requestEmptyTrash() async {
+        guard !purging, let library = session.library else { return }
+        let libraryId = session.identity?.libraryId
+        purging = true
+        defer { purging = false }
+        await perform(status) {
+            let targets = try await library.trashSnapshot().awaitResult()
+            guard libraryId == self.session.identity?.libraryId else { throw AppFailure(.errorConflict) }
+            self.purging = false
+            if targets.isEmpty { self.status.show(L10n.text(.trashEmpty)); return }
+            self.requestPurge(targets)
+        }
+    }
+
+    func confirmPurge() async {
+        guard !purging, let library = session.library else { return }
+        guard purgeLibraryId == session.identity?.libraryId else {
+            status.show(L10n.text(.errorConflict), isFailure: true)
+            purgeTargets = []
+            return
+        }
+        let targets = purgeTargets
+        purgeTargets = []
+        purging = true
+        defer { purging = false }
+        var completed = 0
+        var failure: String?
+        for entry in targets {
+            guard purgeLibraryId == session.identity?.libraryId else { break }
+            do {
+                let task: PurgeTask
+                switch entry.kind {
+                case .sticker: task = try library.purgeSticker(target: entry.target, deletedRevision: entry.deletedRevision)
+                case .collection: task = try library.purgeCollection(target: entry.target, deletedRevision: entry.deletedRevision)
+                case .tag: task = try library.purgeTag(target: entry.target, deletedRevision: entry.deletedRevision)
+                }
+                try await task.awaitResult()
+                completed += 1
+            } catch { failure = describe(error) }
+        }
+        if let failure { status.show(L10n.text(.purgePartial, completed, targets.count - completed, failure), isFailure: true) }
+        else { status.show(L10n.text(.purgedCount, completed)) }
+        selection.clear()
+    }
+
+    func retryPurgeCleanup() async {
+        guard !purging, let library = session.library else { return }
+        purging = true
+        defer { purging = false }
+        await perform(status) {
+            try await library.retryPurgeCleanup().awaitResult()
+            self.status.show(L10n.text(.purgeCleanupDone))
+        }
+    }
 
     /// The tile the keyboard acts on. A click moves it, the arrow keys move it,
     /// and 拷贝 copies it whether or not the detail column is showing it.
@@ -65,6 +135,8 @@ final class LibraryModel: ObservableObject {
     }
 
     func shutdown() {
+        confirmingPurge = false
+        purgeTargets = []
         started = false
         subscriptions.removeAll()
         thumbnails.clear()

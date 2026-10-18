@@ -36,6 +36,10 @@ final class StickerDetailModel: ObservableObject {
             let loaded = try await session.detail(id)
             // A slower answer for an earlier selection must not win.
             guard pending == id else { return }
+            if loaded.sticker.lifecycle.purgedAt != nil {
+                clear()
+                return
+            }
             sticker = loaded
             reference = EntityReference(id: loaded.sticker.id, generation: loaded.sticker.lifecycle.generation)
             suggestions = nil

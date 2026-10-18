@@ -6,6 +6,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case output
     case importing
+    case sync
     case backup
     case storage
     case about
@@ -17,6 +18,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .general: return .general
         case .output: return .outputTab
         case .importing: return .importAction
+        case .sync: return .syncTab
         case .backup: return .backupTab
         case .storage: return .storage
         case .about: return .about
@@ -28,6 +30,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .general: return "gearshape"
         case .output: return "doc.on.doc"
         case .importing: return "square.and.arrow.down"
+        case .sync: return "arrow.triangle.2.circlepath"
         case .backup: return "clock.arrow.circlepath"
         case .storage: return "internaldrive"
         case .about: return "info.circle"
@@ -38,7 +41,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var needsLibrary: Bool {
         switch self {
         case .general, .output: return false
-        case .importing, .backup, .storage, .about: return true
+        case .importing, .sync, .backup, .storage, .about: return true
         }
     }
 }
@@ -56,6 +59,7 @@ struct SettingsView: View {
     /// through this, since that is where it is presented.
     let navigation: LibraryNavigation
     @ObservedObject var telegram: TelegramCoordinator
+    @ObservedObject var sync: SyncCoordinator
     @ObservedObject private var preferences = Preferences.shared
 
     @StateObject private var backups: BackupCoordinator
@@ -68,12 +72,14 @@ struct SettingsView: View {
         session: LibrarySession,
         status: StatusCenter,
         navigation: LibraryNavigation,
-        telegram: TelegramCoordinator
+        telegram: TelegramCoordinator,
+        sync: SyncCoordinator
     ) {
         _session = ObservedObject(wrappedValue: session)
         _status = ObservedObject(wrappedValue: status)
         self.navigation = navigation
         _telegram = ObservedObject(wrappedValue: telegram)
+        _sync = ObservedObject(wrappedValue: sync)
         _backups = StateObject(wrappedValue: BackupCoordinator(session: session, status: status))
     }
 
@@ -196,6 +202,8 @@ struct SettingsView: View {
                 OutputSettings(preferences: preferences)
             case .importing:
                 ImportSettings(telegram: telegram, status: status, openTelegram: openTelegram)
+            case .sync:
+                SyncSettings(coordinator: sync)
             case .backup:
                 BackupSettings(session: session, coordinator: backups, status: status)
             case .storage:

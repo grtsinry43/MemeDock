@@ -37,7 +37,8 @@ struct MemeDockApp: App {
                 session: delegate.session,
                 status: delegate.status,
                 navigation: delegate.navigation,
-                telegram: delegate.telegram
+                telegram: delegate.telegram,
+                sync: delegate.sync
             )
         }
     }
@@ -53,10 +54,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shared because the sheet lives on the library window while the saved
     /// token is managed in the settings; one instance keeps both in step.
     private(set) lazy var telegram = TelegramCoordinator(session: session, status: status)
+    private(set) lazy var sync = SyncCoordinator(session: session)
 
     private var terminating = false
 
     func applicationDidFinishLaunching(_ notification: Foundation.Notification) {
+        _ = sync
         // A binary started outside a bundle (swift run) still needs to become a
         // regular app before it can show a window and take focus.
         NSApp.setActivationPolicy(.regular)
@@ -77,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboard.beginShutdown()
         let session = self.session
         Task {
+            await sync.shutdown()
             await session.shutdown()
             NSApp.reply(toApplicationShouldTerminate: true)
         }

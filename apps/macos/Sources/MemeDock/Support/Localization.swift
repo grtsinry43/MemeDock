@@ -13,6 +13,8 @@ enum L10nKey: String {
     case importAction, importReview, importProgress, importCancel, importSummary, importExisting
     case settings, general, storage, appearance, language, system, light, dark, chinese, english
     case cancel, confirm, delete, restore, rename, done, retry, ok, close, empty, applying, more
+    case purge, emptyTrash, purgeConfirmation, purgedCount, retryPurgeCleanup
+    case purgePartial, purgeCleanupDone
     case hideSidebar, showSidebar
     case expanded, collapsed, removeTag, animatedUsesOriginal
     case copyImage, copyFile, share, saveAs, revealInFinder, copy
@@ -61,10 +63,18 @@ enum L10nKey: String {
     case largerStickers, smallerStickers, defaultStickerSize
     case nothingToPaste, quickLookUnavailable
     case noHome
+    case syncTab, syncServer, syncToken, syncTokenHint, syncConnect, syncNow, syncPause, syncResume
+    case syncDisconnect, syncDisconnectTitle, syncDisconnectHint, syncPending, syncBlocked, syncBlockedHint
+    case syncLastSuccess, syncNever, syncReady, syncRunning, syncPaused, syncStatus, syncMergeHint
+    case syncKeychainFailed, syncReauthorize
 }
 
 enum L10n {
     private static let english: [L10nKey: String] = [
+        .purge: "Delete permanently", .emptyTrash: "Empty Trash…",
+        .purgeConfirmation: "Permanently delete %d items? This cannot be undone. Deletion will also sync to your other devices. Deleting collections or tags keeps their images.",
+        .purgedCount: "Permanently deleted %d items", .retryPurgeCleanup: "Retry file cleanup",
+        .purgePartial: "%d completed, %d unfinished: %@", .purgeCleanupDone: "File cleanup completed",
         .app: "MemeDock", .library: "Library", .stickers: "Stickers", .collections: "Collections",
         .tags: "Tags", .all: "All stickers", .starred: "Starred", .recentlyUsed: "Recently used",
         .deleted: "Deleted",
@@ -208,9 +218,25 @@ enum L10n {
         .nothingToPaste: "The clipboard holds no image to import",
         .quickLookUnavailable: "Quick Look cannot show this sticker",
         .noHome: "The home folder could not be located",
+        .syncTab: "Sync", .syncServer: "Server", .syncToken: "Device token",
+        .syncTokenHint: "Create a device in the server's Web UI, then paste its token here. Credentials are stored in Keychain.",
+        .syncConnect: "Connect", .syncNow: "Sync now", .syncPause: "Pause sync", .syncResume: "Resume sync",
+        .syncDisconnect: "Disconnect", .syncDisconnectTitle: "Disconnect this library?",
+        .syncDisconnectHint: "The saved device token will be removed. Local content and pending changes will be retained.",
+        .syncPending: "Pending changes", .syncBlocked: "Changes needing attention",
+        .syncBlockedHint: "Some changes were rejected by the server. Their original operations are retained locally for recovery.",
+        .syncLastSuccess: "Last sync", .syncNever: "Not yet", .syncReady: "Up to date",
+        .syncRunning: "Syncing…", .syncPaused: "Paused", .syncStatus: "Sync status",
+        .syncMergeHint: "The first connection merges both libraries and deduplicates images. Existing cloud metadata takes priority. Later edits follow server submission order. Production servers require HTTPS; loopback HTTP is supported for local testing.",
+        .syncKeychainFailed: "The device token could not be stored or read in Keychain. Sync is paused; authorize Keychain access and reconnect.",
+        .syncReauthorize: "Update authorization…",
     ]
 
     private static let chinese: [L10nKey: String] = [
+        .purge: "彻底删除", .emptyTrash: "清空回收站…",
+        .purgeConfirmation: "彻底删除这 %d 项内容？此操作无法撤销，并会同步到其他设备。删除合集或标签不会删除其中的图片。",
+        .purgedCount: "已彻底删除 %d 项内容", .retryPurgeCleanup: "重试文件清理",
+        .purgePartial: "已完成 %d 项，%d 项未完成：%@", .purgeCleanupDone: "文件清理已完成",
         .app: "MemeDock", .library: "素材库", .stickers: "表情", .collections: "合集",
         .tags: "标签", .all: "全部表情", .starred: "已收藏", .recentlyUsed: "最近使用",
         .deleted: "回收站",
@@ -352,6 +378,18 @@ enum L10n {
         .nothingToPaste: "剪贴板里没有可导入的图片",
         .quickLookUnavailable: "无法用快速查看显示这张贴纸",
         .noHome: "无法定位用户主目录",
+        .syncTab: "同步", .syncServer: "服务地址", .syncToken: "设备 token",
+        .syncTokenHint: "在服务端 Web 界面添加设备，将生成的 token 填入这里。凭证保存在钥匙串中。",
+        .syncConnect: "连接", .syncNow: "立即同步", .syncPause: "暂停同步", .syncResume: "恢复同步",
+        .syncDisconnect: "断开连接", .syncDisconnectTitle: "断开此库的同步连接？",
+        .syncDisconnectHint: "将移除保存的设备 token，本地内容和待发送修改会保留。",
+        .syncPending: "待处理修改", .syncBlocked: "需要处理的修改",
+        .syncBlockedHint: "部分修改被服务端拒绝，原始操作已保留在本地，便于恢复。",
+        .syncLastSuccess: "最近同步", .syncNever: "尚未同步", .syncReady: "已同步",
+        .syncRunning: "正在同步…", .syncPaused: "已暂停", .syncStatus: "同步状态",
+        .syncMergeHint: "首次连接会合并两边内容、按图片去重，已有云端元数据优先。之后的修改按服务端提交顺序同步。正式服务使用 HTTPS，本机测试支持回环地址的 HTTP。",
+        .syncKeychainFailed: "无法在钥匙串中保存或读取设备 token。同步已暂停，请授权钥匙串访问后重新连接。",
+        .syncReauthorize: "更新授权…",
     ]
 
     /// Set by `Preferences` so views read the active language at render time.

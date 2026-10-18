@@ -401,6 +401,8 @@ private struct StickerCell: View {
         Divider()
         if item.isDeleted {
             Button(L10n.text(.restore)) { Task { await model.restore(item) } }
+            Button(L10n.text(.purge), role: .destructive) { model.requestPurge(item) }
+                .disabled(model.purging)
         } else {
             Button(L10n.text(.deleteStickerTitle), role: .destructive) {
                 Task { await model.delete(item) }

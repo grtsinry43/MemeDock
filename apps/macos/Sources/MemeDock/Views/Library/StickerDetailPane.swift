@@ -342,6 +342,10 @@ struct StickerDetailPane: View {
             Button(L10n.text(.restoreStickerTitle)) {
                 run { await detail.restore() }
             }
+            Button(L10n.text(.purge), role: .destructive) {
+                if let item = detail.item { model.requestPurge(item) }
+            }
+            .disabled(model.purging)
             if detail.suggestions != nil {
                 Button(L10n.text(.restoreOrganization)) {
                     run { await detail.applySuggestions() }

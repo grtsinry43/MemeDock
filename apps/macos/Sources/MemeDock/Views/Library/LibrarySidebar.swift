@@ -77,6 +77,11 @@ struct LibrarySidebar: View {
                 collectionsSection
                 tagsSection
                 sectionRow(.deleted, .trash, "trash")
+                    .contextMenu {
+                        Button(L10n.text(.emptyTrash), role: .destructive) { Task { await model.requestEmptyTrash() } }
+                            .disabled(model.purging)
+                        Button(L10n.text(.retryPurgeCleanup)) { Task { await model.retryPurgeCleanup() } }
+                    }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 16)
@@ -114,6 +119,11 @@ struct LibrarySidebar: View {
             }
             ForEach(collections.trashed, id: \.id) { collection in
                 trashedRow(collection.name) { restore(collection) }
+                    .contextMenu {
+                        Button(L10n.text(.purge), role: .destructive) {
+                            model.requestPurge([TrashTarget(kind: .collection, target: EntityReference(id: collection.id, generation: collection.lifecycle.generation), deletedRevision: collection.lifecycle.revision)])
+                        }.disabled(model.purging)
+                    }
             }
             createRow(.newCollection, .newCollection)
         }
@@ -131,6 +141,11 @@ struct LibrarySidebar: View {
             }
             ForEach(tags.trashed, id: \.id) { tag in
                 trashedRow(tag.name) { restore(tag) }
+                    .contextMenu {
+                        Button(L10n.text(.purge), role: .destructive) {
+                            model.requestPurge([TrashTarget(kind: .tag, target: EntityReference(id: tag.id, generation: tag.lifecycle.generation), deletedRevision: tag.lifecycle.revision)])
+                        }.disabled(model.purging)
+                    }
             }
             createRow(.newTag, .newTag)
         }
