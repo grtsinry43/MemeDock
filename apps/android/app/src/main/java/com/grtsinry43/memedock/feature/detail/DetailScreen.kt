@@ -103,10 +103,12 @@ fun DetailScreen(
         val titled by remember { derivedStateOf { scroll.value > with(density) { 320.dp.roundToPx() } } }
         MemeDockTopBar(if (titled) detail?.title.orEmpty() else "", glass,
             modifier = Modifier.detailElementTransition(fromTop = true), back = actions.back, scrolled = scrolled) {
-            if (detail != null && !detail.deleted) {
-                IconButton(onClick = actions.star, enabled = !state.managing, modifier = Modifier.testTag("detail-star")) {
-                    Icon(if (detail.starred) MemeDockIcons.StarFilled else MemeDockIcons.Star, stringResource(if (detail.starred) R.string.unfavorite else R.string.favorite),
-                        tint = if (detail.starred) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant)
+            if (detail != null) {
+                if (!detail.deleted) {
+                    IconButton(onClick = actions.star, enabled = !state.managing, modifier = Modifier.testTag("detail-star")) {
+                        Icon(if (detail.starred) MemeDockIcons.StarFilled else MemeDockIcons.Star, stringResource(if (detail.starred) R.string.unfavorite else R.string.favorite),
+                            tint = if (detail.starred) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 IconButton(onClick = actions.more, enabled = !state.managing && !state.sharing,
                     modifier = Modifier.testTag("detail-more")) {

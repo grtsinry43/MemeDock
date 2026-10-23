@@ -17,8 +17,17 @@ class AppContainer(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val session = LibrarySession(context, scope)
     val libraryEpoch = session.epoch
+    val sync = com.grtsinry43.memedock.feature.sync.SyncCoordinator(
+        com.grtsinry43.memedock.data.sync.RustSyncRepository(session),
+        com.grtsinry43.memedock.platform.credentials.AndroidSyncTokenStore(context),
+        com.grtsinry43.memedock.platform.sync.AndroidSyncWorkScheduler(context),
+        com.grtsinry43.memedock.data.settings.SyncPreferences(context), session.changes, scope)
+    val trash = com.grtsinry43.memedock.feature.trash.TrashCoordinator(
+        com.grtsinry43.memedock.data.library.RustTrashRepository(session), scope)
     val backups = com.grtsinry43.memedock.feature.backup.BackupCoordinator(
-        com.grtsinry43.memedock.data.library.BackupRepository(session),
+        com.grtsinry43.memedock.data.library.BackupRepository(session,
+            { sync.beginMaintenance(); trash.beginMaintenance() },
+            { trash.endMaintenance(); sync.endMaintenance() }),
         com.grtsinry43.memedock.platform.backup.AndroidBackupGateway(context.contentResolver), scope)
     val library = RustLibraryRepository(session)
     val telegram = com.grtsinry43.memedock.data.telegram.RustTelegramRepository(session)

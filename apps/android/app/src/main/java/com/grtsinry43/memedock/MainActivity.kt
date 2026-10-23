@@ -39,6 +39,13 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) receive(intent)
         setContent { MemeDockApp(container) }
         lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                container.sync.foreground(true)
+                try { kotlinx.coroutines.awaitCancellation() }
+                finally { container.sync.foreground(false) }
+            }
+        }
+        lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 launch {
                     container.backups.state.collect {

@@ -37,7 +37,8 @@ private enum class BatchPage { Actions, Collection, AddTags, RemoveTags, Delete 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BatchActionsSheet(visible: Boolean, close: () -> Unit, model: BatchActionsViewModel,
-    repository: ManagementRepository, trash: Boolean = false, collection: LibraryCollection? = null) {
+    repository: ManagementRepository, trash: Boolean = false, collection: LibraryCollection? = null,
+    purge: ((List<LibraryItem>) -> Unit)? = null) {
     val state by model.state.collectAsStateWithLifecycle()
     var page by remember(visible) { mutableStateOf(BatchPage.Actions) }
     var collections by remember { mutableStateOf<List<LibraryCollection>?>(null) }
@@ -74,6 +75,13 @@ internal fun BatchActionsSheet(visible: Boolean, close: () -> Unit, model: Batch
                 page == BatchPage.Actions -> {
                     Outcome(state)
                     if (state.selected.isNotEmpty()) Actions(trash, collection, run) { page = it }
+                    if (trash && state.selected.isNotEmpty() && purge != null) {
+                        MemeDockSheetAction(stringResource(R.string.purge_title), MemeDockIcons.Delete, {
+                            val targets = state.selected.values.toList()
+                            close()
+                            purge(targets)
+                        }, modifier = Modifier.testTag("batch-purge"), destructive = true)
+                    }
                 }
                 page == BatchPage.Delete -> MemeDockSheetHint(stringResource(R.string.delete_hint))
                 loadError != null -> MemeDockSheetError(failureText(loadError), retry = { reload++ })

@@ -1,4 +1,5 @@
 [versions]
+work = "2.12.0"
 materialSymbols = "2.2.1"
 datastore = "1.2.1"
 agp = "9.3.3"
@@ -23,6 +24,7 @@ reorderable = "3.1.0"
 aboutLibraries = "13.1.0"
 
 [libraries]
+androidx-work-runtime = { module = "androidx.work:work-runtime", version.ref = "work" }
 material-symbols = { module = "com.composables:icons-material-symbols-rounded-android", version.ref = "materialSymbols" }
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 androidx-compose-animation = { module = "androidx.compose.animation:animation" }

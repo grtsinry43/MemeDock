@@ -12,6 +12,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
 
+data class LibraryBinding(val epoch: Long, val libraryId: String)
+
 /** Process-owned. An Activity or page never opens another native instance. */
 class LibrarySession(context: Context, private val scope: CoroutineScope) {
     private val data = File(context.filesDir, "library")
@@ -27,6 +29,10 @@ class LibrarySession(context: Context, private val scope: CoroutineScope) {
     val changes: SharedFlow<LibraryChange> = events.asSharedFlow()
     private val mutableEpoch = MutableStateFlow(0L)
     val epoch = mutableEpoch.asStateFlow()
+    val bindings: Flow<LibraryBinding?> = connection.map { currentBinding() }.distinctUntilChanged()
+    internal fun currentBinding(): LibraryBinding? = (connection.value as? Connection.Ready)?.let {
+        LibraryBinding(mutableEpoch.value, it.library.identity().libraryId)
+    }
     private var opening: Job? = null
 
     init { retryOpen() }

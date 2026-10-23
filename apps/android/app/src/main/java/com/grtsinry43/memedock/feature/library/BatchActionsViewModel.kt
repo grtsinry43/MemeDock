@@ -27,6 +27,9 @@ class BatchActionsViewModel(private val repository: ManagementRepository) : View
             selected = if (item == null) it.selected else it.selected + (item.id to item)) }
     }
     fun exit() { if (!mutable.value.busy) mutable.value = BatchSelectionState() }
+    fun removePurged(entries: Set<TrashEntry>) {
+        mutable.update { state -> state.copy(selected = state.selected.filterValues { item -> item.trashEntry() !in entries }) }
+    }
     fun leave() {
         if (mutable.value.busy) { exitAfterBatch = true; stop() } else exit()
     }

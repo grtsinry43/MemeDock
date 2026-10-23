@@ -12,6 +12,10 @@ fun failureText(code: String?): String = stringResource(failureTextRes(code))
 
 @StringRes
 fun failureTextRes(code: String?): Int = when (code?.uppercase()) {
+    "UNAUTHORIZED" -> R.string.sync_failure_unauthorized
+    "NETWORK", "TIMEOUT" -> R.string.sync_failure_network
+    "CREDENTIAL" -> R.string.sync_failure_credential
+    "CLOSED" -> R.string.failure_library
     "PERMISSION_DENIED" -> R.string.failure_permission
     "IO" -> R.string.failure_io
     "STORAGE_FULL" -> R.string.failure_full

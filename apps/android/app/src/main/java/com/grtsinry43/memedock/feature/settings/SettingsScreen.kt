@@ -27,7 +27,8 @@ private enum class SettingsSheet { Theme, Language }
 @Composable
 fun SettingsScreen(state: SettingsState, version: String, select: (ThemeMode) -> Unit, selectLanguage: (LanguageMode) -> Unit,
     retry: () -> Unit, trash: () -> Unit, backup: () -> Unit, licenses: () -> Unit, contentPadding: PaddingValues,
-    selectOutput: (OutputAction, Boolean, ExportChoice) -> Unit) {
+    selectOutput: (OutputAction, Boolean, ExportChoice) -> Unit, sync: () -> Unit = {},
+    syncState: com.grtsinry43.memedock.feature.sync.SyncState = com.grtsinry43.memedock.feature.sync.SyncState()) {
     var sheet by remember { mutableStateOf<SettingsSheet?>(null) }
     var output by remember { mutableStateOf(OutputAction.Copy to false) }
     var choosingOutput by remember { mutableStateOf(false) }
@@ -41,6 +42,16 @@ fun SettingsScreen(state: SettingsState, version: String, select: (ThemeMode) ->
         Overview(state, retry)
         Spacer(Modifier.height(MemeDockLayout.SectionGap))
         MemeDockGroup(title = stringResource(R.string.settings_library)) {
+            row {
+                MemeDockRow(stringResource(R.string.sync_title), Modifier.testTag("settings-sync"), icon = MemeDockIcons.BackupRestore,
+                    value = stringResource(when {
+                        syncState.busy -> R.string.sync_running
+                        !syncState.hasCredential -> R.string.sync_authorize
+                        syncState.error != null || syncState.status.error != null -> R.string.sync_failed
+                        syncState.status.paused -> R.string.sync_paused
+                        else -> R.string.sync_ready
+                    }), onClick = sync)
+            }
             row { MemeDockRow(stringResource(R.string.trash), Modifier.testTag("settings-trash"), icon = MemeDockIcons.Delete, onClick = trash) }
             row {
                 MemeDockRow(stringResource(R.string.backup_title), Modifier.testTag("settings-backup"), icon = MemeDockIcons.BackupRestore,

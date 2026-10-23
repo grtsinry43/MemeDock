@@ -16,6 +16,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.app.AppContainer
 import com.grtsinry43.memedock.data.library.LibraryItem
+import com.grtsinry43.memedock.data.library.trashEntry
 import com.grtsinry43.memedock.data.settings.ExportChoice
 import com.grtsinry43.memedock.data.settings.OutputPreferencesState
 import com.grtsinry43.memedock.data.settings.OutputAction as DefaultAction
@@ -143,6 +144,15 @@ fun DetailRoute(id: String, container: AppContainer, initialItem: LibraryItem?, 
         choosingPreset = false
     }
     val detail = rememberRetained(state.detail)
+    MemeDockSheet(more && state.detail?.deleted == true, { more = false }, title = detail?.title) {
+        MemeDockSheetAction(stringResource(R.string.purge_title), MemeDockIcons.Delete, {
+            more = false
+            state.detail?.let { value ->
+                val target = value.trashEntry()
+                container.trash.request(listOf(target)) { succeeded -> if (target in succeeded) back() }
+            }
+        }, modifier = Modifier.testTag("purge-sticker"), destructive = true)
+    }
     MemeDockSheet(more && state.detail?.deleted == false, { more = false }, title = detail?.title) {
         MemeDockSheetAction(stringResource(R.string.organize), MemeDockIcons.Collections,
             { more = false; organizing = true }, supporting = stringResource(R.string.organize_hint))

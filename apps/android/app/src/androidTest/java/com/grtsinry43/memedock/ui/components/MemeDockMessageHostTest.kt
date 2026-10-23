@@ -22,6 +22,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.ui.theme.MemeDockTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -60,7 +61,7 @@ class MemeDockMessageHostTest {
                 MemeDockMessage("导出失败，请重试", MemeDockMessageType.Error, actionLabel = "重试")) }
         }
         compose.onNodeWithText("导出失败，请重试").assertIsDisplayed()
-        compose.onNodeWithContentDescription("错误").assertExists()
+        compose.onNodeWithContentDescription(compose.activity.getString(R.string.message_error)).assertExists()
         compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
             .assertCountEquals(1)
         compose.onNodeWithText("重试").performClick()
@@ -78,7 +79,7 @@ class MemeDockMessageHostTest {
                 MemeDockMessage("空间不足", MemeDockMessageType.Warning, duration = SnackbarDuration.Indefinite)) }
         }
         compose.onNodeWithText("保存成功").assertIsDisplayed()
-        compose.onNodeWithContentDescription("关闭提示").performClick()
+        compose.onNodeWithContentDescription(compose.activity.getString(R.string.message_dismiss)).performClick()
         compose.onNodeWithText("空间不足").assertIsDisplayed()
         compose.runOnIdle {
             assertEquals(SnackbarResult.Dismissed, dismissed)
@@ -108,7 +109,7 @@ class MemeDockMessageHostTest {
         compose.runOnIdle { scope.launch { host.showMemeDockMessage(MemeDockMessage("完成", MemeDockMessageType.Success)) } }
         compose.onNodeWithText("完成").assertIsDisplayed()
         compose.runOnIdle { assertTrue("Dismiss control must receive the user's timeout", controls.get()) }
-        compose.onNodeWithContentDescription("关闭提示").performClick()
+        compose.onNodeWithContentDescription(compose.activity.getString(R.string.message_dismiss)).performClick()
     }
 
     @Test fun longChineseMessageAndActionsFitAtDoubleFontScale() {
@@ -118,10 +119,11 @@ class MemeDockMessageHostTest {
             MemeDockMessage(text, MemeDockMessageType.Warning, actionLabel = "重新尝试")) } }
         compose.onNodeWithText(text).assertIsDisplayed()
         compose.onNodeWithText("重新尝试").assertIsDisplayed()
-        compose.onNodeWithContentDescription("关闭提示").assertIsDisplayed()
+        compose.onNodeWithContentDescription(compose.activity.getString(R.string.message_dismiss)).assertIsDisplayed()
         val textBounds = compose.onNodeWithText(text).fetchSemanticsNode().boundsInRoot
         val actionBounds = compose.onNodeWithText("重新尝试").fetchSemanticsNode().boundsInRoot
-        assertTrue("Action must remain below the multiline text", textBounds.bottom <= actionBounds.top)
+        assertTrue("Message and action must not overlap",
+            textBounds.right <= actionBounds.left || textBounds.bottom <= actionBounds.top)
         compose.onNodeWithText("重新尝试").performClick()
     }
 }

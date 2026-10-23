@@ -89,6 +89,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.work.runtime)
     // The Android artifact contains only vectors; use our pinned Compose dependencies.
     implementation(libs.material.symbols) { isTransitive = false }
     implementation(libs.androidx.datastore.preferences)

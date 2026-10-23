@@ -5,7 +5,8 @@ import com.grtsinry43.memedock.bridge.generated.*
 import kotlinx.coroutines.*
 
 /** Archive ownership stays here; UI only sees summaries and controlled paths. */
-class BackupRepository(private val session: LibrarySession) {
+class BackupRepository(private val session: LibrarySession,
+    private val beforeRestore: suspend () -> Unit, private val afterRestore: suspend () -> Unit) {
     suspend fun create(): BackupFileHandle = withContext(Dispatchers.IO) { translate {
         session.library().createBackup().use { task ->
             try { task.awaitResult() } catch (cancel: CancellationException) { task.cancel(); throw cancel }
@@ -32,13 +33,15 @@ class BackupRepository(private val session: LibrarySession) {
     }
     suspend fun restore(value: PreparedArchiveHandle, mode: ArchiveRestoreMode, onTask: (ArchiveRestoreTask?) -> Unit): ArchiveSummary =
         withContext(NonCancellable + Dispatchers.IO) {
+            beforeRestore()
             try { translate {
                 session.library().restoreArchive(value, mode).use { task ->
                     onTask(task)
                     try { task.awaitResult() } finally { onTask(null) }
                 }
             } } finally {
-                if (mode == ArchiveRestoreMode.REPLACE) session.reconnect()
+                try { if (mode == ArchiveRestoreMode.REPLACE) session.reconnect() }
+                finally { afterRestore() }
             }
         }
     private suspend fun <T> translate(block: suspend () -> T): T = try { block() }

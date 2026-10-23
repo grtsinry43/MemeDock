@@ -174,6 +174,7 @@ private fun MemeDockContent(container: AppContainer, messages: SnackbarHostState
                                         { push(Destination.Tag(it.id, it.name)) }, { push(Destination.Trash) }, allCollections = true, back = ::pop)
                                     Destination.Trash -> TrashRoute(container, ::pop, open)
                                     Destination.Backup -> BackupRoute(container.backups, ::pop)
+                                    Destination.Sync -> com.grtsinry43.memedock.feature.sync.SyncRoute(container.sync, ::pop)
                                     Destination.TelegramImport -> com.grtsinry43.memedock.feature.telegram.TelegramImportRoute(container, ::pop)
                                     Destination.Licenses -> LicensesRoute(::pop)
                                 }
@@ -185,6 +186,7 @@ private fun MemeDockContent(container: AppContainer, messages: SnackbarHostState
             MemeDockMessageHost(messages, Modifier.align(Alignment.BottomCenter),
                 bottomInset = if (backStack.last() == Destination.Home) MemeDockLayout.BottomBarHeight else 0.dp)
             ImportSheet(imports, container.imports, container.library, container.imageLoader)
+            com.grtsinry43.memedock.feature.trash.PurgeConfirmation(container.trash)
         }
     }
 }
@@ -211,7 +213,7 @@ private fun HomeScreen(container: AppContainer, tab: HomeTab, select: (HomeTab) 
                         HomeTab.Organize -> OrganizeRoute(container, bar, { push(Destination.Collection(it.id, it.name)) },
                             { push(Destination.Tag(it.id, it.name)) }, { push(Destination.Trash) }, viewAll = { push(Destination.Collections) })
                         HomeTab.Mine -> SettingsRoute(container, bar, { push(Destination.Trash) }, { push(Destination.Backup) },
-                            { push(Destination.Licenses) })
+                            { push(Destination.Licenses) }, { push(Destination.Sync) })
                     }
                 }
             }
