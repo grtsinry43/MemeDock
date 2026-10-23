@@ -10,13 +10,13 @@ struct LibraryItem: Identifiable, Sendable {
 }
 
 enum LibraryFilter: Hashable {
-    case recentlyUsed, all, starred, collection(String)
+    case recentlyUsed, all, starred, collection(String), tag(String)
 
     var sort: StickerSort {
         switch self {
         case .recentlyUsed: .lastUsed
         case .collection: .collectionOrder
-        case .all, .starred: .recent
+        case .all, .starred, .tag: .recent
         }
     }
 }

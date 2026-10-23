@@ -21,6 +21,7 @@ final class LibraryBrowser {
     private(set) var hasMore = false
     private(set) var scrollTarget: String?
     private(set) var isLocating = false
+    var visibleStickerID: String?
 
     @ObservationIgnored private let library: LibraryHandle
     @ObservationIgnored private let pageSize: UInt32
@@ -33,10 +34,19 @@ final class LibraryBrowser {
     @ObservationIgnored private var changingQuery = false
     @ObservationIgnored private var closed = false
     @ObservationIgnored private var locatingTarget: String?
+    @ObservationIgnored private let scope: LibraryFilter?
 
-    init(library: LibraryHandle, pageSize: UInt32 = 60) {
+    init(library: LibraryHandle, pageSize: UInt32 = 60, scope: LibraryFilter? = nil) {
         self.library = library
         self.pageSize = min(200, max(1, pageSize))
+        self.scope = scope
+        if let scope { filter = scope }
+    }
+
+    deinit {
+        work?.cancel()
+        changeWork?.cancel()
+        _ = pageTask?.cancel()
     }
 
     var filterTitle: String {
@@ -45,6 +55,7 @@ final class LibraryBrowser {
         case .all: String(localized: "All Stickers")
         case .starred: String(localized: "Favorites")
         case .collection(let id): collections.first { $0.id == id }?.name ?? String(localized: "Collection")
+        case .tag: String(localized: "Tag")
         }
     }
 
@@ -90,7 +101,7 @@ final class LibraryBrowser {
             guard !closed, catalogGeneration == current else { return }
             collections = values
             collectionError = nil
-            if case .collection(let id) = filter, !values.contains(where: { $0.id == id }) {
+            if scope == nil, case .collection(let id) = filter, !values.contains(where: { $0.id == id }) {
                 filter = .all
             }
         } catch {
@@ -159,11 +170,14 @@ final class LibraryBrowser {
     }
 
     private func query(cursor: QueryCursorHandle?) -> StickerQuery {
+        let filter = scope ?? self.filter
         let collection: String?
         if case .collection(let id) = filter { collection = id } else { collection = nil }
+        let tags: [String]
+        if case .tag(let id) = filter { tags = [id] } else { tags = [] }
         return StickerQuery(
             requestId: newRequestId(), text: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
-            collectionId: collection, tagIds: [], starred: filter == .starred ? true : nil,
+            collectionId: collection, tagIds: tags, starred: filter == .starred ? true : nil,
             deleted: false, sort: filter.sort, pageSize: pageSize, cursor: cursor
         )
     }

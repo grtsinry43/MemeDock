@@ -17,6 +17,9 @@ final class LibrarySession {
     private struct DetailReference {
         weak var model: StickerDetailModel?
     }
+    private struct BrowserReference {
+        weak var browser: LibraryBrowser?
+    }
     private(set) var phase: LibraryPhase = .idle
     private(set) var statistics: SpaceStatistics?
     private(set) var browser: LibraryBrowser?
@@ -25,6 +28,7 @@ final class LibrarySession {
     private(set) var queryError: String?
     private(set) var library: LibraryHandle?
     private(set) var imports: ImportCoordinator?
+    private(set) var organize: OrganizeModel?
 
     @ObservationIgnored private let paths: AppPaths?
     @ObservationIgnored private var subscription: SubscriptionHandle?
@@ -32,9 +36,9 @@ final class LibrarySession {
     @ObservationIgnored private var refreshGeneration: UInt64?
     @ObservationIgnored private var refreshPending = false
     @ObservationIgnored private var generation: UInt64 = 0
-
     @ObservationIgnored private var details: [DetailReference] = []
     @ObservationIgnored private var limits: ResourceConfiguration?
+    @ObservationIgnored private var groupBrowsers: [BrowserReference] = []
 
     init(paths: AppPaths? = nil) {
         self.paths = paths
@@ -52,6 +56,7 @@ final class LibrarySession {
             let handle = try await openLibrary(configuration: configuration)
             library = handle
             browser = LibraryBrowser(library: handle)
+            organize = OrganizeModel(library: handle)
             thumbnails = ThumbnailStore(library: handle)
             // No transfer is active before the session exposes its coordinator.
             try await ImportFileIO.removeAbandonedPhotoCopies()
@@ -76,6 +81,7 @@ final class LibrarySession {
                 }
             }
             await browser?.loadCollections()
+            await organize?.refresh()
             await refresh()
         } catch {
             let detail = BridgeErrors.describe(error)
@@ -96,6 +102,12 @@ final class LibrarySession {
     }
 
     func refresh() async {
+        await refreshStatistics()
+        guard phase == .ready else { return }
+        await browser?.refresh()
+    }
+
+    func refreshStatistics() async {
         guard let handle = library, phase == .ready else { return }
         let current = generation
         if refreshGeneration == current {
@@ -114,7 +126,6 @@ final class LibrarySession {
                 guard generation == current, phase == .ready else { return }
                 statistics = totals
                 queryError = nil
-                await browser?.refresh()
             } catch {
                 guard generation == current else { return }
                 queryError = BridgeErrors.describe(error)
@@ -136,6 +147,9 @@ final class LibrarySession {
         feed?.cancel()
         do {
             browser?.stop()
+            for reference in groupBrowsers { reference.browser?.stop() }
+            groupBrowsers = []
+            await organize?.close()
             let detailModels = details.compactMap(\.model)
             details = []
             for model in detailModels { await model.close() }
@@ -149,6 +163,7 @@ final class LibrarySession {
             library = nil
             imports = nil
             browser = nil
+            organize = nil
             thumbnails = nil
             statistics = nil
             identity = nil
@@ -161,10 +176,19 @@ final class LibrarySession {
         }
     }
 
+    func makeGroupBrowser(for route: GroupRoute) -> LibraryBrowser? {
+        guard phase == .ready, let library, organize?.name(for: route) != nil else { return nil }
+        groupBrowsers.removeAll { $0.browser == nil }
+        let browser = LibraryBrowser(library: library, scope: route.filter)
+        groupBrowsers.append(BrowserReference(browser: browser))
+        return browser
+    }
+
     func makeDetail(for route: StickerDetailRoute) -> StickerDetailModel? {
         guard phase == .ready, let library, let thumbnails, let limits else { return nil }
         details.removeAll { $0.model == nil }
-        let seed = browser?.items.first { $0.id == route.id && $0.sticker.lifecycle.generation == route.generation }
+        let seed = ([browser] + groupBrowsers.map(\.browser)).compactMap { $0 }
+            .flatMap(\.items).first { $0.id == route.id && $0.sticker.lifecycle.generation == route.generation }
         let model = StickerDetailModel(route: route, library: library, thumbnails: thumbnails, limits: limits, seed: seed)
         details.append(DetailReference(model: model))
         return model
@@ -178,19 +202,28 @@ final class LibrarySession {
     }
 
     private func apply(_ event: MemeDockBridge.Notification) async {
+        groupBrowsers.removeAll { $0.browser == nil }
         switch event {
         case .thumbnailChanged(_, let id):
             await browser?.refreshThumbnail(id)
+            for reference in groupBrowsers { await reference.browser?.refreshThumbnail(id) }
         case .collectionsChanged:
             await browser?.loadCollections()
             browser?.libraryChanged()
             refreshDetails()
+            organize?.scheduleRefresh()
+            for reference in groupBrowsers { reference.browser?.libraryChanged() }
         case .stickerChanged(_, let id):
             browser?.libraryChanged()
             refreshDetails(id: id)
+            organize?.scheduleRefresh()
+            for reference in groupBrowsers { reference.browser?.libraryChanged() }
+            await refreshStatistics()
         case .tagsChanged:
             browser?.libraryChanged()
             refreshDetails()
+            organize?.scheduleRefresh()
+            for reference in groupBrowsers { reference.browser?.libraryChanged() }
         case .usageChanged:
             if browser?.filter == .recentlyUsed { browser?.libraryChanged() }
         case .reloadRequired:
@@ -199,6 +232,12 @@ final class LibrarySession {
             await browser?.loadCollections()
             browser?.libraryChanged()
             refreshDetails()
+            organize?.scheduleRefresh()
+            for reference in groupBrowsers {
+                reference.browser?.invalidateThumbnails()
+                reference.browser?.libraryChanged()
+            }
+            await refreshStatistics()
         case .closed:
             break
         }

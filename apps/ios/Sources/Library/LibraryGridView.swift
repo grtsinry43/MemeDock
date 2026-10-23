@@ -13,6 +13,7 @@ struct LibraryGridView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        @Bindable var browser = browser
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 16) {
@@ -41,6 +42,7 @@ struct LibraryGridView: View {
             }
             .refreshable { await refresh() }
             .scrollDismissesKeyboard(.interactively)
+            .scrollPosition(id: $browser.visibleStickerID)
             .onChange(of: browser.scrollTarget) { _, target in
                 guard let target else { return }
                 withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(target, anchor: .center) }
@@ -88,6 +90,7 @@ struct LibraryGridView: View {
                         }
                 }
             }
+            .scrollTargetLayout()
             if browser.isLoadingMore {
                 ProgressView().padding()
             } else if let error = browser.pageError {
@@ -107,6 +110,7 @@ struct LibraryGridView: View {
         switch browser.filter {
         case .starred: "Your favorite stickers will appear here."
         case .collection: "This collection has no stickers."
+        case .tag: "This tag has no stickers."
         case .all, .recentlyUsed: "Import images from Photos or Files."
         }
     }
