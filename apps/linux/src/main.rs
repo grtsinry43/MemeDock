@@ -16,7 +16,9 @@ mod playback;
 mod preferences;
 mod settings;
 mod shortcuts;
+mod sync;
 mod telegram;
+mod trash;
 mod window;
 
 use gtk4::prelude::*;

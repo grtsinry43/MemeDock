@@ -24,11 +24,12 @@ pub enum MenuRow {
     Organize,
     Delete,
     Restore,
+    Purge,
 }
 
 pub fn menu_rows(deleted: bool, starred: bool, animated: bool) -> &'static [MenuRow] {
     if deleted {
-        &[MenuRow::Restore]
+        &[MenuRow::Restore, MenuRow::Purge]
     } else if animated && starred {
         &[
             MenuRow::Share,
@@ -109,6 +110,7 @@ pub struct Target {
 #[derive(Clone)]
 pub struct Host {
     pub library: Library,
+    pub purge: Rc<crate::trash::Coordinator>,
     pub clipboard: Rc<RefCell<Hold>>,
     pub preset: Rc<output::Selection>,
     pub toasts: adw::ToastOverlay,
@@ -194,7 +196,7 @@ fn row_button(
     } else {
         button.set_label(label(row));
     }
-    if row == MenuRow::Delete {
+    if matches!(row, MenuRow::Delete | MenuRow::Purge) {
         button.add_css_class("destructive-action");
     }
     let host = host.clone();
@@ -219,6 +221,7 @@ fn label(row: MenuRow) -> &'static str {
         MenuRow::Organize => i18n::text(Key::Organize),
         MenuRow::Delete => i18n::text(Key::Delete),
         MenuRow::Restore => i18n::text(Key::Restore),
+        MenuRow::Purge => i18n::text(Key::Purge),
     }
 }
 
@@ -277,6 +280,28 @@ fn run(host: &Host, target: &Target, row: MenuRow) {
         MenuRow::Organize => organize(host, target),
         MenuRow::Delete => confirm_delete(host, target),
         MenuRow::Restore => confirm_restore(host, target),
+        MenuRow::Purge => {
+            let source = host.clone();
+            let id = target.id;
+            let feedback = host.toasts.clone();
+            host.purge.request(
+                &host.navigation,
+                vec![crate::trash::sticker(
+                    target.id,
+                    target.generation,
+                    target.revision,
+                )],
+                Rc::new(move |message| feedback.add_toast(adw::Toast::new(message))),
+                Rc::new(move |report| {
+                    if report
+                        .succeeded
+                        .contains(&memedock_domain::lifecycle::EntityId::Sticker(id))
+                    {
+                        close_detail(&source, id);
+                    }
+                }),
+            );
+        }
     }
 }
 
@@ -432,9 +457,15 @@ mod tests {
     use super::{MenuRow, menu_rows};
 
     #[test]
-    fn trash_only_restores_and_a_library_item_lists_the_desktop_actions() {
-        assert_eq!(menu_rows(true, false, false), &[MenuRow::Restore]);
-        assert_eq!(menu_rows(true, true, true), &[MenuRow::Restore]);
+    fn trash_restores_or_purges_and_a_library_item_lists_the_desktop_actions() {
+        assert_eq!(
+            menu_rows(true, false, false),
+            &[MenuRow::Restore, MenuRow::Purge]
+        );
+        assert_eq!(
+            menu_rows(true, true, true),
+            &[MenuRow::Restore, MenuRow::Purge]
+        );
         assert_eq!(
             menu_rows(false, false, false),
             &[

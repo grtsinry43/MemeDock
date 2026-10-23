@@ -291,6 +291,38 @@ fn present(
     scroll.set_vexpand(true);
     let body = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     body.append(&scroll);
+    if removed {
+        let purge = i18n::button(Key::Purge);
+        purge.set_widget_name("detail-purge");
+        purge.add_css_class("destructive-action");
+        let source = host.clone();
+        let reference = crate::trash::sticker(
+            sticker.id(),
+            sticker.lifecycle().generation(),
+            sticker.lifecycle().revision(),
+        );
+        let id = sticker.id();
+        purge.connect_clicked(move |_| {
+            let target = source.clone();
+            let toasts = source.toasts.clone();
+            source.purge.request(
+                &source.navigation,
+                vec![reference.clone()],
+                Rc::new(move |message| toasts.add_toast(adw::Toast::new(message))),
+                Rc::new(move |report| {
+                    if report
+                        .succeeded
+                        .contains(&memedock_domain::lifecycle::EntityId::Sticker(id))
+                        && target.open_id.get().is_some_and(|open| open.id == id)
+                    {
+                        target.open_id.set(None);
+                        target.navigation.pop();
+                    }
+                }),
+            );
+        });
+        body.append(&purge);
+    }
     let toasts = adw::ToastOverlay::new();
     if !removed {
         body.append(&output_dock(&host, &toasts, sticker.id(), motion));

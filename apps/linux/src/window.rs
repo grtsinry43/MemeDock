@@ -17,6 +17,8 @@ struct WindowState {
     retry: gtk4::Button,
     header: adw::HeaderBar,
     library: Option<Library>,
+    sync: Option<Rc<crate::sync::Coordinator>>,
+    purge: Option<Rc<crate::trash::Coordinator>>,
     open_task: Option<glib::JoinHandle<()>>,
     browse_task: Option<glib::JoinHandle<()>>,
     imports: Rc<RefCell<Batch>>,
@@ -87,6 +89,8 @@ fn activate(
         spinner: spinner.clone(),
         retry: retry.clone(),
         library: None,
+        sync: None,
+        purge: None,
         open_task: None,
         browse_task: None,
         imports: Rc::new(RefCell::new(Batch::new())),
@@ -149,6 +153,8 @@ fn activate(
             task.abort();
         }
         let library = state.library.take();
+        let sync = state.sync.take();
+        let purge = state.purge.take();
         let clipboard = Rc::clone(&state.clipboard);
         state.importer.take();
         state.pending_files.clear();
@@ -161,6 +167,12 @@ fn activate(
         if let Some(library) = library {
             let window = window.clone();
             glib::spawn_future_local(async move {
+                if let Some(sync) = sync {
+                    sync.shutdown().await;
+                }
+                if let Some(purge) = purge {
+                    purge.shutdown().await;
+                }
                 let _ = glib::future_with_timeout(
                     std::time::Duration::from_secs(2),
                     gtk4::prelude::WidgetExt::display(&window)
@@ -298,6 +310,8 @@ fn start_open(session: Rc<RefCell<WindowState>>) {
                 let header = state.header.clone();
                 let imports = Rc::clone(&state.imports);
                 let clipboard = Rc::clone(&state.clipboard);
+                let sync = crate::sync::Coordinator::new(library.clone(), paths::config_dir().ok());
+                let purge = crate::trash::Coordinator::new(library.clone());
                 let (handle, importer) = crate::library_view::attach(
                     &state.toolbar,
                     &header,
@@ -305,7 +319,10 @@ fn start_open(session: Rc<RefCell<WindowState>>) {
                     imports,
                     clipboard,
                     Rc::clone(&state.preferences),
+                    Rc::clone(&purge),
                 );
+                state.sync = Some(sync);
+                state.purge = Some(purge);
                 state.library = Some(library);
                 state.browse_task = Some(handle);
                 state.importer = Some(Rc::clone(&importer));
@@ -343,12 +360,17 @@ fn wire_settings(session: &Rc<RefCell<WindowState>>) {
         let Some(library) = state.library.clone() else {
             return;
         };
+        let (Some(sync), Some(purge)) = (state.sync.clone(), state.purge.clone()) else {
+            return;
+        };
         let parent = state.toolbar.clone().upcast::<gtk4::Widget>();
         let weak_busy = Rc::downgrade(&session);
         let weak_reopen = Rc::downgrade(&session);
         let toolbar = state.toolbar.downgrade();
         let host = crate::settings::Host {
             library,
+            sync,
+            purge,
             parent,
             preferences: Rc::clone(&state.preferences),
             maintenance: Rc::clone(&state.maintenance),
@@ -383,6 +405,8 @@ fn reopen(session: Rc<RefCell<WindowState>>) {
         task.abort();
     }
     state.library.take();
+    state.sync.take();
+    state.purge.take();
     state.importer.take();
     state.toolbar.remove(&state.header);
     state.header = adw::HeaderBar::new();

@@ -40,6 +40,8 @@ macro_rules! tracked_connect {
 struct Session {
     connections: Vec<(glib::WeakRef<glib::Object>, glib::SignalHandlerId)>,
     library: Library,
+    purge: Rc<crate::trash::Coordinator>,
+    trash_tools: gtk4::MenuButton,
     alive: Rc<Cell<bool>>,
     filter: BrowseFilter,
     filters: Vec<BrowseFilter>,
@@ -113,11 +115,20 @@ pub fn attach(
     imports: Rc<RefCell<crate::import::Batch>>,
     clipboard: Rc<RefCell<Hold>>,
     preferences: Rc<RefCell<crate::preferences::Preferences>>,
+    purge: Rc<crate::trash::Coordinator>,
 ) -> (glib::JoinHandle<()>, Rc<crate::import::Controls>) {
     install_style();
+    let trash_tools = gtk4::MenuButton::new();
+    trash_tools.set_icon_name("user-trash-symbolic");
+    trash_tools.set_widget_name("trash-tools");
+    i18n::bind(&trash_tools, "tooltip-text", Key::Trash);
+    trash_tools.set_visible(false);
+    header.pack_end(&trash_tools);
     let alive = Rc::new(Cell::new(true));
     let ui = build_ui();
     let session = Rc::new(RefCell::new(Session {
+        purge,
+        trash_tools,
         connections: Vec::new(),
         library,
         alive: Rc::clone(&alive),
@@ -179,6 +190,7 @@ pub fn attach(
     let chrome = DetailChrome::new(header_title.clone(), star.clone());
     wire_open(Rc::clone(&session), back, header_title, chrome);
     wire_batch(Rc::clone(&session));
+    wire_trash(&session);
     wire_retry(Rc::clone(&session));
     let actions = gio::SimpleActionGroup::new();
     let trash = gio::SimpleAction::new("trash", None);
@@ -897,6 +909,7 @@ fn host_of(session: &Rc<RefCell<Session>>) -> Host {
     let show = Rc::clone(session);
     Host {
         library: state.library.clone(),
+        purge: Rc::clone(&state.purge),
         clipboard: Rc::clone(&state.clipboard),
         preset: Rc::clone(&state.preset),
         toasts: state.toasts.clone(),
@@ -1223,6 +1236,12 @@ fn clear_selection(session: &Rc<RefCell<Session>>) {
 
 fn update_batch(session: &Rc<RefCell<Session>>) {
     let state = session.borrow();
+    state
+        .trash_tools
+        .set_visible(state.filter == BrowseFilter::Trash);
+    state
+        .trash_tools
+        .set_sensitive(!state.selection.borrow().busy);
     let selection = state.selection.borrow();
     let count = selection.items.len();
     state.batch.set_visible(selection.selecting && count > 0);
@@ -1278,7 +1297,6 @@ struct BatchRequest {
     parent: adw::NavigationPage,
     library: Library,
     targets: Vec<BatchTarget>,
-    trash: bool,
     expected: Option<(CollectionId, Generation)>,
 }
 
@@ -1300,7 +1318,6 @@ fn begin_batch(session: &Rc<RefCell<Session>>) -> Option<BatchRequest> {
         parent,
         library: state.library.clone(),
         targets: selection.items.values().copied().collect(),
-        trash: state.filter == BrowseFilter::Trash,
         expected,
     })
 }
@@ -1399,11 +1416,51 @@ fn start_batch(session: Rc<RefCell<Session>>) {
         &request.parent,
         request.library,
         request.targets,
-        request.trash,
         request.expected,
         batch_notifier(&session),
         batch_finisher(&session),
+        Rc::clone(&session.borrow().purge),
     );
+}
+
+fn wire_trash(session: &Rc<RefCell<Session>>) {
+    let popover = gtk4::Popover::new();
+    let column = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+    column.set_margin_start(6);
+    column.set_margin_end(6);
+    column.set_margin_top(6);
+    column.set_margin_bottom(6);
+    for key in [Key::TrashGroups, Key::EmptyTrash, Key::PurgeCleanup] {
+        let button = i18n::button(key);
+        button.set_widget_name(match key {
+            Key::EmptyTrash => "trash-empty",
+            Key::TrashGroups => "trash-groups",
+            _ => "trash-cleanup",
+        });
+        let weak = Rc::downgrade(session);
+        let popup = popover.downgrade();
+        button.connect_clicked(move |_| {
+            if let Some(popup) = popup.upgrade() {
+                popup.popdown();
+            }
+            let Some(session) = weak.upgrade() else {
+                return;
+            };
+            let (coordinator, parent) = {
+                let state = session.borrow();
+                (Rc::clone(&state.purge), state.navigation.clone())
+            };
+            let notify = batch_notifier(&session);
+            match key {
+                Key::TrashGroups => coordinator.groups(&parent, notify),
+                Key::EmptyTrash => coordinator.empty(&parent, notify),
+                _ => coordinator.cleanup(notify),
+            }
+        });
+        column.append(&button);
+    }
+    popover.set_child(Some(&column));
+    session.borrow().trash_tools.set_popover(Some(&popover));
 }
 
 fn selected_stickers(grid: &gtk4::GridView) -> Vec<StickerObject> {

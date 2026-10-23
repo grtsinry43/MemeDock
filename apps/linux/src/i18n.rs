@@ -158,6 +158,35 @@ pub fn language_from_tag(tag: &str) -> Language {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
+    Sync,
+    SyncServer,
+    SyncToken,
+    SyncConnect,
+    SyncReady,
+    SyncRunning,
+    SyncPaused,
+    SyncNow,
+    SyncPause,
+    SyncResume,
+    SyncReauthorize,
+    SyncDisconnect,
+    SyncDisconnectHint,
+    SyncHint,
+    SyncPending,
+    SyncBlocked,
+    SyncLastSuccess,
+    SyncNever,
+    SyncAuthorize,
+    SyncCredential,
+    SyncUnauthorized,
+    SyncMergeHint,
+    SyncBlockedHint,
+    Purge,
+    PurgeHint,
+    EmptyTrash,
+    TrashGroups,
+    PurgeCleanup,
+    PurgeCleanupDone,
     Settings,
     Appearance,
     Language,
@@ -356,7 +385,16 @@ pub fn text_in(language: Language, key: Key) -> &'static str {
 }
 
 pub fn core(code: ErrorCode) -> &'static str {
-    let key = match code {
+    text(key_for_core(code))
+}
+pub fn purge_result(done: usize, failed: usize) -> String {
+    match language() {
+        Language::Zh => format!("已删除 {done} 个，未完成 {failed} 个"),
+        Language::En => format!("Deleted {done}; unfinished {failed}"),
+    }
+}
+pub fn key_for_core(code: ErrorCode) -> Key {
+    match code {
         ErrorCode::InvalidInput => Key::FailureInput,
         ErrorCode::UnsupportedFormat => Key::FailureFormat,
         ErrorCode::UnsupportedColorProfile => Key::FailureColorProfile,
@@ -377,8 +415,7 @@ pub fn core(code: ErrorCode) -> &'static str {
             Key::FailureLibrary
         }
         ErrorCode::AlreadyOpen | ErrorCode::Closed | ErrorCode::Internal => Key::FailureUnknown,
-    };
-    text(key)
+    }
 }
 
 pub fn share_first_frame(format: &str) -> String {
@@ -486,6 +523,56 @@ pub fn file_size(bytes: u64) -> String {
 
 fn pair(key: Key) -> (&'static str, &'static str) {
     match key {
+        Key::Sync => ("同步", "Sync"),
+        Key::SyncServer => ("服务器地址", "Server address"),
+        Key::SyncToken => ("设备 Token", "Device token"),
+        Key::SyncConnect => ("连接并同步", "Connect and sync"),
+        Key::SyncReady => ("已同步", "Up to date"),
+        Key::SyncRunning => ("正在同步…", "Syncing…"),
+        Key::SyncPaused => ("已暂停", "Paused"),
+        Key::SyncNow => ("立即同步", "Sync now"),
+        Key::SyncPause => ("暂停同步", "Pause sync"),
+        Key::SyncResume => ("恢复同步", "Resume sync"),
+        Key::SyncReauthorize => ("更换 Token", "Update token"),
+        Key::SyncDisconnect => ("断开连接", "Disconnect"),
+        Key::SyncDisconnectHint => (
+            "断开后将停止同步，本机已有的表情不会受影响。",
+            "Syncing will stop. Stickers on this device will not be affected.",
+        ),
+        Key::SyncHint => (
+            "在网页端添加设备后，将生成的 Token 填入此处。",
+            "Add a device in the web console and paste its token here.",
+        ),
+        Key::SyncPending => ("待同步", "Pending"),
+        Key::SyncBlocked => ("未能同步", "Sync issues"),
+        Key::SyncLastSuccess => ("上次同步", "Last synced"),
+        Key::SyncNever => ("尚未同步", "Never"),
+        Key::SyncAuthorize => ("未连接", "Not connected"),
+        Key::SyncCredential => (
+            "无法读取登录凭证，请重新输入设备 Token。",
+            "Could not access saved credentials. Please enter your device token again.",
+        ),
+        Key::SyncUnauthorized => (
+            "设备 Token 已失效，请重新输入。",
+            "Device token expired or invalid. Please enter a new token.",
+        ),
+        Key::SyncMergeHint => (
+            "首次连接会自动合并本机与云端的表情。删除操作也会同步到其他设备。",
+            "Connecting for the first time merges stickers on this device with the server. Deletions also sync across devices.",
+        ),
+        Key::SyncBlockedHint => (
+            "部分内容因冲突未能同步，可在网页端查看详情。",
+            "Some changes could not be synced due to conflicts. Check the web console for details.",
+        ),
+        Key::Purge => ("彻底删除", "Delete permanently"),
+        Key::PurgeHint => (
+            "确认列表中的项目将彻底删除，无法撤销。之后进入回收站的项目不会被删除。",
+            "Items in this confirmation list will be permanently deleted. This cannot be undone. Items moved to trash afterwards are excluded.",
+        ),
+        Key::EmptyTrash => ("清空回收站", "Empty trash"),
+        Key::TrashGroups => ("已删除的收藏夹与标签", "Deleted collections and tags"),
+        Key::PurgeCleanup => ("重试文件清理", "Retry file cleanup"),
+        Key::PurgeCleanupDone => ("文件清理完成", "File cleanup complete"),
         Key::Settings => ("设置", "Settings"),
         Key::Appearance => ("外观", "Appearance"),
         Key::Language => ("语言", "Language"),
@@ -567,8 +654,8 @@ fn pair(key: Key) -> (&'static str, &'static str) {
             "Unfinished imports will stop. Stickers already imported will stay.",
         ),
         Key::FileTokenHint => (
-            "系统密钥环不可用，Token 将保存在仅当前用户可读的本机文件中。",
-            "The system keyring is unavailable. The token will be stored in a local file readable only by you.",
+            "未检测到系统密钥环，Token 将保存在本地。",
+            "System keyring is unavailable. The token will be saved locally.",
         ),
         Key::RestoreHintNew => (
             "恢复前请先停止导入；正在分享或复制的文件可能需要先释放。",

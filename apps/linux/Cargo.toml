@@ -23,3 +23,7 @@ oo7.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+tokio.workspace = true

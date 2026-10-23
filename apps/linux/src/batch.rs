@@ -64,14 +64,17 @@ pub fn show(
     parent: &impl IsA<gtk4::Widget>,
     library: Library,
     targets: Vec<BatchTarget>,
-    trash: bool,
     expected: Option<(CollectionId, Generation)>,
     notify: Rc<dyn Fn(&str)>,
     finished: Rc<dyn Fn(BatchReport)>,
+    purge: Rc<crate::trash::Coordinator>,
 ) {
     if targets.is_empty() {
         return;
     }
+    let trash = targets
+        .iter()
+        .all(|target| target.deleted_revision.is_some());
     let dialog = adw::Dialog::new();
     i18n::bind(&dialog, "title", Key::BatchOrganize);
     dialog.set_content_width(420);
@@ -127,6 +130,81 @@ pub fn show(
     ))));
     if trash {
         action(&column, &host, Key::Restore, BatchAction::Restore);
+        let button = button(Key::Purge);
+        button.add_css_class("destructive-action");
+        let tracked = host.clone();
+        button.connect_clicked(move |_| {
+            if tracked.busy.replace(true) {
+                return;
+            }
+            let Some(dialog) = tracked.dialog.upgrade() else {
+                tracked.busy.set(false);
+                return;
+            };
+            let targets = tracked
+                .targets
+                .iter()
+                .map(|target| {
+                    target
+                        .deleted_revision
+                        .map(|revision| {
+                            crate::trash::sticker(target.id, target.generation, revision)
+                        })
+                        .ok_or(memedock_core::ErrorCode::InvalidInput)
+                })
+                .collect::<Result<Vec<_>, _>>();
+            let targets = match targets {
+                Ok(targets) => targets,
+                Err(error) => {
+                    tracked.busy.set(false);
+                    (tracked.notify)(i18n::core(error));
+                    return;
+                }
+            };
+            dialog.set_can_close(false);
+            let host = tracked.clone();
+            purge.request(
+                &dialog,
+                targets,
+                Rc::clone(&tracked.notify),
+                Rc::new(move |report| {
+                    host.completed.set(true);
+                    host.busy.set(false);
+                    let items = report
+                        .targets
+                        .iter()
+                        .filter_map(|target| {
+                            let memedock_domain::lifecycle::EntityId::Sticker(id) = target.entity
+                            else {
+                                return None;
+                            };
+                            Some(memedock_core::batch::BatchItemResult {
+                                id,
+                                outcome: if report.succeeded.contains(&target.entity) {
+                                    BatchOutcome::Applied
+                                } else if report.stopped {
+                                    BatchOutcome::Pending
+                                } else {
+                                    BatchOutcome::Failed(
+                                        report
+                                            .failure
+                                            .unwrap_or(memedock_core::ErrorCode::Internal),
+                                    )
+                                },
+                            })
+                        })
+                        .collect();
+                    (host.finished)(BatchReport {
+                        items,
+                        stopped: report.stopped,
+                    });
+                    if let Some(dialog) = host.dialog.upgrade() {
+                        dialog.force_close();
+                    }
+                }),
+            );
+        });
+        column.append(&button);
     } else {
         let picker = button(Key::AssignCollection);
         let tracked = host.clone();

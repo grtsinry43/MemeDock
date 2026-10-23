@@ -13,6 +13,8 @@ use std::{
 #[derive(Clone)]
 pub struct Host {
     pub library: Library,
+    pub sync: Rc<crate::sync::Coordinator>,
+    pub purge: Rc<crate::trash::Coordinator>,
     pub parent: gtk4::Widget,
     pub preferences: Rc<RefCell<Preferences>>,
     pub maintenance: Rc<Cell<bool>>,
@@ -81,6 +83,29 @@ pub fn present(host: Host) -> adw::PreferencesDialog {
     let backup_host = host.clone();
     backup.connect_activated(move |_| crate::backup::present(backup_host.clone()));
     library.add(&backup);
+    let sync = action_row(Key::Sync);
+    let weak_row = sync.downgrade();
+    host.sync.observe(&sync, move |state| {
+        if let Some(row) = weak_row.upgrade() {
+            row.set_subtitle(i18n::text(if state.busy {
+                Key::SyncRunning
+            } else if state.needs_authorization() {
+                Key::SyncAuthorize
+            } else if state.status.paused {
+                Key::SyncPaused
+            } else {
+                Key::SyncReady
+            }));
+        }
+    });
+    let source = Rc::clone(&host.sync);
+    let parent = dialog.downgrade();
+    sync.connect_activated(move |_| {
+        if let Some(parent) = parent.upgrade() {
+            crate::sync::present(&parent, Rc::clone(&source));
+        }
+    });
+    library.add(&sync);
     let telegram = action_row(Key::Telegram);
     let telegram_host = host.clone();
     telegram.connect_activated(move |_| crate::telegram::present(telegram_host.clone()));
@@ -330,6 +355,11 @@ mod tests {
         adw::init()?;
         let context = glib::MainContext::default();
         let _guard = context.acquire()?;
+        if let Some(config) = std::env::var_os("MEMEDOCK_CROSS_CONFIG") {
+            return context.block_on(crate::sync::cross_platform_tests::verify(
+                std::path::Path::new(&config),
+            ));
+        }
         let root = tempfile::tempdir()?;
         let library = context.block_on(Library::open(memedock_core::LibraryConfig::new(
             root.path().join("data"),
@@ -343,8 +373,13 @@ mod tests {
         let window = adw::Window::new();
         window.set_content(Some(&button));
         window.present();
+        let sync =
+            crate::sync::Coordinator::new(library.clone(), Some(root.path().join("credentials")));
+        let purge = crate::trash::Coordinator::new(library.clone());
         let host = Host {
             library: library.clone(),
+            sync: Rc::clone(&sync),
+            purge: Rc::clone(&purge),
             parent: window.clone().upcast(),
             preferences: Rc::new(RefCell::new(Preferences::default())),
             maintenance: Rc::new(Cell::new(false)),
@@ -373,6 +408,7 @@ mod tests {
             Rc::new(RefCell::new(crate::import::Batch::new())),
             Rc::new(RefCell::new(crate::output::Hold::new())),
             Rc::new(RefCell::new(Preferences::default())),
+            crate::trash::Coordinator::new(library.clone()),
         );
         let old_content = toolbar.content().ok_or("missing library page")?.downgrade();
         // Restore can detach a newly created page before its subscription is
@@ -387,7 +423,11 @@ mod tests {
             "old library page retained after detaching"
         );
         context.block_on(glib::timeout_future(std::time::Duration::from_millis(100)));
+        context.block_on(crate::sync::tests::verify(&window))?;
+        context.block_on(crate::trash::tests::verify(&window))?;
         dialog.force_close();
+        context.block_on(sync.shutdown());
+        context.block_on(purge.shutdown());
         window.destroy();
         context.block_on(library.close())?;
         Ok(())

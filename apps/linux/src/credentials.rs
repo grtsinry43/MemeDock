@@ -10,35 +10,65 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub enum Store {
+enum Backend {
     Keyring(Service),
     File(PathBuf),
 }
+pub struct Store {
+    backend: Backend,
+    attributes: HashMap<String, String>,
+    fallback: Option<PathBuf>,
+    label: &'static str,
+    used_file: std::cell::Cell<bool>,
+}
 impl Store {
     pub async fn open() -> Result<Self, ()> {
-        match Service::encrypted().await {
-            Ok(service) => Ok(Self::Keyring(service)),
-            Err(error) if unavailable(&error) => crate::paths::config_dir()
-                .map(|p| Self::File(p.join("telegram-token")))
-                .map_err(|_| ()),
-            Err(_) => Err(()),
-        }
+        Self::open_scope(
+            attributes(),
+            crate::paths::config_dir()
+                .ok()
+                .map(|p| p.join("telegram-token")),
+            "MemeDock Telegram Bot",
+        )
+        .await
+    }
+    pub async fn sync(library: &str, origin: &str, directory: Option<&Path>) -> Result<Self, ()> {
+        let (attributes, name) = sync_scope(library, origin)?;
+        Self::open_scope(attributes, directory.map(|p| p.join(name)), "MemeDock Sync").await
+    }
+    async fn open_scope(
+        attributes: HashMap<String, String>,
+        fallback: Option<PathBuf>,
+        label: &'static str,
+    ) -> Result<Self, ()> {
+        let backend = match Service::encrypted().await {
+            Ok(service) => Backend::Keyring(service),
+            Err(error) if unavailable(&error) => Backend::File(fallback.clone().ok_or(())?),
+            Err(_) => return Err(()),
+        };
+        Ok(Self {
+            backend,
+            attributes,
+            fallback,
+            label,
+            used_file: std::cell::Cell::new(false),
+        })
     }
     pub fn is_file(&self) -> bool {
-        matches!(self, Self::File(_))
+        matches!(self.backend, Backend::File(_)) || self.used_file.get()
     }
     pub async fn load(&self) -> Result<Option<String>, ()> {
-        match self {
-            Self::Keyring(service) => {
+        match &self.backend {
+            Backend::Keyring(service) => {
                 let Some(collection) = service.with_alias("default").await.map_err(|_| ())? else {
-                    return Ok(None);
+                    return self.load_fallback().await;
                 };
                 let items = collection
-                    .search_items(&attributes())
+                    .search_items(&self.attributes)
                     .await
                     .map_err(|_| ())?;
                 let Some(item) = items.first() else {
-                    return Ok(None);
+                    return self.load_fallback().await;
                 };
                 item.unlock(None).await.map_err(|_| ())?;
                 let secret = item.secret().await.map_err(|_| ())?;
@@ -46,7 +76,7 @@ impl Store {
                 validate(value).map_err(|_| ())?;
                 Ok(Some(value.to_owned()))
             }
-            Self::File(path) => {
+            Backend::File(path) => {
                 let path = path.clone();
                 gtk4::gio::spawn_blocking(move || read_file(&path))
                     .await
@@ -55,15 +85,26 @@ impl Store {
             }
         }
     }
+    async fn load_fallback(&self) -> Result<Option<String>, ()> {
+        let Some(path) = self.fallback.clone() else {
+            return Ok(None);
+        };
+        let value = gtk4::gio::spawn_blocking(move || read_file(&path))
+            .await
+            .map_err(|_| ())?
+            .map_err(|_| ())?;
+        self.used_file.set(value.is_some());
+        Ok(value)
+    }
     pub async fn save(&self, value: String) -> Result<(), ()> {
         validate(&value).map_err(|_| ())?;
-        match self {
-            Self::Keyring(service) => {
+        match &self.backend {
+            Backend::Keyring(service) => {
                 let collection = collection(service).await?;
                 collection
                     .create_item(
-                        "MemeDock Telegram Bot",
-                        &attributes(),
+                        self.label,
+                        &self.attributes,
                         Secret::text(&value),
                         true,
                         None,
@@ -71,15 +112,16 @@ impl Store {
                     .await
                     .map_err(|_| ())?;
                 // Remove a previous current-operation fallback, so clearing the token is unambiguous.
-                let path = crate::paths::config_dir()
-                    .map_err(|_| ())?
-                    .join("telegram-token");
+                self.used_file.set(false);
+                let Some(path) = self.fallback.clone() else {
+                    return Ok(());
+                };
                 gtk4::gio::spawn_blocking(move || remove_file(&path))
                     .await
                     .map_err(|_| ())?
                     .map_err(|_| ())
             }
-            Self::File(path) => {
+            Backend::File(path) => {
                 let path = path.clone();
                 gtk4::gio::spawn_blocking(move || write_file(&path, &value))
                     .await
@@ -89,20 +131,20 @@ impl Store {
         }
     }
     pub async fn clear(&self) -> Result<(), ()> {
-        if let Self::Keyring(service) = self
+        if let Backend::Keyring(service) = &self.backend
             && let Some(collection) = service.with_alias("default").await.map_err(|_| ())?
         {
             for item in collection
-                .search_items(&attributes())
+                .search_items(&self.attributes)
                 .await
                 .map_err(|_| ())?
             {
                 item.delete(None).await.map_err(|_| ())?;
             }
         }
-        let path = crate::paths::config_dir()
-            .map_err(|_| ())?
-            .join("telegram-token");
+        let Some(path) = self.fallback.clone() else {
+            return Ok(());
+        };
         gtk4::gio::spawn_blocking(move || remove_file(&path))
             .await
             .map_err(|_| ())?
@@ -114,20 +156,42 @@ async fn collection(service: &Service) -> Result<Collection, ()> {
     collection.unlock(None).await.map_err(|_| ())?;
     Ok(collection)
 }
-fn attributes() -> HashMap<&'static str, &'static str> {
+fn attributes() -> HashMap<String, String> {
     HashMap::from([
         ("application", "com.grtsinry43.memedock"),
         ("purpose", "telegram-bot"),
     ])
+    .into_iter()
+    .map(|(key, value)| (key.into(), value.into()))
+    .collect()
+}
+fn sync_scope(library: &str, origin: &str) -> Result<(HashMap<String, String>, String), ()> {
+    let key = gtk4::glib::compute_checksum_for_data(
+        gtk4::glib::ChecksumType::Sha256,
+        format!("{library}\n{origin}").as_bytes(),
+    )
+    .ok_or(())?;
+    let attributes = HashMap::from([
+        ("application".into(), "com.grtsinry43.memedock".into()),
+        ("purpose".into(), "sync-device".into()),
+        ("library".into(), library.into()),
+        ("origin".into(), origin.into()),
+    ]);
+    Ok((attributes, format!("sync-{key}")))
 }
 fn unavailable(error: &oo7::dbus::Error) -> bool {
-    if let oo7::dbus::Error::ZBus(oo7::zbus::Error::FDO(error)) = error {
+    let error = match error {
+        oo7::dbus::Error::ZBus(error)
+        | oo7::dbus::Error::Service(oo7::dbus::ServiceError::ZBus(error)) => error,
+        _ => return false,
+    };
+    if let oo7::zbus::Error::FDO(error) = error {
         return matches!(
             error.as_ref(),
             oo7::zbus::fdo::Error::ServiceUnknown(_) | oo7::zbus::fdo::Error::NameHasNoOwner(_)
         );
     }
-    matches!(error, oo7::dbus::Error::ZBus(oo7::zbus::Error::MethodError(name, _, _))
+    matches!(error, oo7::zbus::Error::MethodError(name, _, _)
         if matches!(name.as_str(), "org.freedesktop.DBus.Error.ServiceUnknown" | "org.freedesktop.DBus.Error.NameHasNoOwner"))
 }
 fn validate(value: &str) -> io::Result<()> {
@@ -201,6 +265,46 @@ fn remove_file(path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unavailable_service_is_recognized_in_both_oo7_error_envelopes() {
+        use oo7::{
+            dbus::{Error, ServiceError},
+            zbus,
+        };
+        let missing =
+            || zbus::Error::FDO(Box::new(zbus::fdo::Error::ServiceUnknown("missing".into())));
+        assert!(unavailable(&Error::ZBus(missing())));
+        assert!(unavailable(&Error::Service(ServiceError::ZBus(missing()))));
+        let denied = zbus::Error::FDO(Box::new(zbus::fdo::Error::AccessDenied("locked".into())));
+        assert!(!unavailable(&Error::Service(ServiceError::ZBus(denied))));
+        assert!(!unavailable(&Error::Dismissed));
+    }
+    #[test]
+    fn sync_scopes_are_isolated_and_filenames_cannot_escape_the_private_directory() -> io::Result<()>
+    {
+        let root = tempfile::tempdir()?;
+        let (first_attributes, first) = sync_scope("library-a", "https://example.test")
+            .map_err(|_| io::Error::other("scope"))?;
+        let (_, other_library) = sync_scope("library-b", "https://example.test")
+            .map_err(|_| io::Error::other("scope"))?;
+        let (_, other_origin) = sync_scope("library-a", "https://other.test/../../token")
+            .map_err(|_| io::Error::other("scope"))?;
+        assert_ne!(first, other_library);
+        assert_ne!(first, other_origin);
+        assert_ne!(first_attributes, attributes());
+        assert_eq!(Path::new(&first).components().count(), 1);
+        assert_eq!(Path::new(&other_origin).components().count(), 1);
+        let directory = root.path().join("credentials");
+        write_file(&directory.join(&first), "first")?;
+        write_file(&directory.join(&other_library), "other")?;
+        remove_file(&directory.join(&first))?;
+        assert_eq!(
+            read_file(&directory.join(&other_library))?.as_deref(),
+            Some("other")
+        );
+        assert_eq!(fs::metadata(&directory)?.mode() & 0o777, 0o700);
+        Ok(())
+    }
     #[test]
     fn file_credentials_are_private_and_reject_symlinks_and_wide_permissions() -> io::Result<()> {
         let dir = tempfile::tempdir()?;

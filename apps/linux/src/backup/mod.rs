@@ -374,6 +374,8 @@ fn restore(host: Host, model: Rc<RefCell<Model>>, view: Rc<View>, mode: RestoreM
         return;
     };
     glib::spawn_future_local(async move {
+        host.sync.suspend().await;
+        host.purge.suspend().await;
         let mut reconnect = false;
         let result = async {
             let task = host
@@ -394,10 +396,15 @@ fn restore(host: Host, model: Rc<RefCell<Model>>, view: Rc<View>, mode: RestoreM
         finish(&host, &model, &view, result, Key::BackupRestored);
         if reconnect {
             host.maintenance.set(true);
+            host.sync.shutdown().await;
+            host.purge.shutdown().await;
             let _ = host.library.close().await;
             view.dialog.force_close();
             host.maintenance.set(false);
             (host.reopen)();
+        } else {
+            host.purge.resume();
+            host.sync.resume();
         }
     });
 }
