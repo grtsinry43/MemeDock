@@ -6,6 +6,7 @@ mode=build
 if [[ ${1:-} == --verify ]]; then mode=verify; shift; fi
 target=${1:?Rust target required}
 darwin=0
+ios=0
 pkg_config=/usr/bin/pkg-config
 case "$target" in
   x86_64-unknown-linux-gnu) arch=x86_64; vpx_target=x86_64-linux-gcc; abi= ;;
@@ -15,6 +16,8 @@ case "$target" in
   # versionless "arm64-darwin-gcc" target builds for iOS instead.
   aarch64-apple-darwin) arch=arm64; vpx_target=arm64-darwin23-gcc; abi=; darwin=1 ;;
   x86_64-apple-darwin) arch=x86_64; vpx_target=x86_64-darwin23-gcc; abi=; darwin=1 ;;
+  aarch64-apple-ios) arch=arm64; vpx_target=arm64-darwin-gcc; abi=; darwin=1; ios=1; sdk=iphoneos ;;
+  aarch64-apple-ios-sim) arch=arm64; vpx_target=arm64-iphonesimulator-gcc; abi=; darwin=1; ios=1; sdk=iphonesimulator ;;
   *) echo "Unsupported native media target: $target" >&2; exit 1 ;;
 esac
 if (( darwin )); then
@@ -24,10 +27,25 @@ if (( darwin )); then
     if [[ -x "$candidate" ]]; then pkg_config="$candidate"; break; fi
   done
   if [[ ! -x "$pkg_config" ]]; then
-    echo "Install pkg-config (Homebrew) to build the macOS native media stack" >&2; exit 1
+    echo "Install pkg-config (Homebrew) to build the Apple native media stack" >&2; exit 1
   fi
   # Keep the static archives aligned with the oldest macOS version the app targets.
-  export MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-14.0}
+  if (( ! ios )); then
+    export MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-14.0}
+  fi
+fi
+if (( ios )); then
+  export IPHONEOS_DEPLOYMENT_TARGET=${IPHONEOS_DEPLOYMENT_TARGET:-18.0}
+  export SDKROOT=$(xcrun --sdk "$sdk" --show-sdk-path)
+  clang_target="arm64-apple-ios${IPHONEOS_DEPLOYMENT_TARGET}"
+  if [[ "$sdk" == iphonesimulator ]]; then clang_target+="-simulator"; fi
+  export CC=$(xcrun --sdk "$sdk" --find clang)
+  export CXX=$(xcrun --sdk "$sdk" --find clang++)
+  export AR=$(xcrun --sdk "$sdk" --find ar)
+  export RANLIB=$(xcrun --sdk "$sdk" --find ranlib)
+  export STRIP=$(xcrun --sdk "$sdk" --find strip)
+  export LD="$CC"
+  apple_flags="-target $clang_target -isysroot $SDKROOT"
 fi
 # flock(1) is Linux-only; Darwin uses an equivalent mkdir-based mutex. The mkdir
 # mutex records its holder, so a killed build is reclaimed immediately instead of
@@ -70,6 +88,9 @@ base="$root/target/native-media"
 work="$base/$target"
 prefix="$work/install"
 stamp=$(sha256sum "$0" | cut -d ' ' -f 1)
+if (( ios )); then
+  stamp=$(printf '%s\n' "$stamp" "$SDKROOT" "$clang_target" "$(xcrun --sdk "$sdk" --show-sdk-version)" "$("$CC" --version)" | sha256sum | cut -d ' ' -f 1)
+fi
 fresh() { [[ -f "$work/complete" && $(cat "$work/complete") == "$stamp" && -f "$prefix/lib/libavcodec.a" && -f "$prefix/lib/libavfilter.a" ]]; }
 # --verify reports whether the cached build is current and takes no lock, so the
 # pkg-config wrapper skips the mutex on the common "nothing changed" path.
@@ -81,6 +102,11 @@ lock_acquire "$work/build.lock" 9
 # Never leave the lock behind: covers the fast path below, failures, and ^C.
 trap 'lock_release "$work/build.lock" 9' EXIT
 if fresh; then exit 0; fi
+if (( ios )); then
+  # CMake and make cache compiler flags; discard only this target's generated
+  # products when its SDK, deployment target, or build recipe changes.
+  rm -rf "$work/rlottie" "$work/webp" "$work/vpx" "$work/ffmpeg" "$prefix"
+fi
 fetch() {
   local name=$1 url=$2 hash=$3 archive="$base/sources/$1.archive"
   if [[ ! -f "$archive" ]]; then
@@ -107,6 +133,7 @@ cmake_args=()
 ffmpeg_args=()
 cpp_libs=-lstdc++
 rlottie_args=()
+vpx_args=()
 if (( darwin )); then
   # Darwin links the system libc++ and needs no cross-compilation plumbing.
   cpp_libs=-lc++
@@ -114,6 +141,24 @@ if (( darwin )); then
   # rlottie ships 32-bit ARM NEON assembly only, while Apple clang defines
   # __ARM_NEON__ on arm64; undefine it so the portable C paths are used.
   rlottie_args=(-DCMAKE_C_FLAGS=-U__ARM_NEON__ -DCMAKE_CXX_FLAGS=-U__ARM_NEON__)
+fi
+if (( ios )); then
+  cmake_args=(-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT="$SDKROOT"
+    -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET="$IPHONEOS_DEPLOYMENT_TARGET"
+    -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX"
+    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY)
+  ffmpeg_args=(--target-os=darwin --arch=aarch64 --enable-cross-compile
+    --sysroot="$SDKROOT" --extra-cflags="$apple_flags" --extra-ldflags="$apple_flags")
+  host_sdk=$(xcrun --sdk macosx --show-sdk-path)
+  host_cc="$(xcrun --sdk macosx --find clang) -target arm64-apple-macos14.0 -isysroot $host_sdk"
+  ffmpeg_args+=(--host-cc="$host_cc" --host-ld="$host_cc")
+  # libvpx also injects a legacy iOS 7 flag. The explicit target triple wins;
+  # permit that override during its -Werror feature probes.
+  vpx_args=(--extra-cflags="$apple_flags -Wno-overriding-option")
+  # libvpx has no named arm64 Simulator target. Its generic ARM/POSIX branch
+  # works with an explicit Apple clang target and the Simulator SDK.
+  if [[ "$sdk" == iphonesimulator ]]; then vpx_args+=(--force-target="$vpx_target"); fi
+  export CFLAGS="$apple_flags" CXXFLAGS="$apple_flags" LDFLAGS="$apple_flags"
 fi
 if [[ -n "$abi" ]]; then
   ndk=${ANDROID_NDK_HOME:?ANDROID_NDK_HOME is required for Android builds}
@@ -156,8 +201,12 @@ cmake -S "$base/sources/webp" -B "$work/webp" -G Ninja ${cmake_args[@]+"${cmake_
 cmake --build "$work/webp" --target install --parallel 4
 mkdir -p "$work/vpx" "$work/ffmpeg"
 cd "$work/vpx"
+if (( ios )); then
+  export CFLAGS="$apple_flags -Wno-overriding-option" CXXFLAGS="$apple_flags -Wno-overriding-option"
+fi
 "$base/sources/vpx/configure" --target="$vpx_target" --prefix="$prefix" --enable-pic --disable-shared \
-  --disable-examples --disable-tools --disable-docs --disable-unit-tests --disable-vp8-encoder --disable-vp9-encoder --disable-x86-asm
+  --disable-examples --disable-tools --disable-docs --disable-unit-tests --disable-vp8-encoder --disable-vp9-encoder --disable-x86-asm \
+  ${vpx_args[@]+"${vpx_args[@]}"}
 make -j4
 make install
 cd "$work/ffmpeg"

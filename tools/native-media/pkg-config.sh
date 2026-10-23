@@ -22,4 +22,8 @@ if [[ ! -x "$real" ]]; then
     if [[ -x "$candidate" ]]; then real="$candidate"; break; fi
   done
 fi
+if [[ ! -x "$real" ]]; then
+  echo "pkg-config is required; install it before building native media" >&2
+  exit 1
+fi
 exec "$real" "$@"

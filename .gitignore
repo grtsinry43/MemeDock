@@ -53,3 +53,13 @@ __pycache__/
 
 # AGENTS.md is a tracked project instruction file, not a design document.
 !AGENTS.md
+
+# iOS generated bridge, assets, signing overrides, and Xcode user state.
+/apps/ios/Generated/
+/apps/ios/Configuration/Signing.local.xcconfig
+**/xcuserdata/
+**/DerivedData/
+*.xcuserstate
+*.xcresult
+*.xcarchive
+*.ipa
