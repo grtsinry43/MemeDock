@@ -1,0 +1,5 @@
+// Optional local overrides for Xcode Run on a physical device.
+// Signing.local.xcconfig is ignored by Git. Never put certificates here.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+// Personal Teams may need a unique identifier.
+// MEMEDOCK_BUNDLE_IDENTIFIER = com.yourname.memedock
