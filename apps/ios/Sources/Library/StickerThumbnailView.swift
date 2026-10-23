@@ -8,6 +8,7 @@ struct StickerThumbnailView: View {
     }
     let item: LibraryItem
     let store: ThumbnailStore
+    let open: () -> Void
     @Environment(\.displayScale) private var displayScale
     @State private var image: CGImage?
     @State private var error: String?
@@ -17,28 +18,40 @@ struct StickerThumbnailView: View {
 
     var body: some View {
         ZStack {
-            if image == nil { Color(uiColor: .secondarySystemBackground) }
-            if let image {
-                Image(decorative: image, scale: displayScale)
-                    .resizable()
-                    .scaledToFit()
-                    .padding(6)
-            } else if error != nil {
-                Button {
-                    retry += 1
-                } label: {
-                    Label("Retry Thumbnail", systemImage: "arrow.clockwise")
-                        .labelStyle(.iconOnly)
+            Button(action: open) {
+                ZStack {
+                    if image == nil { Color(uiColor: .secondarySystemBackground) }
+                    if let image {
+                        Image(decorative: image, scale: displayScale)
+                            .resizable().scaledToFit().padding(6)
+                    } else if error == nil {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "photo").foregroundStyle(.secondary)
+                    }
                 }
-                .accessibilityHint(error ?? "")
-            } else {
-                ProgressView()
+                .aspectRatio(1, contentMode: .fit)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(item.sticker.title)
+            .accessibilityValue(item.resource?.asset.animated == true ? String(localized: "Animated image") : "")
+            if error != nil {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button { retry += 1 } label: {
+                            Label("Retry Thumbnail", systemImage: "arrow.clockwise")
+                                .labelStyle(.iconOnly).frame(width: 44, height: 44)
+                        }
+                        .accessibilityHint(error ?? "")
+                    }
+                }
             }
         }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(.rect(cornerRadius: 8))
-        .accessibilityLabel(item.sticker.title)
-        .accessibilityValue(item.resource?.asset.animated == true ? String(localized: "Animated image") : "")
         .task(id: RequestKey(thumbnail: key, retry: retry)) { await load(force: retry > 0) }
         .onDisappear { image = nil }
     }

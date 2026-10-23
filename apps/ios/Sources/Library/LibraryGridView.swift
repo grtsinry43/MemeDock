@@ -8,6 +8,8 @@ struct LibraryGridView: View {
     let refresh: () async -> Void
     let showProblems: () -> Void
     let importImages: () -> Void
+    let transitionNamespace: Namespace.ID
+    let open: (LibraryItem) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -76,7 +78,8 @@ struct LibraryGridView: View {
         } else {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
                 ForEach(browser.items) { item in
-                    StickerThumbnailView(item: item, store: thumbnails)
+                    StickerThumbnailView(item: item, store: thumbnails) { open(item) }
+                        .matchedTransitionSource(id: StickerDetailRoute(item), in: transitionNamespace)
                         .id(item.id)
                         .onAppear {
                             if browser.items.suffix(12).contains(where: { $0.id == item.id }), browser.pageError == nil {

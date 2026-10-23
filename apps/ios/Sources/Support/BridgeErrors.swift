@@ -2,6 +2,21 @@ import Foundation
 import MemeDockBridge
 
 enum BridgeErrors {
+    static func previewDescription(_ error: any Error) -> String {
+        if let error = error as? PreviewError { return error.localizedDescription }
+        if case BridgeError.Failure = error { return browseDescription(error) }
+        return error.localizedDescription
+    }
+
+    static func originalDescription(_ code: ErrorCode?) -> String {
+        switch code {
+        case .notFound: String(localized: "The original image is missing from this library.")
+        case .corruptData: String(localized: "The original image could not be verified.")
+        case .entityDeleted: String(localized: "This sticker is no longer available.")
+        default: String(localized: "The original image is unavailable for preview.")
+        }
+    }
+
     static func browseDescription(_ error: any Error) -> String {
         if case let BridgeError.Failure(code, _) = error {
             switch code {

@@ -14,6 +14,9 @@ enum LibraryPhase: Equatable {
 @MainActor
 @Observable
 final class LibrarySession {
+    private struct DetailReference {
+        weak var model: StickerDetailModel?
+    }
     private(set) var phase: LibraryPhase = .idle
     private(set) var statistics: SpaceStatistics?
     private(set) var browser: LibraryBrowser?
@@ -30,6 +33,9 @@ final class LibrarySession {
     @ObservationIgnored private var refreshPending = false
     @ObservationIgnored private var generation: UInt64 = 0
 
+    @ObservationIgnored private var details: [DetailReference] = []
+    @ObservationIgnored private var limits: ResourceConfiguration?
+
     init(paths: AppPaths? = nil) {
         self.paths = paths
     }
@@ -42,6 +48,7 @@ final class LibrarySession {
         do {
             let paths = try paths ?? AppPaths.standard()
             let configuration = try paths.configuration()
+            limits = configuration.limits
             let handle = try await openLibrary(configuration: configuration)
             library = handle
             browser = LibraryBrowser(library: handle)
@@ -129,6 +136,9 @@ final class LibrarySession {
         feed?.cancel()
         do {
             browser?.stop()
+            let detailModels = details.compactMap(\.model)
+            details = []
+            for model in detailModels { await model.close() }
             await imports?.stopAndWait()
             try subscription?.unsubscribe()
             await feed?.value
@@ -143,10 +153,27 @@ final class LibrarySession {
             statistics = nil
             identity = nil
             queryError = nil
+            limits = nil
             phase = .closed
         } catch {
             // Keep ownership when shutdown fails; never open another instance.
             phase = .failed(BridgeErrors.describe(error))
+        }
+    }
+
+    func makeDetail(for route: StickerDetailRoute) -> StickerDetailModel? {
+        guard phase == .ready, let library, let thumbnails, let limits else { return nil }
+        details.removeAll { $0.model == nil }
+        let seed = browser?.items.first { $0.id == route.id && $0.sticker.lifecycle.generation == route.generation }
+        let model = StickerDetailModel(route: route, library: library, thumbnails: thumbnails, limits: limits, seed: seed)
+        details.append(DetailReference(model: model))
+        return model
+    }
+
+    private func refreshDetails(id: String? = nil) {
+        details.removeAll { $0.model == nil }
+        for model in details.compactMap(\.model) where id == nil || model.route.id == id {
+            model.scheduleReload()
         }
     }
 
@@ -157,8 +184,13 @@ final class LibrarySession {
         case .collectionsChanged:
             await browser?.loadCollections()
             browser?.libraryChanged()
-        case .stickerChanged, .tagsChanged:
+            refreshDetails()
+        case .stickerChanged(_, let id):
             browser?.libraryChanged()
+            refreshDetails(id: id)
+        case .tagsChanged:
+            browser?.libraryChanged()
+            refreshDetails()
         case .usageChanged:
             if browser?.filter == .recentlyUsed { browser?.libraryChanged() }
         case .reloadRequired:
@@ -166,6 +198,7 @@ final class LibrarySession {
             browser?.invalidateThumbnails()
             await browser?.loadCollections()
             browser?.libraryChanged()
+            refreshDetails()
         case .closed:
             break
         }

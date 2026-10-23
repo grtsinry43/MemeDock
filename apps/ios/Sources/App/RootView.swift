@@ -10,8 +10,12 @@ struct RootView: View {
     @State private var showImportSources = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
 
+    @State private var navigationPath: [StickerDetailRoute] = []
+    @Namespace private var transitionNamespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             Group {
                 switch session.phase {
                 case .idle, .opening, .closing:
@@ -38,8 +42,16 @@ struct RootView: View {
                 }
             }
             .navigationTitle(session.browser?.filterTitle ?? String(localized: "Stickers"))
+            .navigationDestination(for: StickerDetailRoute.self) { route in
+                if reduceMotion {
+                    StickerDetailView(session: session, route: route)
+                } else {
+                    StickerDetailView(session: session, route: route)
+                        .navigationTransition(.zoom(sourceID: route, in: transitionNamespace))
+                }
+            }
             .toolbar {
-                if session.phase == .ready {
+                if session.phase == .ready, navigationPath.isEmpty {
                     ToolbarItem(placement: .primaryAction) { importMenu }
                 }
             }
@@ -76,6 +88,9 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
                 Task { await session.thumbnails?.clearCache() }
             }
+            .onChange(of: session.phase) { _, phase in
+                if phase != .ready { navigationPath = [] }
+            }
         }
     }
 
@@ -84,7 +99,11 @@ struct RootView: View {
         return LibraryGridView(
             browser: browser, thumbnails: thumbnails, imports: session.imports,
             sessionError: session.queryError, refresh: { await session.refresh() },
-            showProblems: { showProblems = true }, importImages: { showImportSources = true }
+            showProblems: { showProblems = true }, importImages: { showImportSources = true },
+            transitionNamespace: transitionNamespace, open: { item in
+                guard navigationPath.isEmpty else { return }
+                navigationPath.append(StickerDetailRoute(item))
+            }
         )
         .searchable(text: $browser.searchText, prompt: "Search Stickers")
         .toolbar {
