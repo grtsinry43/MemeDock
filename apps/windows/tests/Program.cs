@@ -100,7 +100,7 @@ internal static class Program
             Check(frame.Preset == ExportPreset.CompatiblePng && frame.Animation == AnimationPolicy.FirstFrame && frame.MaxEdge == 1024,
                 "First-frame conversion was implicit or lost its bounds.");
         }
-        var metadata = new StickerMetadata("sticker", "title", "image.gif", "", false, new(2, 1, 0, 0, null));
+        var metadata = new StickerMetadata("sticker", "title", "image.gif", "", false, new(2, 1, 0, 0, null, null));
         var target = new StickerOutputTarget("sticker", 2);
         target.Validate(metadata);
         try { target.Validate(metadata with { Lifecycle = metadata.Lifecycle with { Generation = 3 } }); throw new InvalidOperationException("Stale output target accepted."); }
