@@ -22,6 +22,8 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public string? ErrorKey { get; private set; }
     public string? CatalogErrorKey { get; private set; }
     public bool IsImporting { get; private set; }
+    public bool IsTrashing { get; private set; }
+    public bool IsTrash => Filter.IsTrash;
     public string? ImportMessageKey { get; private set; }
     public int ImportCompleted { get; private set; }
     public int ImportTotal { get; private set; }
@@ -47,6 +49,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     private readonly BrowseRequestState _requests = new();
     private Task _observer = Task.CompletedTask;
     private Task _reload = Task.CompletedTask;
+    private Task _trashBatch = Task.CompletedTask;
     private bool _dirty;
     private bool _stopping;
 
@@ -54,12 +57,14 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     {
         LibraryScope.Starred => strings["favorites_only"],
         LibraryScope.Recent => strings["filter_recent"],
+        LibraryScope.Trash => strings["trash"],
         LibraryScope.Collection or LibraryScope.Tag => Filter.Name ?? "",
         _ => strings["filter_all"]
     };
     public string EmptyHeading => strings[SearchText.Length > 0 ? "library_no_matches" : Filter.Scope switch
     {
         LibraryScope.Starred => "starred_empty",
+        LibraryScope.Trash => "trash_empty",
         LibraryScope.Collection => "collection_empty",
         LibraryScope.Tag => "tag_empty",
         _ => "library_empty"
@@ -84,7 +89,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         Catalog?.Relocalize();
         Output?.Relocalize();
         foreach (var property in new[] { nameof(Heading), nameof(EmptyHeading), nameof(CountText), nameof(SelectionText),
-            nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText) }) OnPropertyChanged(property);
+            nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText), nameof(IsTrash) }) OnPropertyChanged(property);
     }
 
     public async Task InitializeAsync(string root)
@@ -313,7 +318,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             {
                 _dirty = false;
                 await Task.Delay(200, _lifetime.Token);
-                if (IsImporting || Batch?.IsRunning == true) { _dirty = true; continue; }
+                if (IsImporting || IsTrashing || Batch?.IsRunning == true) { _dirty = true; continue; }
                 await RefreshAsync(preserveLoaded: true);
             }
         }
@@ -363,6 +368,61 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         }
     }
 
+    internal Task<TrashOutcome> RestoreAsync(IReadOnlyList<StickerCard> cards) =>
+        TrackTrashAsync(() => ApplyTrashAsync(cards, TrashOperations.RestoreAsync));
+
+    internal Task<TrashOutcome> PurgeAsync(IReadOnlyList<StickerCard> cards) =>
+        TrackTrashAsync(() => ApplyTrashAsync(cards, TrashOperations.PurgeAsync));
+
+    /// <summary>
+    /// Keeps the running batch reachable so <see cref="DisposeAsync"/> can wait
+    /// for it before releasing the session. The inner guard runs first, which
+    /// keeps a second click from replacing the tracked task.
+    /// </summary>
+    private async Task<TrashOutcome> TrackTrashAsync(Func<Task<TrashOutcome>> work)
+    {
+        if (_session is null || _stopping || IsTrashing) return TrashOutcome.Empty;
+        var task = work();
+        _trashBatch = task;
+        return await task;
+    }
+
+    /// <summary>
+    /// Applies a trash action one entity at a time, then reloads the current
+    /// listing so restored stickers leave the trash and purged ones disappear
+    /// from both listings. A failed entry keeps its place and its file.
+    /// </summary>
+    private async Task<TrashOutcome> ApplyTrashAsync(IReadOnlyList<StickerCard> cards,
+        Func<LibrarySession, IReadOnlyList<TrashEntry>, Func<Exception, string>, CancellationToken, Task<TrashOutcome>> apply)
+    {
+        if (_session is null || _stopping || IsTrashing || cards.Count == 0) return TrashOutcome.Empty;
+        var entries = cards.Select(card => new TrashEntry(card.Id, card.Generation, card.Revision)).ToArray();
+        IsTrashing = true;
+        ErrorKey = null;
+        NotifyState();
+        TrashOutcome outcome;
+        try
+        {
+            outcome = await apply(_session, entries, strings.ErrorKey, _lifetime.Token);
+        }
+        catch (OperationCanceledException) { outcome = TrashOutcome.Empty; }
+        catch (Exception error)
+        {
+            Trace.WriteLine(error);
+            outcome = new TrashOutcome(0, cards.Count, strings.ErrorKey(error));
+        }
+        finally
+        {
+            // The flag gates navigation and the selection bar, so it must fall
+            // even when the native call throws something unexpected.
+            IsTrashing = false;
+        }
+        if (!_stopping) await RefreshAsync(preserveLoaded: true);
+        if (outcome.AnyFailed) ErrorKey = outcome.ErrorKey;
+        NotifyState();
+        return outcome;
+    }
+
     private void Report(Exception error)
     {
         Trace.WriteLine(error);
@@ -372,8 +432,8 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
 
     private void NotifyState()
     {
-        foreach (var property in new[] { nameof(IsLoading), nameof(IsImporting), nameof(HasMore), nameof(ErrorText),
-            nameof(ImportText), nameof(CountText), nameof(EmptyHeading) }) OnPropertyChanged(property);
+        foreach (var property in new[] { nameof(IsLoading), nameof(IsImporting), nameof(IsTrashing), nameof(HasMore),
+            nameof(ErrorText), nameof(ImportText), nameof(CountText), nameof(EmptyHeading) }) OnPropertyChanged(property);
     }
 
     public void RequestStop()
@@ -389,7 +449,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public async ValueTask DisposeAsync()
     {
         RequestStop();
-        await Task.WhenAll(_observer, _reload);
+        await Task.WhenAll(_observer, _reload, _trashBatch);
         await _queries.WaitAsync();
         try
         {

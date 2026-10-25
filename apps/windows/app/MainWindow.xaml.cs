@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
     private bool _catalogVisible;
     private bool _childrenConfigured;
     private bool _restoringSelection;
+    private bool _undoAvailable;
     private long _selectionVersion;
     private bool _tagMode;
     private bool _stopping;
@@ -115,6 +116,12 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(SelectAllButton, SelectAllButton.Label);
         ToolTipService.SetToolTip(ClearSelectionButton, ClearSelectionButton.Label);
         SelectionHint.Text = Strings["desktop_selection_loaded_only"];
+        TrashNavigation.Content = Strings["trash"];
+        RestoreButton.Content = Strings["restore"];
+        PurgeButton.Content = Strings["purge_title"];
+        AutomationProperties.SetName(TrashNavigation, Strings["trash"]);
+        AutomationProperties.SetName(RestoreButton, Strings["restore"]);
+        AutomationProperties.SetName(PurgeButton, Strings["purge_title"]);
         TagSelector.PlaceholderText = Strings["tags_title"];
         AutomationProperties.SetName(TagSelector, Strings["tags_title"]);
         Settings.Relocalize();
@@ -144,14 +151,16 @@ public sealed partial class MainWindow : Window
             output.SetForeground(_windowActive);
         }
         var batchRunning = ViewModel.Batch?.IsRunning == true;
-        Gallery.IsEnabled = !batchRunning && !ViewModel.IsLoading;
+        var trash = ViewModel.IsTrash;
+        Gallery.IsEnabled = !batchRunning && !ViewModel.IsLoading && !ViewModel.IsTrashing;
         AllNavigation.IsEnabled = StarredNavigation.IsEnabled = RecentNavigation.IsEnabled = !batchRunning;
+        TrashNavigation.IsEnabled = !batchRunning;
         CatalogNavigation.IsEnabled = SettingsNavigation.IsEnabled = !batchRunning;
-        ImportButton.IsEnabled = ViewModel.IsReady && !ViewModel.IsImporting && !_stopping && !batchRunning;
+        ImportButton.IsEnabled = ViewModel.IsReady && !ViewModel.IsImporting && !_stopping && !batchRunning && !trash;
         Search.IsEnabled = ViewModel.IsReady && !_stopping && !batchRunning;
         SortButton.IsEnabled = ViewModel.IsReady && ViewModel.Filter.Scope != LibraryScope.Recent && !batchRunning;
         Busy.IsActive = !ViewModel.IsReady && ViewModel.ErrorKey is null || ViewModel.IsLoading || ViewModel.IsImporting
-            || ViewModel.Output is { IsBusy: true, IsDragging: false };
+            || ViewModel.IsTrashing || ViewModel.Output is { IsBusy: true, IsDragging: false };
         Busy.Visibility = ToVisibility(Busy.IsActive);
         ErrorBar.IsOpen = ViewModel.ErrorKey is not null;
         ErrorBar.Message = ViewModel.ErrorText;
@@ -160,11 +169,21 @@ public sealed partial class MainWindow : Window
         OutputErrorBar.IsOpen = ViewModel.Output?.ErrorKey is not null;
         OutputErrorBar.Message = ViewModel.Output?.StatusText ?? "";
         EmptyState.Visibility = ToVisibility(ViewModel.IsReady && !ViewModel.IsLoading && ViewModel.Cards.Count == 0 && ViewModel.ErrorKey is null);
-        EmptyHint.Text = ViewModel.SearchText.Length > 0 ? Strings["library_no_matches_hint"] : "";
+        EmptyHint.Text = ViewModel.SearchText.Length > 0 ? Strings["library_no_matches_hint"]
+            : trash ? Strings["trash_empty_hint"] : "";
         Status.Text = !ViewModel.IsReady || ViewModel.IsLoading ? Strings["import_preparing"]
             : ViewModel.Output is { StatusText.Length: > 0 } status ? status.StatusText : ViewModel.ImportText;
         SelectionBar.Visibility = ToVisibility(Gallery.SelectedItems.Count > 0);
         SelectionHint.Visibility = ToVisibility(ViewModel.HasMore);
+        // Restore and purge replace undo in the trash, where the only meaningful
+        // actions are on already deleted stickers.
+        RestoreButton.Visibility = ToVisibility(trash);
+        PurgeButton.Visibility = ToVisibility(trash);
+        RestoreButton.IsEnabled = !ViewModel.IsTrashing;
+        PurgeButton.IsEnabled = !ViewModel.IsTrashing;
+        // Undo exists only while the last message is the delete one and only
+        // outside the trash, so a trash result never inherits a stale action.
+        UndoButton.Visibility = ToVisibility(!trash && _undoAvailable);
         SortCollection.Visibility = ToVisibility(ViewModel.Filter.AllowsCollectionOrder);
         SortRecent.IsChecked = ViewModel.Sort == StickerSort.Recent;
         SortUsed.IsChecked = ViewModel.Sort == StickerSort.LastUsed;
@@ -201,11 +220,19 @@ public sealed partial class MainWindow : Window
         if (_settingsVisible || _catalogVisible) return;
         _tagMode = item == TagsNavigation;
         TagSelector.Visibility = ToVisibility(_tagMode);
+        if (item == TrashNavigation)
+        {
+            // Deleted stickers are read-only here, so the inspector stays closed
+            // instead of opening editors that the core would reject.
+            Inspector.IsPaneOpen = false;
+            Details.SetActive(false);
+        }
         LibraryFilter? filter = item.Tag switch
         {
             "all" => LibraryFilter.All,
             "starred" => new(LibraryScope.Starred),
             "recent" => new(LibraryScope.Recent),
+            "trash" => new(LibraryScope.Trash),
             CollectionMetadata collection => new(LibraryScope.Collection, collection.Id, collection.Name),
             _ => null
         };
@@ -241,6 +268,7 @@ public sealed partial class MainWindow : Window
                 {
                     LibraryScope.Starred => StarredNavigation,
                     LibraryScope.Recent => RecentNavigation,
+                    LibraryScope.Trash => TrashNavigation,
                     LibraryScope.Tag => TagsNavigation,
                     LibraryScope.Collection => CollectionsNavigation.MenuItems.OfType<NavigationViewItem>()
                         .FirstOrDefault(item => item.Tag is CollectionMetadata value && value.Id == ViewModel.Filter.Id),
@@ -373,6 +401,17 @@ public sealed partial class MainWindow : Window
             || ViewModel.IsLoading && ViewModel.Batch?.Report is not null) return;
         var version = ++_selectionVersion;
         var selected = Gallery.SelectedItems.OfType<StickerCard>().ToArray();
+        if (ViewModel.IsTrash)
+        {
+            // Selection in the trash only drives restore and purge; there is no
+            // editable detail and no batch organizer for deleted stickers.
+            ViewModel.SetSelectedCount(Gallery.SelectedItems.Count);
+            Details.Visibility = Visibility.Collapsed;
+            Batch.Visibility = Visibility.Collapsed;
+            Inspector.IsPaneOpen = false;
+            UpdateState();
+            return;
+        }
         if (ViewModel.Details is { } detail)
         {
             var accepted = await detail.SelectAsync(selected.Length == 1 ? selected[0].Id : null);
@@ -409,11 +448,11 @@ public sealed partial class MainWindow : Window
     }
     private bool EditingText => FocusManager.GetFocusedElement(Root.XamlRoot) is TextBox or RichEditBox or PasswordBox
         or TextBlock { IsTextSelectionEnabled: true } or RichTextBlock { IsTextSelectionEnabled: true };
-    private bool CanDragOut => !_stopping && !_reordering && ViewModel.Output is not null
+    private bool CanDragOut => !_stopping && !_reordering && ViewModel.Output is not null && !ViewModel.IsTrash
         && ViewModel.Batch?.IsRunning != true && !ViewModel.IsLoading && Gallery.SelectedItems.Count <= 1;
     private async void OnCopyShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_settingsVisible || _catalogVisible || EditingText || Gallery.SelectedItems.Count != 1
+        if (_settingsVisible || _catalogVisible || EditingText || ViewModel.IsTrash || Gallery.SelectedItems.Count != 1
             || Gallery.SelectedItem is not StickerCard card || ViewModel.Output?.CanStart != true) return;
         args.Handled = true;
         await CopyCardAsync(card, StickerOutputKind.Image);
@@ -544,6 +583,8 @@ public sealed partial class MainWindow : Window
     private void OnStickerDeleted(object? sender, EventArgs args)
     {
         Gallery.SelectedItems.Clear();
+        _undoAvailable = true;
+        UndoButton.Visibility = Visibility.Visible;
         OperationBar.Severity = InfoBarSeverity.Success;
         OperationBar.Message = Strings["sticker_deleted"];
         OperationBar.IsOpen = true;
@@ -551,7 +592,12 @@ public sealed partial class MainWindow : Window
     private async void OnUndoDelete(object sender, RoutedEventArgs args)
     {
         if (ViewModel.Details is not { } detail) return;
-        if (await detail.UndoDeleteAsync()) OperationBar.IsOpen = false;
+        if (await detail.UndoDeleteAsync())
+        {
+            _undoAvailable = false;
+            OperationBar.IsOpen = false;
+            UpdateState();
+        }
         else
         {
             OperationBar.Severity = InfoBarSeverity.Error;
@@ -559,13 +605,82 @@ public sealed partial class MainWindow : Window
             OperationBar.IsOpen = true;
         }
     }
+    private async void OnRestoreSelected(object sender, RoutedEventArgs args)
+    {
+        var cards = Gallery.SelectedItems.OfType<StickerCard>().ToArray();
+        if (cards.Length > 0) await RunRestoreAsync(cards);
+    }
+    private async void OnPurgeSelected(object sender, RoutedEventArgs args)
+    {
+        var cards = Gallery.SelectedItems.OfType<StickerCard>().ToArray();
+        if (cards.Length > 0) await RunPurgeAsync(cards);
+    }
+    private async Task RunRestoreAsync(IReadOnlyList<StickerCard> cards)
+    {
+        if (_stopping || ViewModel.IsTrashing || cards.Count == 0) return;
+        ReportTrashOutcome(await ViewModel.RestoreAsync(cards), cards, restored: true);
+    }
+    private async Task RunPurgeAsync(IReadOnlyList<StickerCard> cards)
+    {
+        if (_stopping || ViewModel.IsTrashing || cards.Count == 0 || !await ConfirmPurgeAsync(cards.Count)) return;
+        ReportTrashOutcome(await ViewModel.PurgeAsync(cards), cards, restored: false);
+    }
+    /// <summary>
+    /// Erasing is irreversible: the core releases the original and its derived
+    /// files, so the confirmation states the count and defaults to cancelling.
+    /// </summary>
+    private async Task<bool> ConfirmPurgeAsync(int count)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot,
+            Title = Strings["purge_title"],
+            Content = Strings.Format("purge_hint", count),
+            PrimaryButtonText = Strings["purge_title"],
+            CloseButtonText = Strings["cancel"],
+            DefaultButton = ContentDialogButton.Close
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+    private void ReportTrashOutcome(TrashOutcome outcome, IReadOnlyList<StickerCard> cards, bool restored)
+    {
+        if (_stopping) return;
+        // The refresh dropped the entries that were restored or purged; only the
+        // failed ones are still listed. Drop just those acted cards from the
+        // selection so a failed entry keeps its place and any unrelated pick
+        // survives a single-item context-menu action.
+        var acted = cards.Select(card => card.Id).ToHashSet(StringComparer.Ordinal);
+        var present = ViewModel.Cards.Select(card => card.Id).ToHashSet(StringComparer.Ordinal);
+        var gone = Gallery.SelectedItems.OfType<StickerCard>()
+            .Where(card => acted.Contains(card.Id) && !present.Contains(card.Id)).ToArray();
+        _restoringSelection = true;
+        try
+        {
+            foreach (var card in gone) Gallery.SelectedItems.Remove(card);
+        }
+        finally { _restoringSelection = false; }
+        ViewModel.SetSelectedCount(Gallery.SelectedItems.Count);
+        _undoAvailable = false;
+        if (outcome.AnySucceeded)
+        {
+            OperationBar.Severity = outcome.AnyFailed ? InfoBarSeverity.Warning : InfoBarSeverity.Success;
+            OperationBar.Message = restored
+                ? Strings["restored"]
+                : Strings.Format("purge_result", outcome.Succeeded, outcome.Failed);
+            OperationBar.IsOpen = true;
+        }
+        else OperationBar.IsOpen = false;
+        UpdateState();
+    }
     private async void OnGalleryDoubleTapped(object sender, DoubleTappedRoutedEventArgs args)
     {
+        if (ViewModel.IsTrash) return;
         if (Gallery.SelectedItems.Count == 1 && Gallery.SelectedItem is StickerCard card && ViewModel.Details is { } detail
             && await detail.SelectAsync(card.Id) && detail.CurrentId == card.Id) await Details.ShowPreviewAsync();
     }
     private void OnGalleryItemClick(object sender, ItemClickEventArgs args)
     {
+        if (ViewModel.IsTrash) return;
         if (Gallery.SelectedItems.Count == 1 && args.ClickedItem is StickerCard card && card.Id == ViewModel.Details?.CurrentId)
         {
             Inspector.IsPaneOpen = true;
@@ -574,7 +689,7 @@ public sealed partial class MainWindow : Window
     }
     private async void OnGalleryKeyDown(object sender, KeyRoutedEventArgs args)
     {
-        if (args.Key != global::Windows.System.VirtualKey.Enter || Gallery.SelectedItems.Count != 1
+        if (ViewModel.IsTrash || args.Key != global::Windows.System.VirtualKey.Enter || Gallery.SelectedItems.Count != 1
             || Gallery.SelectedItem is not StickerCard card || ViewModel.Details is not { } detail) return;
         args.Handled = true;
         if (await detail.SelectAsync(card.Id) && detail.CurrentId == card.Id) await Details.ShowPreviewAsync();
@@ -666,10 +781,24 @@ public sealed partial class MainWindow : Window
 
     private void OnGalleryRightTapped(object sender, RightTappedRoutedEventArgs args)
     {
-        if (ViewModel.Output is not { } output || _stopping) return;
+        if (_stopping) return;
         DependencyObject? element = args.OriginalSource as DependencyObject;
         while (element is not null && element is not GridViewItem) element = VisualTreeHelper.GetParent(element);
         if (element is not GridViewItem { Content: StickerCard card } container) return;
+        if (ViewModel.IsTrash)
+        {
+            var trashMenu = new MenuFlyout();
+            var restore = new MenuFlyoutItem { Text = Strings["restore"], Icon = new SymbolIcon(Symbol.Undo) };
+            restore.Click += async (_, _) => await RunRestoreAsync([card]);
+            var purge = new MenuFlyoutItem { Text = Strings["purge_title"], Icon = new SymbolIcon(Symbol.Delete) };
+            purge.Click += async (_, _) => await RunPurgeAsync([card]);
+            trashMenu.Items.Add(restore);
+            trashMenu.Items.Add(purge);
+            args.Handled = true;
+            trashMenu.ShowAt(container);
+            return;
+        }
+        if (ViewModel.Output is not { } output) return;
         var menu = new MenuFlyout();
         var copy = new MenuFlyoutItem { Text = Strings["copy_image"], Icon = new SymbolIcon(Symbol.Copy), IsEnabled = output.CanStart };
         copy.Click += async (_, _) => await CopyCardAsync(card, StickerOutputKind.Image);

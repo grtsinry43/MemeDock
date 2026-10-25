@@ -103,6 +103,12 @@
   <data name="select_tags" xml:space="preserve"><value>选择标签</value></data>
   <data name="restored" xml:space="preserve"><value>已恢复</value></data>
   <data name="restore" xml:space="preserve"><value>恢复</value></data>
+  <data name="trash" xml:space="preserve"><value>回收站</value></data>
+  <data name="trash_empty" xml:space="preserve"><value>回收站为空</value></data>
+  <data name="trash_empty_hint" xml:space="preserve"><value>已删除的表情、合集和标签会暂存在这里，可随时恢复</value></data>
+  <data name="purge_title" xml:space="preserve"><value>彻底删除</value></data>
+  <data name="purge_hint" xml:space="preserve"><value>将彻底删除确认列表中的 {0} 个项目，此操作无法撤销。之后进入回收站的项目不会被删除。</value></data>
+  <data name="purge_result" xml:space="preserve"><value>已删除 {0} 个，未完成 {1} 个</value></data>
   <data name="batch_organize" xml:space="preserve"><value>批量整理</value></data>
   <data name="assign_collection" xml:space="preserve"><value>归入合集</value></data>
   <data name="clear_collection" xml:space="preserve"><value>取消归类</value></data>

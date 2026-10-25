@@ -103,6 +103,12 @@
   <data name="select_tags" xml:space="preserve"><value>Select Tags</value></data>
   <data name="restored" xml:space="preserve"><value>Restored</value></data>
   <data name="restore" xml:space="preserve"><value>Restore</value></data>
+  <data name="trash" xml:space="preserve"><value>Trash</value></data>
+  <data name="trash_empty" xml:space="preserve"><value>Trash is empty</value></data>
+  <data name="trash_empty_hint" xml:space="preserve"><value>Deleted stickers, collections, and tags are kept here and can be restored anytime</value></data>
+  <data name="purge_title" xml:space="preserve"><value>Delete permanently</value></data>
+  <data name="purge_hint" xml:space="preserve"><value>Permanently delete the {0} items in this confirmation list? This cannot be undone. Items moved to trash afterwards are excluded.</value></data>
+  <data name="purge_result" xml:space="preserve"><value>Deleted {0}; unfinished {1}</value></data>
   <data name="batch_organize" xml:space="preserve"><value>Organize selection</value></data>
   <data name="assign_collection" xml:space="preserve"><value>Move to collection</value></data>
   <data name="clear_collection" xml:space="preserve"><value>Uncategorize</value></data>

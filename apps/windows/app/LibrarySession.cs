@@ -219,6 +219,19 @@ internal sealed class LibrarySession : IAsyncDisposable
         using var registration = cancellation.Register(() => request.Cancel());
         return await request.AwaitResult().ConfigureAwait(false);
     });
+
+    // Purge is a core-owned tombstone: the row survives for sync while the
+    // original and its derived cache are released, so nothing here touches files.
+    // The revision is the one observed at deletion; a stale value only fails
+    // that entry instead of purging something that changed meanwhile.
+    public Task PurgeStickerAsync(EntityReference target, long deletedRevision, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.PurgeSticker(target, deletedRevision);
+        using var registration = cancellation.Register(() => request.Cancel());
+        await request.AwaitResult().ConfigureAwait(false);
+    });
+
     public Task MoveCollectionItemAsync(EntityReference collection, EntityReference sticker, string? before,
         CancellationToken cancellation) => Task.Run(async () =>
     {

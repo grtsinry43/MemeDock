@@ -50,6 +50,10 @@ internal static class Program
         var tag = new LibraryFilter(LibraryScope.Tag, "tag-id").Query("request", "", StickerSort.CollectionOrder);
         Check(tag.TagIds.SequenceEqual(["tag-id"]) && tag.Sort == StickerSort.Recent && tag.CollectionId is null,
             "Tag filtering leaked collection ordering.");
+        var trash = new LibraryFilter(LibraryScope.Trash).Query("request", "猫", StickerSort.CollectionOrder);
+        Check(trash.Deleted && trash.CollectionId is null && trash.TagIds.Length == 0 && trash.Starred is null
+            && trash.Sort == StickerSort.Recent && trash.Text == "猫",
+            "The trash scope leaked an organization filter, kept collection ordering or dropped its search text.");
         try
         {
             new LibraryFilter(LibraryScope.Collection).Query("request", "", StickerSort.Recent);
@@ -243,6 +247,7 @@ internal static class Program
                 }
                 catch (OperationCanceledException) { }
                 await ManagementAsync(session, first.Sticker, redPath);
+                await TrashAsync(session, root);
                 await OutputContractsAsync(session, first.Sticker.Id, redPath);
             }
             await using (var reopened = await LibrarySession.OpenAsync(root))
@@ -319,6 +324,132 @@ internal static class Program
         Check(!unbound.Connected, "Touching sync on an unbound library created a binding.");
         Console.WriteLine("PASS: real detail editing, organization, order, soft-delete/restore, original preservation, unbound sync state and partial batch failure");
     }
+
+    // Exercises the recycle bin against a real library: the trash listing is a
+    // native query, restore and purge are core operations, and every failure
+    // must leave the row and its file where they were.
+    private static async Task TrashAsync(LibrarySession session, string root)
+    {
+        var token = CancellationToken.None;
+        static EntityReference Ref(StickerMetadata item) => new(item.Id, item.Lifecycle.Generation);
+        static string Key(Exception error) => error is BridgeException.Failure failure
+            ? failure.code.ToString() : error.GetType().Name;
+
+        var missing = new string('0', 64);
+        var collection = await session.CreateCollectionAsync("回收测试", token);
+        var tag = await session.CreateTagAsync("trash-tag", token);
+        var purplePath = Path.Combine(root, "purple.png");
+        var cyanPath = Path.Combine(root, "cyan.png");
+        await File.WriteAllBytesAsync(purplePath, Png(160, 0, 200));
+        await File.WriteAllBytesAsync(cyanPath, Png(0, 200, 200));
+        var purple = await session.ImportAsync(purplePath, collection.Id, token);
+        var cyan = await session.ImportAsync(cyanPath, null, token);
+        var purpleItem = await session.PatchAsync(Ref(purple.Sticker), new("紫色贴纸", "trash note", true), token);
+        await session.OrganizeAsync(Ref(purpleItem), true, new(collection.Id, collection.Lifecycle.Generation),
+            [new(tag.Id, tag.Lifecycle.Generation)], token);
+
+        var deletedPurple = await session.DeleteStickerAsync(Ref(purpleItem), token);
+        var deletedCyan = await session.DeleteStickerAsync(Ref(cyan.Sticker), token);
+
+        using (var active = await session.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null, token))
+            Check(!active.Stickers.Any(item => item.Id == purple.Sticker.Id || item.Id == cyan.Sticker.Id),
+                "A deleted sticker stayed in the normal listing.");
+        using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
+        {
+            Check(trash.Stickers.Select(item => item.Id).OrderBy(id => id)
+                    .SequenceEqual(new[] { purple.Sticker.Id, cyan.Sticker.Id }.OrderBy(id => id)),
+                "The trash listing did not contain exactly the deleted stickers.");
+            Check(trash.Next is null, "A two-item trash page returned another cursor.");
+        }
+        using (var search = await session.QueryAsync(new(LibraryScope.Trash), "紫色", StickerSort.Recent, null, token))
+            Check(search.Stickers.Length == 1 && search.Stickers[0].Id == purple.Sticker.Id,
+                "Searching the trash did not reach the native query.");
+
+        var restored = await TrashOperations.RestoreAsync(session, [Entry(deletedPurple)], Key, token);
+        Check(restored is { Succeeded: 1, Failed: 0, ErrorKey: null }, "Restoring a trashed sticker did not succeed once.");
+        using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
+            Check(!trash.Stickers.Any(item => item.Id == purple.Sticker.Id), "A restored sticker stayed in the trash listing.");
+        using (var active = await session.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null, token))
+            Check(active.Stickers.Any(item => item.Id == purple.Sticker.Id), "A restored sticker did not return to the normal listing.");
+        var detail = await session.DetailAsync(purple.Sticker.Id, token);
+        Check(detail.Sticker.Title == "紫色贴纸" && detail.Sticker.Note == "trash note" && detail.Sticker.Starred,
+            "Restoring a sticker lost metadata or the star.");
+        Check(detail.Sticker.Lifecycle.Generation > deletedPurple.Lifecycle.Generation, "Restore did not advance the generation.");
+        // Restore raises the generation, so the pre-deletion collection and tag
+        // relations stop being effective (the core keeps them as suggestions).
+        // Reassigning is a separate core write, which the client performs when
+        // the user wants the placement back.
+        Check(detail.Collection is null && detail.Tags.Length == 0,
+            "Restore silently reattached organization the core detaches.");
+        await session.OrganizeAsync(new(purple.Sticker.Id, detail.Sticker.Lifecycle.Generation), true,
+            new(collection.Id, collection.Lifecycle.Generation), [new(tag.Id, tag.Lifecycle.Generation)], token);
+        detail = await session.DetailAsync(purple.Sticker.Id, token);
+        Check(detail.Collection?.Id == collection.Id && detail.Tags.Any(item => item.Id == tag.Id),
+            "Reassigning organization after restore failed.");
+        Check(File.Exists(detail.OriginalPath), "Restore did not bring the original back.");
+
+        var activeEntry = new TrashEntry(purple.Sticker.Id, detail.Sticker.Lifecycle.Generation, detail.Sticker.Lifecycle.Revision);
+        var onActive = await TrashOperations.PurgeAsync(session, [activeEntry], Key, token);
+        Check(onActive is { Succeeded: 0, Failed: 1, ErrorKey: "Conflict" }, "An active sticker was purged instead of rejected.");
+        Check(File.Exists(detail.OriginalPath), "A rejected purge deleted the original file.");
+        var restoredAgain = await TrashOperations.RestoreAsync(session, [activeEntry], Key, token);
+        Check(restoredAgain is { Succeeded: 0, Failed: 1, ErrorKey: "Conflict" }, "Restoring an active sticker was not rejected.");
+        var mixed = await TrashOperations.RestoreAsync(session,
+            [activeEntry, new TrashEntry(missing, 1, 1)], Key, token);
+        Check(mixed is { Succeeded: 0, Failed: 2, ErrorKey: "Conflict" },
+            "A batch stopped at the first failure or lost the first error.");
+
+        var cyanDetail = await session.DetailAsync(cyan.Sticker.Id, token);
+        var cyanOriginal = cyanDetail.OriginalPath;
+        Check(cyanOriginal is not null && File.Exists(cyanOriginal), "A trashed sticker lost its original too early.");
+        var purged = await TrashOperations.PurgeAsync(session, [Entry(deletedCyan)], Key, token);
+        Check(purged is { Succeeded: 1, Failed: 0, ErrorKey: null }, "Purging a trashed sticker did not succeed once.");
+        using (var active = await session.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null, token))
+            Check(!active.Stickers.Any(item => item.Id == cyan.Sticker.Id), "A purged sticker was still listed as active.");
+        using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
+            Check(!trash.Stickers.Any(item => item.Id == cyan.Sticker.Id), "A purged sticker was still listed in the trash.");
+        Check(!File.Exists(cyanOriginal), "Purging a sticker left its original file behind.");
+        // The tombstone row stays for sync, so the detail still resolves; the
+        // original is gone and the core reports why instead of a path.
+        var purgedDetail = await session.DetailAsync(cyan.Sticker.Id, token);
+        Check(purgedDetail.OriginalPath is null && purgedDetail.OriginalError is not null,
+            "A purged sticker still reported a readable original.");
+
+        var deletedAgain = await session.DeleteStickerAsync(
+            new(purple.Sticker.Id, detail.Sticker.Lifecycle.Generation), token);
+        var stale = await TrashOperations.PurgeAsync(session,
+            [new TrashEntry(purple.Sticker.Id, deletedAgain.Lifecycle.Generation, deletedAgain.Lifecycle.Revision - 1)], Key, token);
+        Check(stale is { Succeeded: 0, Failed: 1, ErrorKey: "Conflict" }, "A stale purge revision was accepted.");
+        using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
+            Check(trash.Stickers.Any(item => item.Id == purple.Sticker.Id), "A rejected purge dropped the sticker from the trash.");
+        var staleDetail = await session.DetailAsync(purple.Sticker.Id, token);
+        Check(File.Exists(staleDetail.OriginalPath), "A rejected purge deleted the original file.");
+
+        var current = new TrashEntry(purple.Sticker.Id, staleDetail.Sticker.Lifecycle.Generation, staleDetail.Sticker.Lifecycle.Revision);
+        Check((await TrashOperations.PurgeAsync(session, [current], Key, token)) is { Succeeded: 1, Failed: 0 },
+            "Purging with the current revision failed.");
+        Check((await TrashOperations.PurgeAsync(session, [current], Key, token)) is { Succeeded: 1, Failed: 0 },
+            "Repeating a purge on an already purged sticker was reported as a failure.");
+        Check((await TrashOperations.PurgeAsync(session, [new TrashEntry(missing, 1, 1)], Key, token))
+            is { Succeeded: 0, Failed: 1, ErrorKey: "NotFound" }, "Purging an unknown sticker did not report not-found.");
+        Check((await TrashOperations.RestoreAsync(session, [new TrashEntry(missing, 1, 1)], Key, token))
+            is { Succeeded: 0, Failed: 1, ErrorKey: "NotFound" }, "Restoring an unknown sticker did not report not-found.");
+        Check((await TrashOperations.RestoreAsync(session, [new TrashEntry("missing-sticker", 1, 1)], Key, token))
+            is { Succeeded: 0, Failed: 1, ErrorKey: "InvalidInput" }, "A malformed sticker id was not rejected as invalid input.");
+
+        using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
+            Check(trash.Stickers.Length == 0 && trash.Next is null, "The emptied trash still listed stickers.");
+        using (var active = await session.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null, token))
+            Check(active.Stickers.Length == 2, "Trash operations changed the active listing of unrelated stickers.");
+
+        await session.DeleteCollectionAsync(new(collection.Id, collection.Lifecycle.Generation), token);
+        await session.DeleteTagAsync(new(tag.Id, tag.Lifecycle.Generation), token);
+        Console.WriteLine("PASS: real trash listing, search, restore, purge, idempotence and failure consistency");
+    }
+
+    // The trash entry uses the revision observed when the sticker was listed, so
+    // a concurrent change fails for that entry only.
+    private static TrashEntry Entry(StickerMetadata item) => new(item.Id, item.Lifecycle.Generation, item.Lifecycle.Revision);
 
     private static async Task OutputContractsAsync(LibrarySession session, string id, string source)
     {
