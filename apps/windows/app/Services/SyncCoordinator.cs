@@ -32,6 +32,7 @@ public sealed class SyncCoordinator : IAsyncDisposable
     private readonly ISyncTokenStore _tokens;
     private readonly string _libraryId;
     private readonly TimeSpan _retryFloor;
+    private readonly TimeSpan _changeDebounce;
     private readonly object _stateLock = new();
     private readonly object _commandLock = new();
     private readonly WakeSignal _wake = new();
@@ -50,12 +51,13 @@ public sealed class SyncCoordinator : IAsyncDisposable
     private int _disposed;
 
     public SyncCoordinator(ISyncAdapter adapter, ISyncTokenStore tokens, string libraryId,
-        TimeSpan? retryFloor = null)
+        TimeSpan? retryFloor = null, TimeSpan? changeDebounce = null)
     {
         _adapter = adapter;
         _tokens = tokens;
         _libraryId = libraryId;
         _retryFloor = retryFloor ?? DefaultRetryFloor;
+        _changeDebounce = changeDebounce ?? ChangeDebounce;
     }
 
     public event EventHandler? StateChanged;
@@ -357,7 +359,11 @@ public sealed class SyncCoordinator : IAsyncDisposable
     {
         try
         {
-            await Task.Delay(ChangeDebounce, _lifetime.Token).ConfigureAwait(false);
+            await Task.Delay(_changeDebounce, _lifetime.Token).ConfigureAwait(false);
+            // Release the debounce slot before signalling: a change that arrives
+            // between the wake and the slot release must schedule a new debounce
+            // instead of being swallowed by the window this method is leaving.
+            Volatile.Write(ref _debouncing, 0);
             if (Volatile.Read(ref _stopping) == 0) _wake.Set();
         }
         catch (OperationCanceledException) { }
@@ -434,7 +440,13 @@ public sealed class SyncCoordinator : IAsyncDisposable
         Mutate(current => current with { Error = error });
     }
 
-    /// <summary>Conflated signal: a wake requested during a run is never lost.</summary>
+    /// <summary>
+    /// Conflated signal where one <see cref="Set"/> releases exactly one
+    /// <see cref="WaitAsync"/>. A wake raised before the wait starts, while the
+    /// wait is blocked, or during the sync that follows is latched and handed to
+    /// the next wait; it is never replayed onto the wait after that, which would
+    /// otherwise run the same change twice.
+    /// </summary>
     private sealed class WakeSignal
     {
         private readonly object _lock = new();
@@ -455,7 +467,15 @@ public sealed class SyncCoordinator : IAsyncDisposable
             TaskCompletionSource<bool> waiter;
             lock (_lock)
             {
-                _signaled = false;
+                if (_signaled)
+                {
+                    // Raised before this wait began: consume the latch once and give
+                    // the following wait an unused source, so the already delivered
+                    // wake cannot release it as well.
+                    _signaled = false;
+                    _pending = NewSource();
+                    return;
+                }
                 waiter = _pending;
             }
             using var expiry = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -468,8 +488,11 @@ public sealed class SyncCoordinator : IAsyncDisposable
                 {
                     if (ReferenceEquals(_pending, waiter))
                     {
+                        // The Set that released this wait is consumed here. A wake
+                        // that arrives after this point is a new one and latches for
+                        // the next wait, so a change made during the sync is kept.
                         _pending = NewSource();
-                        if (_signaled) _pending.TrySetResult(true);
+                        _signaled = false;
                     }
                 }
             }

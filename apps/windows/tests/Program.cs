@@ -764,6 +764,7 @@ internal static class Program
             "Disposing the coordinator left the status subscription open.");
 
         await SyncAutomaticLoopAsync();
+        await SyncWakeSignalAsync();
         await SyncShutdownAsync();
         await SyncCredentialScopeAsync();
         Console.WriteLine("PASS: sync state machine, credential handling, deduplication and disposal");
@@ -800,6 +801,71 @@ internal static class Program
             await sync.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
         }
         Console.WriteLine("PASS: automatic sync cadence and local-change wake-up");
+    }
+
+    // The wake signal is conflated: one Set releases exactly one wait, and a wake
+    // raised while a sync runs must still cause one more sync afterwards. A ten
+    // second retry floor proves every sync here came from a wake, and a 20 ms
+    // debounce lets the test wait on counters instead of guessing at sleeps.
+    private static async Task SyncWakeSignalAsync()
+    {
+        const string library = "wake-library";
+        const string origin = "https://sync.example.com/";
+        var tokens = new FakeSyncTokens();
+        tokens.Saved[library + "|" + origin] = "mdk_wake";
+        var adapter = new FakeSyncAdapter { Status = SyncSnapshot(connected: true) };
+        var sync = new SyncCoordinator(adapter, tokens, library, TimeSpan.FromSeconds(10),
+            TimeSpan.FromMilliseconds(20));
+        await sync.StartAsync();
+        try
+        {
+            await WaitForAsync(() => adapter.SynchronizeCalls == 1, "the first automatic sync");
+
+            // A wake that arrives while the loop is waiting runs one sync, not two.
+            sync.NotifyContentChanged();
+            await WaitForAsync(() => adapter.SynchronizeCalls == 2, "one sync for one local change");
+            await Task.Delay(250);
+            Check(adapter.SynchronizeCalls == 2, "One local change started more than one sync.");
+
+            // A burst inside one debounce window coalesces into a single wake.
+            for (var i = 0; i < 5; i++) sync.NotifyContentChanged();
+            await WaitForAsync(() => adapter.SynchronizeCalls == 3, "a coalesced burst of local changes");
+            await Task.Delay(250);
+            Check(adapter.SynchronizeCalls == 3, "A burst of local changes started more than one sync.");
+
+            // A wake raised during a sync is kept and applied as soon as it ends:
+            // the ten second floor leaves no other way to reach the next sync.
+            adapter.SynchronizeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            sync.NotifyContentChanged();
+            await WaitForAsync(() => adapter.SynchronizeCalls == 4, "the gated sync to start");
+            sync.NotifyContentChanged();
+            adapter.SynchronizeGate.SetResult();
+            await WaitForAsync(() => adapter.SynchronizeCalls == 5, "a sync for the wake raised during a sync");
+            await Task.Delay(250);
+            Check(adapter.SynchronizeCalls == 5, "A wake raised during a sync was delivered twice.");
+
+            // The status observer is the other wake producer: a push that leaves the
+            // binding unusable must not sync, and the push that makes it usable again
+            // must wake the loop exactly once.
+            adapter.Push(SyncSnapshot(connected: true, paused: true));
+            await WaitForAsync(() => sync.State.Status.Paused, "the paused status to reach the state");
+            await Task.Delay(250);
+            Check(adapter.SynchronizeCalls == 5, "A paused status push started a sync.");
+            adapter.Push(SyncSnapshot(connected: true));
+            await WaitForAsync(() => adapter.SynchronizeCalls == 6, "a sync after the binding became usable");
+            await Task.Delay(250);
+            Check(adapter.SynchronizeCalls == 6, "A push that made the binding usable started more than one sync.");
+        }
+        finally
+        {
+            adapter.SynchronizeGate?.TrySetResult();
+            await sync.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        var settled = adapter.SynchronizeCalls;
+        sync.NotifyContentChanged();
+        await Task.Delay(250);
+        Check(adapter.SynchronizeCalls == settled, "A disposed coordinator still started a sync.");
+        Console.WriteLine("PASS: conflated wake signal, debounced bursts and shutdown");
     }
 
     private static async Task SyncShutdownAsync()
