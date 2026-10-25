@@ -529,8 +529,15 @@ public sealed partial class MainWindow : Window
         ViewModel.RequestStop();
         try
         {
-            await Task.WhenAll(_initialization, _searching, _importing, Settings.PendingSave);
-            await ViewModel.DisposeAsync();
+            // The window is closing either way, so a faulted background task must
+            // not skip the session release that follows it.
+            var failure = await ShutdownRun.SequenceAsync(
+                () => _initialization,
+                () => _searching,
+                () => _importing,
+                () => Settings.PendingSave,
+                () => ViewModel.DisposeAsync().AsTask());
+            if (failure is not null) Trace.WriteLine($"Library shutdown: {failure}");
         }
         catch (Exception error) { Trace.WriteLine($"Library shutdown: {error}"); }
         finally

@@ -19,6 +19,7 @@ internal static class Program
             RequestGenerations();
             EditDrafts();
             OutputPolicies();
+            await ShutdownSequenceAsync();
             ResourceParity(FindRepository());
             await PreferencesAsync();
             await SyncStateMachineAsync();
@@ -107,6 +108,33 @@ internal static class Program
         try { target.Validate(metadata with { Lifecycle = metadata.Lifecycle with { DeletedAt = 1 } }); throw new InvalidOperationException("Deleted target accepted."); }
         catch (BridgeException.Failure failure) { Check(failure.code == ErrorCode.EntityDeleted, "Wrong deleted-target error."); }
         Console.WriteLine("PASS: original/PNG/first-frame output policy and captured-target validation");
+    }
+
+    // Shutdown is the last chance to release the library, so a failing step must
+    // not skip the rest and a cancelled step is not a failure.
+    private static async Task ShutdownSequenceAsync()
+    {
+        var ran = new List<string>();
+        var observerFailure = new InvalidOperationException("observer failed");
+        var failure = await ShutdownRun.SequenceAsync(
+            () => { ran.Add("observer"); return Task.FromException(observerFailure); },
+            () => { ran.Add("reload"); return Task.CompletedTask; },
+            () => { ran.Add("trash"); return Task.FromException(new OperationCanceledException()); },
+            () => { ran.Add("session"); return Task.FromException(new InvalidOperationException("session failed")); });
+        Check(ran.SequenceEqual(["observer", "reload", "trash", "session"]),
+            "A failed shutdown step skipped the steps after it.");
+        Check(failure is AggregateException { InnerExceptions.Count: 2 } aggregate
+            && ReferenceEquals(aggregate.InnerExceptions[0], observerFailure),
+            "Shutdown lost the first failure or dropped a later one.");
+        Check(await ShutdownRun.SequenceAsync(() => Task.FromException(new OperationCanceledException())) is null,
+            "Cancelling during shutdown was reported as a failure.");
+        var ordered = new List<string>();
+        Check(await ShutdownRun.SequenceAsync(
+                () => { ordered.Add("first"); return Task.CompletedTask; },
+                () => { ordered.Add("second"); return Task.CompletedTask; }) is null
+            && ordered.SequenceEqual(["first", "second"]),
+            "A clean shutdown did not run its steps in order.");
+        Console.WriteLine("PASS: shutdown keeps releasing resources after a failed background task");
     }
 
     private static void EditDrafts()

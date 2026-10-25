@@ -7,6 +7,7 @@ internal sealed class LibrarySession : IAsyncDisposable
 {
     private readonly LibraryHandle _library;
     private readonly ulong _maxInputBytes;
+    private bool _disposed;
     public string LibraryId { get; }
 
     private LibrarySession(LibraryHandle library, ulong maxInputBytes)
@@ -314,6 +315,10 @@ internal sealed class LibrarySession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Closing the window is the only caller today, but a second call must not
+        // shut down an already disposed UniFFI handle.
+        if (_disposed) return;
+        _disposed = true;
         try { await Task.Run(() => _library.Shutdown()).ConfigureAwait(false); }
         finally { _library.Dispose(); }
     }

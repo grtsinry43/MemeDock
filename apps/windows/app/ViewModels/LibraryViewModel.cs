@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using CommunityToolkit.Mvvm.ComponentModel;
 using MemeDock.Bridge;
 using MemeDock.Windows.Localization;
@@ -52,6 +53,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     private Task _trashBatch = Task.CompletedTask;
     private bool _dirty;
     private bool _stopping;
+    private bool _disposed;
 
     public string Heading => Filter.Scope switch
     {
@@ -448,27 +450,50 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
+        _disposed = true;
         RequestStop();
-        await Task.WhenAll(_observer, _reload, _trashBatch);
-        await _queries.WaitAsync();
+        // Shutdown has to reach the session even when a background task or a
+        // child view model throws: the window closes regardless, and skipping
+        // the session would leave the native library (and its files) open.
+        var failure = await ShutdownRun.SequenceAsync(() => _observer, () => _reload, () => _trashBatch);
+        var held = false;
         try
         {
-            if (Sync is not null) await Sync.DisposeAsync();
-            if (Output is not null) await Output.DisposeAsync();
-            if (Details is not null) await Details.DisposeAsync();
-            if (Batch is not null) await Batch.DisposeAsync();
-            if (Catalog is not null) await Catalog.DisposeAsync();
-            if (Thumbnails is not null) await Thumbnails.DisposeAsync();
-            _cursor?.Dispose();
-            _subscription?.Dispose();
-            if (_session is not null) await _session.DisposeAsync();
+            // In-flight queries finish (their token is already cancelled) before
+            // the handles and the session they use are released.
+            await _queries.WaitAsync();
+            held = true;
+            // Assigned through a local: ??= would skip the whole cleanup sequence
+            // when a background task already failed.
+            var cleanup = await ShutdownRun.SequenceAsync(
+                () => Sync is null ? Task.CompletedTask : Sync.DisposeAsync().AsTask(),
+                () => Output is null ? Task.CompletedTask : Output.DisposeAsync().AsTask(),
+                () => Details is null ? Task.CompletedTask : Details.DisposeAsync().AsTask(),
+                () => Batch is null ? Task.CompletedTask : Batch.DisposeAsync().AsTask(),
+                () => Catalog is null ? Task.CompletedTask : Catalog.DisposeAsync().AsTask(),
+                () => Thumbnails is null ? Task.CompletedTask : Thumbnails.DisposeAsync().AsTask(),
+                ReleaseHandles,
+                () => _session is null ? Task.CompletedTask : _session.DisposeAsync().AsTask());
+            failure ??= cleanup;
+            _session = null;
         }
         finally
         {
-            _queries.Release();
+            if (held) _queries.Release();
             _queries.Dispose();
             _queryCancellation?.Dispose();
             _lifetime.Dispose();
         }
+        if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private Task ReleaseHandles()
+    {
+        _cursor?.Dispose();
+        _cursor = null;
+        _subscription?.Dispose();
+        _subscription = null;
+        return Task.CompletedTask;
     }
 }
