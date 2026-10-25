@@ -35,6 +35,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public BatchOrganizeViewModel? Batch { get; private set; }
     public CatalogViewModel? Catalog { get; private set; }
     public StickerOutputViewModel? Output { get; private set; }
+    public SyncCoordinator? Sync { get; private set; }
     internal ThumbnailLoader? Thumbnails { get; private set; }
 
     private LibrarySession? _session;
@@ -97,10 +98,13 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             Batch = new BatchOrganizeViewModel(_session, strings);
             Catalog = new CatalogViewModel(_session, strings, RefreshCatalogsAsync);
             Output = new StickerOutputViewModel(_session, strings);
+            Sync ??= new SyncCoordinator(
+                new LibrarySyncAdapter(_session), new WindowsCredentialTokenStore(), _session.LibraryId);
             _subscription = _session.Subscribe();
             IsReady = true;
             OnPropertyChanged(nameof(IsReady));
             _observer = ObserveAsync();
+            await Sync.StartAsync();
             await RefreshCatalogsAsync();
             await RefreshAsync();
         }
@@ -293,6 +297,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
                     if (notification is Notification.CollectionsChanged or Notification.TagsChanged or Notification.ReloadRequired)
                         await RefreshCatalogsAsync();
                     _dirty = true;
+                    Sync?.NotifyContentChanged();
                     if (_reload.IsCompleted) _reload = ReloadWhenQuietAsync();
                 }
             }
@@ -378,6 +383,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         _lifetime.Cancel();
         _queryCancellation?.Cancel();
         _subscription?.Unsubscribe();
+        Sync?.RequestStop();
     }
 
     public async ValueTask DisposeAsync()
@@ -387,6 +393,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         await _queries.WaitAsync();
         try
         {
+            if (Sync is not null) await Sync.DisposeAsync();
             if (Output is not null) await Output.DisposeAsync();
             if (Details is not null) await Details.DisposeAsync();
             if (Batch is not null) await Batch.DisposeAsync();

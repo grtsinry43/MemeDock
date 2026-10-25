@@ -277,6 +277,28 @@ internal sealed class LibrarySession : IAsyncDisposable
         await request.AwaitResult().ConfigureAwait(false);
     });
 
+    public Task<SyncStatus> SyncStatusAsync(CancellationToken cancellation)
+        => RunSyncAsync(_library.SyncStatus, cancellation);
+
+    public Task<SyncStatus> ConnectSyncAsync(string origin, string token, CancellationToken cancellation)
+        => RunSyncAsync(() => _library.ConnectSync(origin, token), cancellation);
+
+    public Task<SyncStatus> SynchronizeAsync(string token, CancellationToken cancellation)
+        => RunSyncAsync(() => _library.Synchronize(token), cancellation);
+
+    public Task<SyncStatus> SetSyncPausedAsync(bool paused, CancellationToken cancellation)
+        => RunSyncAsync(() => _library.SetSyncPaused(paused), cancellation);
+
+    public SyncSubscriptionHandle SubscribeSync() => _library.SubscribeSync();
+
+    private Task<SyncStatus> RunSyncAsync(Func<SyncStatusTask> start, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = start();
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
     public async ValueTask DisposeAsync()
     {
         try { await Task.Run(() => _library.Shutdown()).ConfigureAwait(false); }

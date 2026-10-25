@@ -136,6 +136,7 @@ public sealed partial class MainWindow : Window
             Details.Configure(details, Strings, ViewModel.Collections, ViewModel.Tags, output);
             Batch.Configure(batch, Strings, ViewModel.Collections, ViewModel.Tags);
             Catalog.Configure(catalog, Strings, ViewModel.Collections, ViewModel.Tags);
+            Settings.ConfigureSync(ViewModel.Sync, Strings);
             details.Deleted += OnStickerDeleted;
             batch.PropertyChanged += OnModelChanged;
             batch.Completed += OnBatchCompleted;
@@ -483,6 +484,7 @@ public sealed partial class MainWindow : Window
         Details.Shutdown();
         Batch.Shutdown();
         Catalog.Shutdown();
+        Settings.ShutdownSync();
         Root.IsHitTestVisible = false;
         _lifetime.Cancel();
         ViewModel.RequestStop();

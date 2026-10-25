@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using System.Xml.Linq;
 using MemeDock.Bridge;
 using MemeDock.Windows;
@@ -20,6 +21,7 @@ internal static class Program
             OutputPolicies();
             ResourceParity(FindRepository());
             await PreferencesAsync();
+            await SyncStateMachineAsync();
             await SessionQueriesAsync();
             Console.WriteLine("PASS: Windows browsing state, localization and preference checks");
             return 0;
@@ -310,7 +312,12 @@ internal static class Program
         Check((await session.TagsAsync(token)).Any(item => item.Id == tag.Id) && (await session.CollectionsAsync(token)).Any(item => item.Id == c1.Id),
             "Catalog undo failed to restore entries.");
         Check((await session.DetailAsync(second.Id, token)).Sticker.Starred, "Deleting a collection deleted its sticker.");
-        Console.WriteLine("PASS: real detail editing, organization, order, soft-delete/restore, original preservation and partial batch failure");
+        var syncStatus = await session.SyncStatusAsync(token);
+        Check(!syncStatus.Connected && syncStatus.Pending == 0 && syncStatus.Blocked == 0 && syncStatus.Error is null,
+            "A fresh library reported an unexpected sync binding.");
+        var unbound = await session.SetSyncPausedAsync(false, token);
+        Check(!unbound.Connected, "Touching sync on an unbound library created a binding.");
+        Console.WriteLine("PASS: real detail editing, organization, order, soft-delete/restore, original preservation, unbound sync state and partial batch failure");
     }
 
     private static async Task OutputContractsAsync(LibrarySession session, string id, string source)
@@ -441,5 +448,382 @@ internal static class Program
                 && Path.GetFileName(root).StartsWith("MemeDock-Windows-preferences-", StringComparison.Ordinal))
                 Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static async Task SyncStateMachineAsync()
+    {
+        const string library = "library-under-test";
+        var tokens = new FakeSyncTokens();
+        var adapter = new FakeSyncAdapter();
+        var sync = new SyncCoordinator(adapter, tokens, library, TimeSpan.FromMilliseconds(10));
+
+        await sync.StartAsync(runLoop: false);
+        Check(sync.State.Loaded && !sync.State.HasCredential && !sync.State.Status.Connected
+              && SyncPresentation.StatusKey(sync.State) == "sync_authorize"
+              && SyncPresentation.NeedsAuthorization(sync.State),
+            "A fresh library did not report the disconnected sync state.");
+        Check(adapter.Subscriptions.Count == 1, "Sync status was not observed exactly once.");
+
+        adapter.Status = SyncSnapshot(connected: true, pending: 2);
+        await sync.ConnectAsync("  https://sync.example.com/  ", "mdk_first");
+        Check(adapter.ConnectCalls == 1 && adapter.LastOrigin == "https://sync.example.com/"
+              && adapter.LastToken == "mdk_first", "Connecting did not trim or forward the server address.");
+        Check(tokens.Saved.TryGetValue(library + "|https://sync.example.com/", out var stored) && stored == "mdk_first",
+            "Connecting did not persist the device token.");
+        Check(sync.State.HasCredential && sync.State.Status.Connected
+              && SyncPresentation.StatusKey(sync.State) == "sync_ready",
+            "A successful connection did not produce the ready state.");
+
+        adapter.ConnectGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = sync.ConnectAsync("https://sync.example.com/", "mdk_second");
+        await WaitForAsync(() => adapter.ConnectCalls == 2, "the second connect to start");
+        var third = sync.ConnectAsync("https://sync.example.com/", "mdk_third");
+        Check(ReferenceEquals(second, third),
+            "A repeated connect request started a separate command instead of reusing the running one.");
+        adapter.ConnectGate.SetResult();
+        adapter.ConnectGate = null;
+        await Task.WhenAll(second, third);
+        Check(adapter.ConnectCalls == 2 && adapter.LastToken == "mdk_second",
+            "Repeated connect requests created more than one native session.");
+
+        adapter.Status = SyncSnapshot(connected: true, paused: true);
+        await sync.SetPausedAsync(true);
+        Check(sync.State.Status.Paused && SyncPresentation.StatusKey(sync.State) == "sync_paused",
+            "Pausing was not reflected in the sync state.");
+        adapter.Status = SyncSnapshot(connected: true);
+        await sync.SetPausedAsync(false);
+        Check(!sync.State.Status.Paused && SyncPresentation.StatusKey(sync.State) == "sync_ready",
+            "Resuming was not reflected in the sync state.");
+
+        adapter.Status = SyncSnapshot(connected: true, pending: 5);
+        adapter.Push(adapter.Status);
+        await WaitForAsync(() => sync.State.Status.Pending == 5, "native status updates");
+        Check(sync.State.Status.Pending == 5, "A pushed native status did not reach the state.");
+
+        adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_700_000_000_000);
+        await sync.SynchronizeNowAsync();
+        Check(adapter.SynchronizeCalls == 1 && sync.State.Status.LastSuccessMs == 1_700_000_000_000
+              && SyncPresentation.StatusKey(sync.State) == "sync_ready",
+            "A successful manual sync did not update the state.");
+
+        adapter.Status = SyncSnapshot(connected: true, error: "network");
+        adapter.SynchronizeFailure = new InvalidOperationException("offline");
+        await sync.SynchronizeNowAsync();
+        Check(SyncPresentation.ErrorKey(sync.State) == "sync_failure_network"
+              && SyncPresentation.StatusKey(sync.State) == "sync_failed"
+              && !SyncPresentation.IsTerminal(sync.State),
+            "A network failure did not produce a retryable sync error.");
+
+        adapter.SynchronizeFailure = null;
+        adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_700_000_100_000);
+        await sync.SynchronizeNowAsync();
+        Check(sync.State.Status.LastSuccessMs == 1_700_000_100_000 && SyncPresentation.ErrorKey(sync.State) is null,
+            "Retrying after a network failure did not clear the error.");
+
+        var callsBeforeTerminal = adapter.SynchronizeCalls;
+        adapter.Status = SyncSnapshot(connected: true, error: "unauthorized");
+        adapter.SynchronizeFailure = new InvalidOperationException("expired");
+        await sync.SynchronizeNowAsync();
+        Check(SyncPresentation.ErrorKey(sync.State) == "sync_failure_unauthorized"
+              && SyncPresentation.IsTerminal(sync.State)
+              && SyncPresentation.NeedsAuthorization(sync.State),
+            "An unauthorized response did not ask for a new token.");
+        await sync.SynchronizeNowAsync();
+        Check(adapter.SynchronizeCalls == callsBeforeTerminal + 1,
+            "A terminal authorization failure kept retrying automatically.");
+
+        // The adapter reports failures through BridgeException.Failure, which the
+        // coordinator presents from the exception rather than from a status string.
+        var unauthorized = new SyncState(
+            SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: true, Changing: false,
+            Error: new BridgeException.Failure(ErrorCode.Unauthorized, "expired"));
+        Check(SyncPresentation.NeedsAuthorization(unauthorized)
+              && SyncPresentation.IsTerminal(unauthorized)
+              && !SyncPresentation.CanSynchronize(unauthorized)
+              && SyncPresentation.StatusKey(unauthorized) == "sync_authorize"
+              && SyncPresentation.ErrorKey(unauthorized) == "sync_failure_unauthorized",
+            "A bridge authorization failure was not presented as a re-authorization request.");
+
+        var credentialFailure = new SyncState(
+            SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: true, Changing: false,
+            Error: new SyncCredentialException("credential store unavailable"));
+        Check(SyncPresentation.ErrorKey(credentialFailure) == "sync_failure_credential"
+              && SyncPresentation.StatusKey(credentialFailure) == "sync_authorize"
+              && !SyncPresentation.CanSynchronize(credentialFailure),
+            "A credential store failure was not presented as a re-authorization request.");
+
+        adapter.Push(SyncSnapshot(connected: true));
+        await WaitForAsync(() => sync.State.Status.Error is null, "the cleared sync error");
+        adapter.Status = SyncSnapshot(connected: true);
+        adapter.SynchronizeFailure = null;
+        adapter.SynchronizeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = sync.SynchronizeNowAsync();
+        await WaitForAsync(() => adapter.SynchronizeCalls == callsBeforeTerminal + 2, "the first sync to start");
+        var duplicate = sync.SynchronizeNowAsync();
+        await Task.Delay(50);
+        Check(adapter.SynchronizeCalls == callsBeforeTerminal + 2,
+            "A repeated sync request started a second native sync.");
+        adapter.SynchronizeGate.SetResult();
+        await Task.WhenAll(first, duplicate);
+        adapter.SynchronizeGate = null;
+
+        tokens.FailSave = true;
+        adapter.Status = SyncSnapshot(connected: true);
+        await sync.ConnectAsync("https://sync.example.com/", "mdk_unsaved");
+        Check(adapter.LastPaused && !sync.State.HasCredential
+              && SyncPresentation.ErrorKey(sync.State) == "sync_failure_credential"
+              && SyncPresentation.StatusKey(sync.State) == "sync_authorize",
+            "A token that could not be stored left sync enabled.");
+        tokens.FailSave = false;
+
+        adapter.Status = SyncSnapshot(connected: true);
+        await sync.ConnectAsync("https://sync.example.com/", "mdk_stored");
+        Check(sync.State.HasCredential, "A restorable connection was not established before the credential test.");
+
+        tokens.FailLoad = true;
+        await sync.SynchronizeNowAsync();
+        Check(!sync.State.HasCredential
+              && SyncPresentation.ErrorKey(sync.State) == "sync_failure_credential",
+            "A credential read failure was not reported as a credential error.");
+        tokens.FailLoad = false;
+
+        adapter.Status = SyncSnapshot(connected: true);
+        await sync.ConnectAsync("https://sync.example.com/", "mdk_final");
+        await sync.DisconnectAsync();
+        Check(!sync.State.HasCredential && adapter.LastPaused
+              && SyncPresentation.StatusKey(sync.State) == "sync_authorize"
+              && !tokens.Saved.ContainsKey(library + "|https://sync.example.com/"),
+            "Disconnecting kept syncing or left the token behind.");
+
+        await sync.DisposeAsync();
+        var connectsBeforeLateCall = adapter.ConnectCalls;
+        await sync.ConnectAsync("https://sync.example.com/", "mdk_late");
+        Check(adapter.ConnectCalls == connectsBeforeLateCall,
+            "A disposed coordinator still accepted commands.");
+        await sync.DisposeAsync();
+        Check(adapter.Subscriptions.TrueForAll(subscription => subscription.Closed),
+            "Disposing the coordinator left the status subscription open.");
+
+        await SyncAutomaticLoopAsync();
+        await SyncShutdownAsync();
+        await SyncCredentialScopeAsync();
+        Console.WriteLine("PASS: sync state machine, credential handling, deduplication and disposal");
+    }
+
+    private static async Task SyncAutomaticLoopAsync()
+    {
+        const string library = "loop-library";
+        const string origin = "https://sync.example.com/";
+        var tokens = new FakeSyncTokens();
+        tokens.Saved[library + "|" + origin] = "mdk_loop";
+        var adapter = new FakeSyncAdapter { Status = SyncSnapshot(connected: true) };
+        // A ten-second floor keeps the core's 20 ms cadence from masquerading as a
+        // wake-up: any sync inside the waits below can only come from a signal.
+        var sync = new SyncCoordinator(adapter, tokens, library, TimeSpan.FromSeconds(10));
+        await sync.StartAsync();
+        try
+        {
+            await WaitForAsync(() => adapter.SynchronizeCalls == 1, "the first automatic sync");
+            Check(sync.State.Status.Connected && sync.State.HasCredential,
+                "The automatic loop did not keep the connected state.");
+            await Task.Delay(200);
+            Check(adapter.SynchronizeCalls == 1,
+                "The automatic loop ignored the retry cadence the core asked for.");
+            adapter.Push(SyncSnapshot(connected: true, pending: 3, retry: 30_000));
+            await Task.Delay(200);
+            Check(adapter.SynchronizeCalls == 1,
+                "A pushed status shortened the retry cadence, so a failure could be retried immediately.");
+            sync.NotifyContentChanged();
+            await WaitForAsync(() => adapter.SynchronizeCalls == 2, "a sync after a local change");
+        }
+        finally
+        {
+            await sync.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Console.WriteLine("PASS: automatic sync cadence and local-change wake-up");
+    }
+
+    private static async Task SyncShutdownAsync()
+    {
+        var tokens = new FakeSyncTokens();
+        tokens.Saved["shutdown-library|" + "https://sync.example.com/"] = "mdk_shutdown";
+        var adapter = new FakeSyncAdapter
+        {
+            Status = SyncSnapshot(connected: true),
+            SynchronizeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        var sync = new SyncCoordinator(adapter, tokens, "shutdown-library", TimeSpan.FromMilliseconds(10));
+        await sync.StartAsync(runLoop: false);
+        try
+        {
+            var running = sync.SynchronizeNowAsync();
+            await WaitForAsync(() => adapter.SynchronizeCalls == 1, "an in-flight sync");
+            var duplicate = sync.SynchronizeNowAsync();
+            Check(ReferenceEquals(running, duplicate),
+                "A coalesced sync request started a separate command instead of reusing the running one.");
+            sync.RequestStop();
+            await sync.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAll(running, duplicate).WaitAsync(TimeSpan.FromSeconds(5));
+            Check(!sync.State.Running && adapter.Subscriptions.TrueForAll(subscription => subscription.Closed),
+                "Shutdown left the running flag or the status stream open.");
+            Console.WriteLine("PASS: in-flight sync cancellation and shutdown");
+        }
+        finally
+        {
+            adapter.SynchronizeGate.TrySetResult();
+        }
+    }
+
+    private static async Task SyncCredentialScopeAsync()
+    {
+        const string origin = "https://sync.example.com/";
+        const string library = "scope-library";
+        var tokens = new FakeSyncTokens();
+        tokens.Saved[library + "|" + origin] = "mdk_scope";
+        tokens.Saved["other-library|" + origin] = "mdk_other";
+        var adapter = new FakeSyncAdapter { Status = SyncSnapshot(connected: true) };
+        var sync = new SyncCoordinator(adapter, tokens, library, TimeSpan.FromMilliseconds(10));
+        await sync.StartAsync(runLoop: false);
+        try
+        {
+            await sync.DisconnectAsync();
+            Check(!tokens.Saved.ContainsKey(library + "|" + origin)
+                  && tokens.Saved.ContainsKey("other-library|" + origin),
+                "Disconnecting one library removed another library's token.");
+            Check(!sync.State.HasCredential && sync.State.Status.Paused && adapter.LastPaused,
+                "Disconnecting did not pause the binding or drop the local credential flag.");
+            Console.WriteLine("PASS: credential scoping across libraries");
+        }
+        finally
+        {
+            await sync.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private static SyncStatus SyncSnapshot(
+        string? origin = "https://sync.example.com/",
+        bool connected = true,
+        bool paused = false,
+        ulong pending = 0,
+        ulong blocked = 0,
+        long cursor = 0,
+        long? lastSuccess = null,
+        string? error = null,
+        ulong retry = 20)
+        => new(origin, connected ? "device-under-test" : null, connected, paused, pending, blocked,
+            cursor, lastSuccess, error, retry);
+
+    private static async Task WaitForAsync(Func<bool> condition, string message, int timeoutMilliseconds = 3000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMilliseconds);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline) throw new InvalidOperationException($"Timed out waiting for {message}.");
+            await Task.Delay(10);
+        }
+    }
+
+    private sealed class FakeSyncTokens : ISyncTokenStore
+    {
+        public Dictionary<string, string> Saved { get; } = new(StringComparer.Ordinal);
+        public bool FailLoad { get; set; }
+        public bool FailSave { get; set; }
+
+        public Task<string?> LoadAsync(string libraryId, string origin, CancellationToken cancellation)
+            => FailLoad
+                ? Task.FromException<string?>(new IOException("credential store unavailable"))
+                : Task.FromResult(Saved.TryGetValue(Key(libraryId, origin), out var token) ? token : null);
+
+        public Task SaveAsync(string libraryId, string origin, string token, CancellationToken cancellation)
+        {
+            if (FailSave) return Task.FromException(new IOException("credential store unavailable"));
+            Saved[Key(libraryId, origin)] = token;
+            return Task.CompletedTask;
+        }
+
+        public Task ClearAsync(string libraryId, string origin, CancellationToken cancellation)
+        {
+            Saved.Remove(Key(libraryId, origin));
+            return Task.CompletedTask;
+        }
+
+        private static string Key(string libraryId, string origin) => libraryId + "|" + origin;
+    }
+
+    private sealed class FakeSyncAdapter : ISyncAdapter
+    {
+        public SyncStatus Status { get; set; } = SyncSnapshot(connected: false, origin: null);
+        public List<FakeSyncSubscription> Subscriptions { get; } = [];
+        public int ConnectCalls { get; private set; }
+        public int SynchronizeCalls { get; private set; }
+        public string? LastOrigin { get; private set; }
+        public string? LastToken { get; private set; }
+        public bool LastPaused { get; private set; }
+        public Exception? SynchronizeFailure { get; set; }
+        public TaskCompletionSource? SynchronizeGate { get; set; }
+        public TaskCompletionSource? ConnectGate { get; set; }
+
+        public Task<SyncStatus> StatusAsync(CancellationToken cancellation) => Task.FromResult(Status);
+
+        public async Task<SyncStatus> ConnectAsync(string origin, string token, CancellationToken cancellation)
+        {
+            ConnectCalls++;
+            LastOrigin = origin;
+            LastToken = token;
+            if (ConnectGate is not null) await ConnectGate.Task.WaitAsync(cancellation);
+            Status = SyncSnapshot(origin: origin);
+            return Status;
+        }
+
+        public async Task<SyncStatus> SynchronizeAsync(string token, CancellationToken cancellation)
+        {
+            SynchronizeCalls++;
+            LastToken = token;
+            if (SynchronizeGate is not null) await SynchronizeGate.Task.WaitAsync(cancellation);
+            if (SynchronizeFailure is not null) throw SynchronizeFailure;
+            return Status;
+        }
+
+        public Task<SyncStatus> SetPausedAsync(bool paused, CancellationToken cancellation)
+        {
+            LastPaused = paused;
+            Status = SyncSnapshot(origin: Status.Origin, paused: paused);
+            return Task.FromResult(Status);
+        }
+
+        public ISyncSubscription Subscribe()
+        {
+            var subscription = new FakeSyncSubscription();
+            Subscriptions.Add(subscription);
+            return subscription;
+        }
+
+        public void Push(SyncStatus status)
+        {
+            Status = status;
+            foreach (var subscription in Subscriptions) subscription.Push(status);
+        }
+    }
+
+    private sealed class FakeSyncSubscription : ISyncSubscription
+    {
+        private readonly Channel<SyncStatus?> _channel = Channel.CreateUnbounded<SyncStatus?>();
+        public bool Closed { get; private set; }
+
+        public async Task<SyncStatus?> NextAsync()
+        {
+            try { return await _channel.Reader.ReadAsync(); }
+            catch (ChannelClosedException) { return null; }
+        }
+
+        public void Push(SyncStatus? status) => _channel.Writer.TryWrite(status);
+
+        public void Close()
+        {
+            Closed = true;
+            _channel.Writer.TryComplete();
+        }
+
+        public void Dispose() => Close();
     }
 }
