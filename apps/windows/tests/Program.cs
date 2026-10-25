@@ -445,13 +445,24 @@ internal static class Program
 
         var deletedAgain = await session.DeleteStickerAsync(
             new(purple.Sticker.Id, detail.Sticker.Lifecycle.Generation), token);
-        var stale = await TrashOperations.PurgeAsync(session,
-            [new TrashEntry(purple.Sticker.Id, deletedAgain.Lifecycle.Generation, deletedAgain.Lifecycle.Revision - 1)], Key, token);
-        Check(stale is { Succeeded: 0, Failed: 1, ErrorKey: "Conflict" }, "A stale purge revision was accepted.");
+        // A library with no sync binding keeps every row at Revision::LOCAL, so the
+        // conflict this test can reach is a revision the tombstone does not carry,
+        // such as the one a peer reports after syncing ahead.
+        var observed = deletedAgain.Lifecycle.Revision;
+        var conflict = await TrashOperations.PurgeAsync(session,
+            [new TrashEntry(purple.Sticker.Id, deletedAgain.Lifecycle.Generation, observed + 1)], Key, token);
+        Check(conflict is { Succeeded: 0, Failed: 1, ErrorKey: "Conflict" }, "A purge with a conflicting revision was accepted.");
+        // One below the local revision falls outside the persisted range, so the
+        // bridge rejects it as invalid input before any revision comparison runs.
+        var malformed = await TrashOperations.PurgeAsync(session,
+            [new TrashEntry(purple.Sticker.Id, deletedAgain.Lifecycle.Generation, observed - 1)], Key, token);
+        Check(malformed is { Succeeded: 0, Failed: 1, ErrorKey: "InvalidInput" },
+            "An out-of-range purge revision was not rejected as invalid input.");
         using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
             Check(trash.Stickers.Any(item => item.Id == purple.Sticker.Id), "A rejected purge dropped the sticker from the trash.");
         var staleDetail = await session.DetailAsync(purple.Sticker.Id, token);
         Check(File.Exists(staleDetail.OriginalPath), "A rejected purge deleted the original file.");
+        Check(staleDetail.Sticker.Lifecycle.PurgedAt is null, "A rejected purge marked the sticker as purged.");
 
         var current = new TrashEntry(purple.Sticker.Id, staleDetail.Sticker.Lifecycle.Generation, staleDetail.Sticker.Lifecycle.Revision);
         Check((await TrashOperations.PurgeAsync(session, [current], Key, token)) is { Succeeded: 1, Failed: 0 },

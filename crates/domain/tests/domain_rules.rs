@@ -265,6 +265,58 @@ fn local_restore_and_generation_overflow_preserve_state() -> TestResult {
 }
 
 #[test]
+fn purge_requires_the_observed_revision_and_rejection_keeps_state() -> TestResult {
+    // A synced row carries the server's revision, so an older revision is a real
+    // "the row moved on since it was listed" case rather than an invalid value.
+    let mut state = Lifecycle::from_state(
+        Generation::INITIAL,
+        revision(5)?,
+        at(100),
+        at(200),
+        Some(at(200)),
+    );
+    let before = state.clone();
+    assert_eq!(
+        state.purge(Generation::INITIAL, revision(4)?, at(300), revision(6)?),
+        Err(DomainError::StaleRevision)
+    );
+    assert_eq!(state, before);
+    assert!(!state.is_purged());
+    // The revision observed at deletion purges once and stays idempotent after.
+    assert_eq!(
+        state.purge(Generation::INITIAL, revision(5)?, at(300), revision(6)?),
+        Ok(true)
+    );
+    assert_eq!(state.purged_at(), Some(at(300)));
+    assert_eq!(state.revision(), revision(6)?);
+    assert_eq!(
+        state.purge(Generation::INITIAL, revision(5)?, at(400), revision(7)?),
+        Ok(false)
+    );
+    assert_eq!(state.purged_at(), Some(at(300)));
+    // An active entity and a stale generation are rejected before any revision
+    // comparison, so neither can be purged by presenting a matching revision.
+    let mut active = Lifecycle::new(at(100));
+    assert_eq!(
+        active.purge(Generation::INITIAL, Revision::LOCAL, at(200), revision(1)?),
+        Err(DomainError::EntityActive)
+    );
+    let mut moved = Lifecycle::from_state(
+        Generation::new(2)?,
+        revision(5)?,
+        at(100),
+        at(200),
+        Some(at(200)),
+    );
+    assert_eq!(
+        moved.purge(Generation::INITIAL, revision(5)?, at(300), revision(6)?),
+        Err(DomainError::StaleGeneration)
+    );
+    assert!(!moved.is_purged());
+    Ok(())
+}
+
+#[test]
 fn unknown_tombstone_keeps_identity_and_requires_deleted_revision() -> TestResult {
     let t = Tombstone::new(
         EntityId::Sticker(HASH.parse()?),
