@@ -255,11 +255,15 @@ public sealed partial class MainWindow : Window
             SyncPhase.Pending or SyncPhase.Unsynced => "\uE917",
             _ => "\uE73E",
         };
+        // The three brushes are declared in this window's XAML resources, so a
+        // direct indexer read is enough. ResourceDictionary's C# projection
+        // exposes the IDictionary members (indexer, ContainsKey, TryGetValue);
+        // the WinRT ABI names Lookup/HasKey are not callable from C#.
         var brush = phase switch
         {
-            SyncPhase.Failed or SyncPhase.Authorization => SyncBrush("SyncFailureBrush"),
-            SyncPhase.Blocked or SyncPhase.Pending or SyncPhase.Unsynced => SyncBrush("SyncAttentionBrush"),
-            _ => SyncBrush("SyncIdleBrush"),
+            SyncPhase.Failed or SyncPhase.Authorization => Root.Resources["SyncFailureBrush"] as Brush,
+            SyncPhase.Blocked or SyncPhase.Pending or SyncPhase.Unsynced => Root.Resources["SyncAttentionBrush"] as Brush,
+            _ => Root.Resources["SyncIdleBrush"] as Brush,
         };
         if (brush is not null)
         {
@@ -277,14 +281,6 @@ public sealed partial class MainWindow : Window
         SyncStatusButton.IsEnabled = ViewModel.Batch?.IsRunning != true;
         SyncStatusButton.Visibility = Visibility.Visible;
     }
-
-    /// <summary>
-    /// Reads the status-line brushes declared in this window's resources. The
-    /// theme colours they wrap are not reachable through an application-level
-    /// lookup, so the brush objects are declared once in XAML instead.
-    /// </summary>
-    private Brush? SyncBrush(string key)
-        => Root.Resources.HasKey(key) ? Root.Resources.Lookup(key) as Brush : null;
 
     private void OnOpenSyncSettings(object sender, RoutedEventArgs args)
     {

@@ -27,6 +27,7 @@ internal static class Program
             await TrashGroupsModelAsync();
             await ShutdownSequenceAsync();
             ResourceParity(FindRepository());
+            SyncStatusBrushes(FindRepository());
             await PreferencesAsync();
             SyncStatusMapping();
             await SyncStateMachineAsync();
@@ -454,6 +455,30 @@ internal static class Program
         Check(reverted.Accept(saved with { Note = "sent note" }, sent) && reverted.Title == original.Title
             && reverted.Note == original.Note && reverted.IsDirty, "Typing the original text during a save was lost.");
         Console.WriteLine("PASS: draft ownership, in-flight typing, generation/revision rejection and discard");
+    }
+
+    /// <summary>
+    /// The status line picks one of three brushes from this window's resource
+    /// dictionary. ResourceDictionary's C#/WinRT projection exposes only the
+    /// IDictionary members (indexer, ContainsKey, TryGetValue); the ABI names
+    /// Lookup/HasKey are not callable from C# (CS1061), which is invisible to
+    /// this test project because it never compiles the WinUI sources.
+    /// </summary>
+    private static void SyncStatusBrushes(string root)
+    {
+        var xaml = File.ReadAllText(Path.Combine(root, "apps/windows/app/MainWindow.xaml"));
+        var code = File.ReadAllText(Path.Combine(root, "apps/windows/app/MainWindow.xaml.cs"));
+        foreach (var key in new[] { "SyncIdleBrush", "SyncAttentionBrush", "SyncFailureBrush" })
+        {
+            Check(xaml.Contains($"x:Key=\"{key}\"", StringComparison.Ordinal),
+                $"MainWindow.xaml no longer declares the {key} resource.");
+            Check(code.Contains($"\"{key}\"", StringComparison.Ordinal),
+                $"MainWindow.xaml.cs no longer reads the {key} resource.");
+        }
+        Check(!code.Contains(".HasKey(", StringComparison.Ordinal)
+              && !code.Contains(".Lookup(", StringComparison.Ordinal),
+            "ResourceDictionary has no C# HasKey/Lookup; read the indexer instead.");
+        Console.WriteLine("PASS: sync status brushes stay declared in XAML and read through the indexer");
     }
 
     private static Dictionary<string, string> ReadResw(string path)
