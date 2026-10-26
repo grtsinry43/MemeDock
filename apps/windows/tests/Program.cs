@@ -28,6 +28,7 @@ internal static class Program
             await ShutdownSequenceAsync();
             ResourceParity(FindRepository());
             await PreferencesAsync();
+            SyncStatusMapping();
             await SyncStateMachineAsync();
             await SessionQueriesAsync();
             Console.WriteLine("PASS: Windows browsing state, localization and preference checks");
@@ -1072,6 +1073,208 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// One table for every sync status the windows render: the phase, the text
+    /// key and the count are the only inputs the status-bar entry and the
+    /// settings page use, so they cannot disagree.
+    /// </summary>
+    private static void SyncStatusMapping()
+    {
+        static SyncState State(SyncStatus status, bool loaded = true, bool running = false,
+            bool hasCredential = true, Exception? error = null)
+            => new(status, loaded, running, hasCredential, Changing: false, error);
+
+        // Idle, nothing queued, and a round has completed.
+        var ready = State(SyncSnapshot(lastSuccess: 1_700_000_000_000));
+        Check(SyncPresentation.Phase(ready) == SyncPhase.UpToDate
+              && SyncPresentation.StatusKey(ready) == "sync_ready"
+              && SyncPresentation.HintKey(ready) is null
+              && SyncPresentation.IsVisible(ready),
+            "An idle, successfully synced binding did not report the ready state.");
+
+        // Connected, nothing queued, but no round has finished: not "up to date".
+        var unsynced = State(SyncSnapshot());
+        Check(SyncPresentation.Phase(unsynced) == SyncPhase.Unsynced
+              && SyncPresentation.StatusKey(unsynced) == "sync_never"
+              && SyncPresentation.StatusKey(unsynced) != "sync_ready",
+            "A binding without a completed round claimed to be up to date.");
+
+        // Local changes are still queued.
+        var pending = State(SyncSnapshot(pending: 3, lastSuccess: 1_700_000_000_000));
+        Check(SyncPresentation.Phase(pending) == SyncPhase.Pending
+              && SyncPresentation.StatusKey(pending) == "sync_pending"
+              && SyncPresentation.HintKey(pending) is null,
+            "Queued changes were reported as up to date.");
+
+        // Changes the server rejects have their own state and their own hint.
+        var blocked = State(SyncSnapshot(pending: 4, blocked: 2));
+        Check(SyncPresentation.Phase(blocked) == SyncPhase.Blocked
+              && SyncPresentation.StatusKey(blocked) == "sync_blocked"
+              && SyncPresentation.HintKey(blocked) == "sync_blocked_hint",
+            "Blocked changes were not reported as blocked.");
+
+        // A user pause is never a network error, and a retryable error recorded
+        // before pausing is history rather than a live failure.
+        var paused = State(SyncSnapshot(paused: true, pending: 6, error: "network"));
+        Check(SyncPresentation.Phase(paused) == SyncPhase.Paused
+              && SyncPresentation.StatusKey(paused) == "sync_paused"
+              && SyncPresentation.ErrorKey(paused) is null,
+            "A user pause was reported as a network failure.");
+
+        // Pairs that can co-occur, pinned here so the precedence in Phase stays a
+        // contract instead of something a future edit can reorder silently.
+        // Pausing outranks blocked changes: the pause is why nothing moves, and
+        // the settings page still reports the blocked count and its hint.
+        var pausedWithBlocked = State(SyncSnapshot(paused: true, pending: 4, blocked: 2));
+        Check(SyncPresentation.Phase(pausedWithBlocked) == SyncPhase.Paused
+              && SyncPresentation.StatusKey(pausedWithBlocked) == "sync_paused"
+              && SyncPresentation.HintKey(pausedWithBlocked) is null,
+            "A pause with blocked changes reported something other than the pause.");
+
+        // A rejected token is actionable whatever the pause says, so it wins over
+        // the pause instead of waiting for a resume that cannot succeed.
+        var pausedWithExpiredToken = State(SyncSnapshot(paused: true, error: "unauthorized"));
+        Check(SyncPresentation.Phase(pausedWithExpiredToken) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(pausedWithExpiredToken) == "sync_reauthorize"
+              && SyncPresentation.HintKey(pausedWithExpiredToken) == "sync_failure_unauthorized",
+            "A paused binding with a rejected token did not ask for a new token.");
+
+        // Any other terminal status error is history while paused and only
+        // becomes a failure once syncing resumes.
+        var pausedWithCorruptData = State(SyncSnapshot(paused: true, error: "corrupt_data"));
+        Check(SyncPresentation.Phase(pausedWithCorruptData) == SyncPhase.Paused
+              && SyncPresentation.ErrorKey(pausedWithCorruptData) is null,
+            "A paused binding with a terminal status error did not defer to the pause.");
+        var resumedCorruptData = State(SyncSnapshot(error: "corrupt_data"));
+        Check(SyncPresentation.Phase(resumedCorruptData) == SyncPhase.Failed
+              && !SyncPresentation.CanSynchronize(resumedCorruptData),
+            "Resuming did not surface the terminal status error recorded while paused.");
+
+        // A request in flight only claims that a request was sent, even when the
+        // failure is already known; the failure is shown once the request ends.
+        var runningWithExpiredToken = State(SyncSnapshot(error: "unauthorized"), running: true);
+        Check(SyncPresentation.Phase(runningWithExpiredToken) == SyncPhase.Running
+              && SyncPresentation.StatusKey(runningWithExpiredToken) == "sync_running",
+            "A running request was reported as something other than running.");
+        var runningWithCredentialFailure = State(SyncSnapshot(), running: true,
+            error: new SyncCredentialException("keychain"));
+        Check(SyncPresentation.Phase(runningWithCredentialFailure) == SyncPhase.Running
+              && SyncPresentation.StatusKey(runningWithCredentialFailure) == "sync_running",
+            "A running request reported a credential failure before it finished.");
+        var settledExpiredToken = State(SyncSnapshot(error: "unauthorized"));
+        Check(SyncPresentation.StatusKey(settledExpiredToken) == "sync_reauthorize",
+            "A finished request did not surface the rejected token.");
+
+        // Changes can be queued before the first round ever completes: the queue
+        // is the stronger fact, so the entry cannot claim it never synced.
+        var pendingBeforeFirstRound = State(SyncSnapshot(pending: 1));
+        Check(SyncPresentation.Phase(pendingBeforeFirstRound) == SyncPhase.Pending
+              && SyncPresentation.StatusKey(pendingBeforeFirstRound) == "sync_pending",
+            "Queued changes on a never-synced binding were not reported as pending.");
+
+        // Blocked changes outlive a retryable error, so they own the status; the
+        // retry detail stays available to the settings page's error line.
+        var blockedWithNetwork = State(SyncSnapshot(pending: 3, blocked: 1, error: "network"));
+        Check(SyncPresentation.Phase(blockedWithNetwork) == SyncPhase.Blocked
+              && SyncPresentation.StatusKey(blockedWithNetwork) == "sync_blocked"
+              && SyncPresentation.HintKey(blockedWithNetwork) == "sync_blocked_hint"
+              && SyncPresentation.ErrorKey(blockedWithNetwork) == "sync_failure_network",
+            "Blocked changes were replaced by the retryable error.");
+
+        // A failure carried by the snapshot is not reported while the user has
+        // paused: the pause is the reason nothing is moving.
+        var pausedWithBridgeFailure = State(SyncSnapshot(paused: true, error: "network"),
+            error: new BridgeException.Failure(ErrorCode.Network, "offline"));
+        Check(SyncPresentation.Phase(pausedWithBridgeFailure) == SyncPhase.Paused
+              && SyncPresentation.HintKey(pausedWithBridgeFailure) is null,
+            "A paused binding reported a network failure.");
+
+        // A request that was sent is not a finished round.
+        var running = State(SyncSnapshot(lastSuccess: 1_700_000_000_000), running: true);
+        Check(SyncPresentation.Phase(running) == SyncPhase.Running
+              && SyncPresentation.StatusKey(running) == "sync_running",
+            "A sent sync request did not report that it is running.");
+
+        // A failed round stays visible, with the retry explanation as its hint.
+        var failed = State(SyncSnapshot(pending: 2, error: "network"));
+        Check(SyncPresentation.Phase(failed) == SyncPhase.Failed
+              && SyncPresentation.StatusKey(failed) == "sync_failed"
+              && SyncPresentation.HintKey(failed) == "sync_failure_network",
+            "A failed round did not report the failure.");
+
+        // A library that was never connected stays out of the status bar.
+        var unconfigured = State(SyncSnapshot(origin: null, connected: false), hasCredential: false);
+        Check(SyncPresentation.Phase(unconfigured) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(unconfigured) == "sync_authorize"
+              && !SyncPresentation.IsVisible(unconfigured),
+            "An unconfigured library claimed a sync status.");
+
+        // A stored token that the server rejected needs its own instruction.
+        var expired = State(SyncSnapshot(error: "unauthorized"));
+        Check(SyncPresentation.Phase(expired) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(expired) == "sync_reauthorize"
+              && SyncPresentation.HintKey(expired) == "sync_failure_unauthorized"
+              && SyncPresentation.IsVisible(expired),
+            "An expired token was not distinguished from a disconnected library.");
+
+        // A credential store failure also asks for the token again.
+        var credential = State(SyncSnapshot(), error: new SyncCredentialException("keychain"));
+        Check(SyncPresentation.Phase(credential) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(credential) == "sync_reauthorize"
+              && SyncPresentation.ErrorKey(credential) == "sync_failure_credential",
+            "A credential lookup failure did not ask for a new token.");
+
+        // Recovery: the same binding, once the failure clears and a round lands.
+        var recovered = State(SyncSnapshot(lastSuccess: 1_700_000_200_000));
+        Check(SyncPresentation.Phase(recovered) == SyncPhase.UpToDate
+              && SyncPresentation.ErrorKey(recovered) is null,
+            "Clearing the failure did not return to the ready state.");
+
+        // Before the native status is read nothing is claimed.
+        var unavailable = State(SyncSnapshot(), loaded: false);
+        Check(SyncPresentation.Phase(unavailable) == SyncPhase.Unavailable
+              && !SyncPresentation.IsVisible(unavailable),
+            "Sync status was shown before the native status was read.");
+
+        // A status error this build does not know has no detail text but still
+        // shows the failure state, and a terminal one stops automatic retries.
+        var unknown = State(SyncSnapshot(error: "unsupported_schema"));
+        Check(SyncPresentation.Phase(unknown) == SyncPhase.Failed
+              && SyncPresentation.StatusKey(unknown) == "sync_failed"
+              && SyncPresentation.ErrorKey(unknown) is null
+              && SyncPresentation.HintKey(unknown) == "sync_failed"
+              && SyncPresentation.IsTerminal(unknown)
+              && !SyncPresentation.CanSynchronize(unknown),
+            "An unknown terminal status error failed silently.");
+
+        // Every key the table can return must exist in both resource files: the
+        // renderer looks these up by table, so the literal-usage scan in
+        // ResourceParity cannot see them.
+        var root = FindRepository();
+        var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
+        var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
+        string?[] keys =
+        [
+            SyncPresentation.StatusKey(ready), SyncPresentation.StatusKey(unsynced),
+            SyncPresentation.StatusKey(pending), SyncPresentation.StatusKey(blocked),
+            SyncPresentation.StatusKey(paused), SyncPresentation.StatusKey(running),
+            SyncPresentation.StatusKey(failed), SyncPresentation.StatusKey(unconfigured),
+            SyncPresentation.StatusKey(expired), SyncPresentation.StatusKey(credential),
+            SyncPresentation.StatusKey(recovered), SyncPresentation.StatusKey(unavailable),
+            SyncPresentation.StatusKey(unknown), SyncPresentation.HintKey(blocked),
+            SyncPresentation.HintKey(expired), SyncPresentation.HintKey(failed),
+            SyncPresentation.HintKey(pausedWithExpiredToken), SyncPresentation.HintKey(blockedWithNetwork),
+            SyncPresentation.StatusKey(pausedWithBlocked), SyncPresentation.StatusKey(pendingBeforeFirstRound),
+            SyncPresentation.StatusKey(runningWithCredentialFailure), SyncPresentation.ErrorKey(credential),
+            SyncPresentation.ErrorKey(blockedWithNetwork), SyncPresentation.ErrorKey(pausedWithBridgeFailure),
+        ];
+        foreach (var key in keys.Distinct())
+            Check(key is not null && english.ContainsKey(key) && chinese.ContainsKey(key),
+                $"Sync status text is missing from the resources: {key}");
+
+        Console.WriteLine("PASS: sync status mapping (ready, pending, blocked, paused, running, failed, authorization, recovery, precedence combinations)");
+    }
+
     private static async Task SyncStateMachineAsync()
     {
         const string library = "library-under-test";
@@ -1082,7 +1285,8 @@ internal static class Program
         await sync.StartAsync(runLoop: false);
         Check(sync.State.Loaded && !sync.State.HasCredential && !sync.State.Status.Connected
               && SyncPresentation.StatusKey(sync.State) == "sync_authorize"
-              && SyncPresentation.NeedsAuthorization(sync.State),
+              && SyncPresentation.NeedsAuthorization(sync.State)
+              && !SyncPresentation.IsVisible(sync.State),
             "A fresh library did not report the disconnected sync state.");
         Check(adapter.Subscriptions.Count == 1, "Sync status was not observed exactly once.");
 
@@ -1092,9 +1296,11 @@ internal static class Program
               && adapter.LastToken == "mdk_first", "Connecting did not trim or forward the server address.");
         Check(tokens.Saved.TryGetValue(library + "|https://sync.example.com/", out var stored) && stored == "mdk_first",
             "Connecting did not persist the device token.");
+        // The adapter's connect snapshot has no completed round, so a connected
+        // binding must not claim it is up to date yet.
         Check(sync.State.HasCredential && sync.State.Status.Connected
-              && SyncPresentation.StatusKey(sync.State) == "sync_ready",
-            "A successful connection did not produce the ready state.");
+              && SyncPresentation.StatusKey(sync.State) == "sync_never",
+            "A successful connection claimed a status no round has proven yet.");
 
         adapter.ConnectGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var second = sync.ConnectAsync("https://sync.example.com/", "mdk_second");
@@ -1112,7 +1318,7 @@ internal static class Program
         await sync.SetPausedAsync(true);
         Check(sync.State.Status.Paused && SyncPresentation.StatusKey(sync.State) == "sync_paused",
             "Pausing was not reflected in the sync state.");
-        adapter.Status = SyncSnapshot(connected: true);
+        adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_699_999_000_000);
         await sync.SetPausedAsync(false);
         Check(!sync.State.Status.Paused && SyncPresentation.StatusKey(sync.State) == "sync_ready",
             "Resuming was not reflected in the sync state.");
@@ -1120,7 +1326,9 @@ internal static class Program
         adapter.Status = SyncSnapshot(connected: true, pending: 5);
         adapter.Push(adapter.Status);
         await WaitForAsync(() => sync.State.Status.Pending == 5, "native status updates");
-        Check(sync.State.Status.Pending == 5, "A pushed native status did not reach the state.");
+        Check(sync.State.Status.Pending == 5
+              && SyncPresentation.StatusKey(sync.State) == "sync_pending",
+            "A pushed native status did not reach the state.");
 
         adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_700_000_000_000);
         await sync.SynchronizeNowAsync();
@@ -1139,7 +1347,8 @@ internal static class Program
         adapter.SynchronizeFailure = null;
         adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_700_000_100_000);
         await sync.SynchronizeNowAsync();
-        Check(sync.State.Status.LastSuccessMs == 1_700_000_100_000 && SyncPresentation.ErrorKey(sync.State) is null,
+        Check(sync.State.Status.LastSuccessMs == 1_700_000_100_000 && SyncPresentation.ErrorKey(sync.State) is null
+              && SyncPresentation.StatusKey(sync.State) == "sync_ready",
             "Retrying after a network failure did not clear the error.");
 
         var callsBeforeTerminal = adapter.SynchronizeCalls;
@@ -1159,20 +1368,24 @@ internal static class Program
         var unauthorized = new SyncState(
             SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: true, Changing: false,
             Error: new BridgeException.Failure(ErrorCode.Unauthorized, "expired"));
+        // The stored token is still there, so the entry asks to replace it
+        // rather than to connect from scratch.
         Check(SyncPresentation.NeedsAuthorization(unauthorized)
               && SyncPresentation.IsTerminal(unauthorized)
               && !SyncPresentation.CanSynchronize(unauthorized)
-              && SyncPresentation.StatusKey(unauthorized) == "sync_authorize"
+              && SyncPresentation.StatusKey(unauthorized) == "sync_reauthorize"
               && SyncPresentation.ErrorKey(unauthorized) == "sync_failure_unauthorized",
             "A bridge authorization failure was not presented as a re-authorization request.");
 
+        // Every coordinator path that hits a credential-store failure drops
+        // HasCredential first, so the entry falls back to the connect prompt.
         var credentialFailure = new SyncState(
-            SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: true, Changing: false,
+            SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: false, Changing: false,
             Error: new SyncCredentialException("credential store unavailable"));
         Check(SyncPresentation.ErrorKey(credentialFailure) == "sync_failure_credential"
               && SyncPresentation.StatusKey(credentialFailure) == "sync_authorize"
               && !SyncPresentation.CanSynchronize(credentialFailure),
-            "A credential store failure was not presented as a re-authorization request.");
+            "A credential store failure was not presented as a connect request.");
 
         adapter.Push(SyncSnapshot(connected: true));
         await WaitForAsync(() => sync.State.Status.Error is null, "the cleared sync error");
@@ -1475,7 +1688,10 @@ internal static class Program
         public Task<SyncStatus> SetPausedAsync(bool paused, CancellationToken cancellation)
         {
             LastPaused = paused;
-            Status = SyncSnapshot(origin: Status.Origin, paused: paused);
+            // The native call only flips the pause flag and returns the rest of
+            // the binding unchanged, so the fake keeps its cursor, queue and
+            // last successful round instead of rebuilding a fresh snapshot.
+            Status = Status with { Paused = paused };
             return Task.FromResult(Status);
         }
 

@@ -44,6 +44,7 @@ public sealed partial class MainWindow : Window
     private bool _reordering;
     private string? _reorderCollection;
     private Task<bool>? _galleryDragPreparation;
+    private SyncCoordinator? _sync;
 
     public MainWindow()
     {
@@ -154,6 +155,10 @@ public sealed partial class MainWindow : Window
             output.PropertyChanged += OnModelChanged;
             output.SetForeground(_windowActive);
         }
+        // The coordinator outlives this window only until shutdown, so the
+        // handler is attached once per instance and dropped in the finally
+        // block of OnClosing.
+        AttachSync(ViewModel.Sync);
         var batchRunning = ViewModel.Batch?.IsRunning == true;
         var trash = ViewModel.IsTrash;
         var trashGroupsVisible = trash && ViewModel.TrashGroups?.HasVisibleContent == true;
@@ -205,7 +210,86 @@ public sealed partial class MainWindow : Window
         ReorderDone.Visibility = ToVisibility(_reordering);
         Gallery.CanDragItems = _reordering && reorder || CanDragOut;
         Gallery.CanReorderItems = Gallery.AllowDrop = _reordering && reorder;
+        UpdateSyncStatus();
         Details.SetActive(_windowActive && Inspector.IsPaneOpen && !_settingsVisible && !_catalogVisible && Details.Visibility == Visibility.Visible);
+    }
+
+    private void AttachSync(SyncCoordinator? sync)
+    {
+        if (ReferenceEquals(_sync, sync)) return;
+        if (_sync is not null) _sync.StateChanged -= OnSyncStateChanged;
+        _sync = sync;
+        if (_sync is not null) _sync.StateChanged += OnSyncStateChanged;
+    }
+
+    private void OnSyncStateChanged(object? sender, EventArgs args)
+    {
+        if (_stopping) return;
+        // The coordinator notifies from whichever thread finished the native
+        // call; the status bar may only be touched on the UI thread.
+        DispatcherQueue?.TryEnqueue(() =>
+        {
+            if (!_stopping) UpdateSyncStatus();
+        });
+    }
+
+    private void UpdateSyncStatus()
+    {
+        if (ViewModel.Sync?.State is not { } state || !SyncPresentation.IsVisible(state))
+        {
+            SyncStatusButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var phase = SyncPresentation.Phase(state);
+        var text = Strings[SyncPresentation.StatusKey(state)];
+
+        SyncStatusLabel.Text = text;
+        SyncStatusIcon.Glyph = phase switch
+        {
+            SyncPhase.Running => "\uE895",
+            SyncPhase.Authorization => "\uE72E",
+            SyncPhase.Paused => "\uE769",
+            SyncPhase.Blocked => "\uE7BA",
+            SyncPhase.Failed => "\uE783",
+            SyncPhase.Pending or SyncPhase.Unsynced => "\uE917",
+            _ => "\uE73E",
+        };
+        var brush = phase switch
+        {
+            SyncPhase.Failed or SyncPhase.Authorization => SyncBrush("SyncFailureBrush"),
+            SyncPhase.Blocked or SyncPhase.Pending or SyncPhase.Unsynced => SyncBrush("SyncAttentionBrush"),
+            _ => SyncBrush("SyncIdleBrush"),
+        };
+        if (brush is not null)
+        {
+            SyncStatusIcon.Foreground = brush;
+            SyncStatusLabel.Foreground = brush;
+        }
+
+        // The hint carries the actionable part (blocked changes, expired token,
+        // retryable failure) without adding another permanent banner.
+        var hint = SyncPresentation.HintKey(state);
+        ToolTipService.SetToolTip(SyncStatusButton, hint is null ? text : Strings[hint]);
+        AutomationProperties.SetName(SyncStatusButton, text);
+        // Settings navigation is disabled while a batch runs; keep the entry
+        // from promising a destination it cannot reach.
+        SyncStatusButton.IsEnabled = ViewModel.Batch?.IsRunning != true;
+        SyncStatusButton.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Reads the status-line brushes declared in this window's resources. The
+    /// theme colours they wrap are not reachable through an application-level
+    /// lookup, so the brush objects are declared once in XAML instead.
+    /// </summary>
+    private Brush? SyncBrush(string key)
+        => Root.Resources.HasKey(key) ? Root.Resources.Lookup(key) as Brush : null;
+
+    private void OnOpenSyncSettings(object sender, RoutedEventArgs args)
+    {
+        if (_stopping || ViewModel.Batch?.IsRunning == true) return;
+        Navigation.SelectedItem = SettingsNavigation;
     }
 
     private void OnPaneToggle(TitleBar sender, object args) => Navigation.IsPaneOpen = !Navigation.IsPaneOpen;
@@ -589,6 +673,7 @@ public sealed partial class MainWindow : Window
             ViewModel.ContentChanged -= OnContentChanged;
             if (ViewModel.Output is { } output) output.PropertyChanged -= OnModelChanged;
             if (ViewModel.TrashGroups is { } trashGroups) trashGroups.PropertyChanged -= OnModelChanged;
+            AttachSync(null);
             Activated -= OnActivated;
             if (ViewModel.Details is { } details) details.Deleted -= OnStickerDeleted;
             if (ViewModel.Batch is { } batch)

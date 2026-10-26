@@ -6,6 +6,13 @@
     xmlns:views="using:MemeDock.Windows.Views"
     Title="MemeDock">
     <Grid x:Name="Root" Loaded="OnLoaded">
+        <Grid.Resources>
+            <!-- Named copies of the theme brushes the status line picks from code;
+                 ThemeResource keeps them in step with the system theme. -->
+            <SolidColorBrush x:Key="SyncIdleBrush" Color="{ThemeResource TextFillColorSecondary}" />
+            <SolidColorBrush x:Key="SyncAttentionBrush" Color="{ThemeResource SystemFillColorCaution}" />
+            <SolidColorBrush x:Key="SyncFailureBrush" Color="{ThemeResource SystemFillColorCritical}" />
+        </Grid.Resources>
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="OnFocusSearch" />
             <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OnImportShortcut" />
@@ -156,9 +163,16 @@
                             </StackPanel>
                         </Grid>
                         <Grid Grid.Row="5" ColumnSpacing="12">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <ProgressRing x:Name="Busy" Width="18" Height="18" IsActive="True" />
                             <TextBlock x:Name="Status" Grid.Column="1" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                            <Button x:Name="SyncStatusButton" Grid.Column="2" Visibility="Collapsed" Click="OnOpenSyncSettings"
+                                    Background="Transparent" BorderThickness="0" Padding="8,4" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon x:Name="SyncStatusIcon" FontSize="14" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="SyncStatusLabel" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
                         </Grid>
                     </Grid>
                     </SplitView>
