@@ -34,6 +34,33 @@
   <data name="language_english" xml:space="preserve"><value>English</value></data>
   <data name="settings_language_save_failed" xml:space="preserve"><value>Failed to save language settings. Please try again.</value></data>
   <data name="settings_general" xml:space="preserve"><value>General</value></data>
+  <data name="settings_appearance" xml:space="preserve"><value>Appearance</value></data>
+  <data name="theme_system" xml:space="preserve"><value>Follow system</value></data>
+  <data name="theme_light" xml:space="preserve"><value>Light</value></data>
+  <data name="theme_dark" xml:space="preserve"><value>Dark</value></data>
+  <data name="settings_save_failed" xml:space="preserve"><value>Failed to save appearance settings. Please try again.</value></data>
+  <data name="settings_output" xml:space="preserve"><value>Output Defaults</value></data>
+  <data name="settings_output_failed" xml:space="preserve"><value>Could not read or save output settings. Please try again.</value></data>
+  <data name="output_copy_group" xml:space="preserve"><value>Copy</value></data>
+  <data name="output_drag_group" xml:space="preserve"><value>Drag and drop</value></data>
+  <data name="output_still" xml:space="preserve"><value>Still images</value></data>
+  <data name="output_animated" xml:space="preserve"><value>Animated images</value></data>
+  <data name="export_small" xml:space="preserve"><value>Small JPG</value></data>
+  <data name="export_best" xml:space="preserve"><value>Best Compatibility</value></data>
+  <data name="export_gif" xml:space="preserve"><value>GIF</value></data>
+  <data name="export_original_hint" xml:space="preserve"><value>Original file with transparent background and animation preserved</value></data>
+  <data name="export_png_hint" xml:space="preserve"><value>Preserves transparency, max dimension 1024px</value></data>
+  <data name="export_small_hint" xml:space="preserve"><value>Max dimension 512px, white background</value></data>
+  <data name="export_best_hint" xml:space="preserve"><value>Transparent PNG for stills (1024px), GIF for animations (512px, up to 30 FPS)</value></data>
+  <data name="export_gif_hint" xml:space="preserve"><value>GIF, max dimension 512px and 30 FPS</value></data>
+  <data name="settings_about" xml:space="preserve"><value>About</value></data>
+  <data name="settings_version" xml:space="preserve"><value>Version</value></data>
+  <data name="settings_library_id" xml:space="preserve"><value>Library ID</value></data>
+  <data name="settings_device_id" xml:space="preserve"><value>Device ID</value></data>
+  <data name="settings_licenses" xml:space="preserve"><value>Open-source licenses</value></data>
+  <data name="settings_license_text" xml:space="preserve"><value>MIT License. See the LICENSE file in the repository for the full text.</value></data>
+  <data name="about_copy" xml:space="preserve"><value>Copy</value></data>
+  <data name="about_copy_failed" xml:space="preserve"><value>Could not copy. Select the text and copy it manually.</value></data>
   <data name="failure_permission" xml:space="preserve"><value>Storage permission denied. Please try again.</value></data>
   <data name="failure_io" xml:space="preserve"><value>File I/O error. Please try again.</value></data>
   <data name="failure_full" xml:space="preserve"><value>Device storage is full</value></data>

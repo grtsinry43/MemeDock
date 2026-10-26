@@ -13,14 +13,17 @@ internal sealed class PreparedSticker(ArtifactLeaseHandle lease, ExportArtifact 
     public void Dispose() => Lease.Dispose();
 }
 
-internal sealed class StickerOutputService(LibrarySession session)
+internal sealed class StickerOutputService(LibrarySession session, IOutputDefaults defaults)
 {
     public async Task<PreparedSticker> PrepareAsync(StickerOutputTarget target, StickerOutputKind kind,
         DataPackage package, bool drag, CancellationToken cancellation)
     {
         var detail = await session.DetailAsync(target.Id, cancellation);
         target.Validate(detail.Sticker);
-        var options = StickerOutputPolicy.Options(detail.Asset.Animated, kind);
+        // Read the presets once per operation so a later change applies to the next
+        // operation instead of mutating one that is already running.
+        var options = StickerOutputPolicy.Options(detail.Asset.Animated, kind,
+            drag ? defaults.Drag : defaults.Copy);
         var lease = await session.ExportAsync(target.Id, options, cancellation);
         try
         {

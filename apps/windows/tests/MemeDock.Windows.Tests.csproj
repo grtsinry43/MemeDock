@@ -16,7 +16,9 @@
     <Compile Include="..\app\Models\LibraryFilter.cs" Link="Models\LibraryFilter.cs" />
     <Compile Include="..\app\Models\StickerEditState.cs" Link="Models\StickerEditState.cs" />
     <Compile Include="..\app\Models\StickerOutput.cs" Link="Models\StickerOutput.cs" />
+    <Compile Include="..\app\Models\StickerOutputPreferences.cs" Link="Models\StickerOutputPreferences.cs" />
     <Compile Include="..\app\Services\AppPreferences.cs" Link="Services\AppPreferences.cs" />
+    <Compile Include="..\app\Services\AppVersion.cs" Link="Services\AppVersion.cs" />
     <Compile Include="..\app\Services\SyncAdapter.cs" Link="Services\SyncAdapter.cs" />
     <Compile Include="..\app\Services\SyncCoordinator.cs" Link="Services\SyncCoordinator.cs" />
     <Compile Include="..\app\Services\SyncPresentation.cs" Link="Services\SyncPresentation.cs" />

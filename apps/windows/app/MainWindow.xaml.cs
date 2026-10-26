@@ -48,12 +48,20 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
-        ViewModel = new LibraryViewModel(Strings);
         _root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MemeDock");
         _preferences = new AppPreferences(_root);
+        // Read before the first frame so the saved appearance does not flash the
+        // system theme first. The file is small local JSON; the async read in
+        // InitializeAsync would be too late for the window's own visual tree.
+        _preferences.Load();
+        ViewModel = new LibraryViewModel(Strings, _preferences);
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(WindowTitleBar);
+        // Unpackaged WinUI apps cannot change Application.RequestedTheme at runtime,
+        // so the saved appearance is applied to the window's content root instead.
+        ApplyAppearance(_preferences.Appearance);
+        Settings.AppearanceChanged += OnAppearanceChanged;
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new global::Windows.Graphics.SizeInt32(1180, 820));
         AppWindow.Closing += OnClosing;
@@ -71,6 +79,39 @@ public sealed partial class MainWindow : Window
 
     public static Visibility ToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>
+    /// The window content root owns the appearance: every control inside it inherits
+    /// the requested theme, while <see cref="ElementTheme.Default"/> follows the system
+    /// again without restarting the process.
+    /// </summary>
+    private void ApplyAppearance(AppearanceMode mode)
+    {
+        Root.RequestedTheme = mode switch
+        {
+            AppearanceMode.Light => ElementTheme.Light,
+            AppearanceMode.Dark => ElementTheme.Dark,
+            _ => ElementTheme.Default
+        };
+        try
+        {
+            // The caption buttons are drawn by the system outside the XAML tree;
+            // PreferredTheme keeps them on the same side as the content.
+            AppWindow.TitleBar.PreferredTheme = mode switch
+            {
+                AppearanceMode.Light => TitleBarTheme.Light,
+                AppearanceMode.Dark => TitleBarTheme.Dark,
+                _ => TitleBarTheme.UseDefaultAppMode
+            };
+        }
+        catch (Exception error)
+        {
+            // Older shells may not support the property; the content theme still applies.
+            Trace.WriteLine($"The title bar theme could not be applied: {error.GetType().Name}");
+        }
+    }
+
+    private void OnAppearanceChanged(AppearanceMode mode) => ApplyAppearance(mode);
+
     private async void OnLoaded(object sender, RoutedEventArgs args)
     {
         if (_initialized) return;
@@ -81,11 +122,13 @@ public sealed partial class MainWindow : Window
 
     private async Task InitializeAsync()
     {
-        await _preferences.LoadAsync();
-        if (_stopping) return;
+        // Preferences were read synchronously in the constructor so the appearance
+        // applied to the first frame; only the language needs to reach the strings.
         Strings.SetLanguage(_preferences.Language);
         Settings.Configure(Strings, _preferences);
         await ViewModel.InitializeAsync(_root);
+        if (_stopping) return;
+        Settings.ShowIdentity(ViewModel.Identity);
         UpdateState();
     }
 
@@ -627,7 +670,13 @@ public sealed partial class MainWindow : Window
     {
         if (_stopping) return;
         if (ViewModel.IsReady) await ViewModel.RetryAsync();
-        else { _initialization = ViewModel.InitializeAsync(_root); await _initialization; }
+        else
+        {
+            _initialization = ViewModel.InitializeAsync(_root);
+            await _initialization;
+            if (_stopping) return;
+            Settings.ShowIdentity(ViewModel.Identity);
+        }
     }
 
     private async void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -662,6 +711,7 @@ public sealed partial class MainWindow : Window
         finally
         {
             if (_scroll is not null) _scroll.ViewChanged -= OnViewChanged;
+            Settings.AppearanceChanged -= OnAppearanceChanged;
             Strings.PropertyChanged -= OnLanguageChanged;
             ViewModel.PropertyChanged -= OnModelChanged;
             ViewModel.CatalogChanged -= OnCatalogChanged;

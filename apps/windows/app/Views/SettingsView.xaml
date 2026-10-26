@@ -10,6 +10,21 @@
                 <Grid ColumnSpacing="16" RowSpacing="12">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <FontIcon Glyph="&#xE790;" FontSize="20" VerticalAlignment="Center" />
+                    <TextBlock x:Name="AppearanceLabel" Grid.Column="1" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    <ComboBox x:Name="AppearanceSelector" Grid.Column="2" MinWidth="160" MaxWidth="240" HorizontalAlignment="Right" SelectionChanged="OnAppearanceChanged">
+                        <ComboBoxItem x:Name="SystemAppearance" Tag="System" />
+                        <ComboBoxItem x:Name="LightAppearance" Tag="Light" />
+                        <ComboBoxItem x:Name="DarkAppearance" Tag="Dark" />
+                    </ComboBox>
+                    <InfoBar x:Name="AppearanceError" Grid.Row="1" Grid.ColumnSpan="3" IsClosable="False" Severity="Error" />
+                </Grid>
+            </Border>
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <Grid ColumnSpacing="16" RowSpacing="12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                     <FontIcon Glyph="&#xE774;" FontSize="20" VerticalAlignment="Center" />
                     <TextBlock x:Name="LanguageLabel" Grid.Column="1" VerticalAlignment="Center" TextWrapping="Wrap" />
                     <ComboBox x:Name="LanguageSelector" Grid.Column="2" MinWidth="160" MaxWidth="240" HorizontalAlignment="Right" SelectionChanged="OnLanguageChanged">
@@ -20,7 +35,76 @@
                     <InfoBar x:Name="SaveError" Grid.Row="1" Grid.ColumnSpan="3" IsClosable="False" Severity="Error" />
                 </Grid>
             </Border>
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE8B9;" FontSize="20" VerticalAlignment="Center" />
+                        <TextBlock x:Name="OutputLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Name="CopyGroupLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <Grid ColumnSpacing="12" RowSpacing="8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="190" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock x:Name="CopyStillLabel" VerticalAlignment="Center" />
+                            <ComboBox x:Name="CopyStillSelector" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnOutputPresetChanged" />
+                            <TextBlock x:Name="CopyStillHint" Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="CopyAnimatedLabel" Grid.Row="1" VerticalAlignment="Center" />
+                            <ComboBox x:Name="CopyAnimatedSelector" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnOutputPresetChanged" />
+                            <TextBlock x:Name="CopyAnimatedHint" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Grid>
+                    </StackPanel>
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Name="DragGroupLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <Grid ColumnSpacing="12" RowSpacing="8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="190" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock x:Name="DragStillLabel" VerticalAlignment="Center" />
+                            <ComboBox x:Name="DragStillSelector" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnOutputPresetChanged" />
+                            <TextBlock x:Name="DragStillHint" Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="DragAnimatedLabel" Grid.Row="1" VerticalAlignment="Center" />
+                            <ComboBox x:Name="DragAnimatedSelector" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnOutputPresetChanged" />
+                            <TextBlock x:Name="DragAnimatedHint" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Grid>
+                    </StackPanel>
+                    <InfoBar x:Name="OutputError" IsClosable="False" Severity="Error" />
+                </StackPanel>
+            </Border>
             <views:SyncSettingsView x:Name="SyncPanel" />
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE946;" FontSize="20" VerticalAlignment="Center" />
+                        <TextBlock x:Name="AboutLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <Grid ColumnSpacing="16" RowSpacing="10">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <TextBlock x:Name="VersionLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="VersionValue" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        <TextBlock x:Name="LibraryIdLabel" Grid.Row="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="LibraryIdValue" Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" FontFamily="Consolas"
+                                   IsTextSelectionEnabled="True" TextTrimming="CharacterEllipsis" />
+                        <Button x:Name="CopyLibraryId" Grid.Row="1" Grid.Column="2" IsEnabled="False" Click="OnCopyLibraryId" />
+                        <TextBlock x:Name="DeviceIdLabel" Grid.Row="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="DeviceIdValue" Grid.Row="2" Grid.Column="1" VerticalAlignment="Center" FontFamily="Consolas"
+                                   IsTextSelectionEnabled="True" TextTrimming="CharacterEllipsis" />
+                        <Button x:Name="CopyDeviceId" Grid.Row="2" Grid.Column="2" IsEnabled="False" Click="OnCopyDeviceId" />
+                    </Grid>
+                    <StackPanel Spacing="4">
+                        <TextBlock x:Name="LicensesLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <TextBlock x:Name="LicenseValue" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <InfoBar x:Name="AboutFeedback" IsClosable="True" />
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

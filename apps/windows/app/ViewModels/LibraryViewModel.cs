@@ -9,7 +9,7 @@ using MemeDock.Windows.Services;
 
 namespace MemeDock.Windows.ViewModels;
 
-public sealed class LibraryViewModel(LocalizationService strings) : ObservableObject, IAsyncDisposable
+public sealed class LibraryViewModel(LocalizationService strings, IOutputDefaults outputDefaults) : ObservableObject, IAsyncDisposable
 {
     public ObservableCollection<StickerCard> Cards { get; } = [];
     public ObservableCollection<CollectionMetadata> Collections { get; } = [];
@@ -18,6 +18,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public StickerSort Sort { get; private set; } = StickerSort.Recent;
     public string SearchText { get; private set; } = "";
     public bool IsReady { get; private set; }
+    public LibraryIdentity? Identity { get; private set; }
     public bool IsLoading { get; private set; }
     public bool HasMore { get; private set; }
     public string? ErrorKey { get; private set; }
@@ -101,13 +102,14 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         try
         {
             _session ??= await LibrarySession.OpenAsync(root);
+            Identity = _session.Identity;
             if (_stopping) return;
             Thumbnails = new ThumbnailLoader(_session);
             Details = new StickerDetailViewModel(_session, strings);
             Batch = new BatchOrganizeViewModel(_session, strings);
             Catalog = new CatalogViewModel(_session, strings, RefreshCatalogsAsync);
             TrashGroups ??= new TrashGroupsViewModel(_session, strings, RefreshCatalogsAsync);
-            Output = new StickerOutputViewModel(_session, strings);
+            Output = new StickerOutputViewModel(_session, strings, outputDefaults);
             Sync ??= new SyncCoordinator(
                 new LibrarySyncAdapter(_session), new WindowsCredentialTokenStore(), _session.LibraryId);
             _subscription = _session.Subscribe();

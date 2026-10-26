@@ -8,12 +8,13 @@ internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog
     private readonly LibraryHandle _library;
     private readonly ulong _maxInputBytes;
     private bool _disposed;
-    public string LibraryId { get; }
+    public string LibraryId => Identity.LibraryId;
+    public LibraryIdentity Identity { get; }
 
     private LibrarySession(LibraryHandle library, ulong maxInputBytes)
     {
         (_library, _maxInputBytes) = (library, maxInputBytes);
-        LibraryId = library.Identity().LibraryId;
+        Identity = library.Identity();
     }
 
     public static Task<LibrarySession> OpenAsync(string root) => Task.Run(async () =>

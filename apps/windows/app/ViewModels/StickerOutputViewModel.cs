@@ -29,10 +29,10 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
         MessageKey is null ? "" : _strings[MessageKey], ErrorKey is null ? "" : _strings[ErrorKey]
     }.Where(text => text.Length > 0));
 
-    internal StickerOutputViewModel(LibrarySession session, LocalizationService strings)
+    internal StickerOutputViewModel(LibrarySession session, LocalizationService strings, IOutputDefaults defaults)
     {
         (_session, _strings) = (session, strings);
-        _service = new StickerOutputService(session);
+        _service = new StickerOutputService(session, defaults);
         _clipboard = new ClipboardGuard(session);
     }
 
@@ -89,7 +89,9 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
         PreparedSticker? prepared = null;
         try
         {
-            prepared = await _service.PrepareAsync(target, StickerOutputKind.OriginalFile, package, drag: true, _lifetime.Token);
+            // Dragging follows the drag presets; the default preset is Original, so an
+            // untouched installation still hands over the original file bytes.
+            prepared = await _service.PrepareAsync(target, StickerOutputKind.Image, package, drag: true, _lifetime.Token);
             _lifetime.Token.ThrowIfCancellationRequested();
             _drag = prepared;
             prepared = null;

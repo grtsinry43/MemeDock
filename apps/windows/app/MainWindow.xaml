@@ -8,7 +8,7 @@
     <Grid x:Name="Root" Loaded="OnLoaded">
         <Grid.Resources>
             <!-- Named copies of the theme brushes the status line picks from code;
-                 ThemeResource keeps them in step with the system theme. -->
+                 ThemeResource keeps them in step with the effective theme. -->
             <SolidColorBrush x:Key="SyncIdleBrush" Color="{ThemeResource TextFillColorSecondary}" />
             <SolidColorBrush x:Key="SyncAttentionBrush" Color="{ThemeResource SystemFillColorCaution}" />
             <SolidColorBrush x:Key="SyncFailureBrush" Color="{ThemeResource SystemFillColorCritical}" />

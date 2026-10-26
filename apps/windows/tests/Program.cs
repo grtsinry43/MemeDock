@@ -22,6 +22,8 @@ internal static class Program
             RequestGenerations();
             EditDrafts();
             OutputPolicies();
+            OutputPresetTable();
+            VersionMetadata(FindRepository());
             CatalogFeedback();
             await RefreshMergingAsync();
             await TrashGroupsModelAsync();
@@ -100,20 +102,38 @@ internal static class Program
 
     private static void OutputPolicies()
     {
-        var animated = StickerOutputPolicy.Options(true, StickerOutputKind.Image);
+        Check(OutputDefaults.CopyDefault.Still == ExportPreset.BestCompatibility
+              && OutputDefaults.CopyDefault.Animated == ExportPreset.Original,
+            "Copy defaults drifted from best-compatible stills and unchanged animations.");
+        Check(OutputDefaults.DragDefault.Still == ExportPreset.Original
+              && OutputDefaults.DragDefault.Animated == ExportPreset.Original,
+            "Drag defaults must keep handing over the original bytes.");
+
+        var animated = StickerOutputPolicy.Options(true, StickerOutputKind.Image, OutputDefaults.CopyDefault);
         Check(animated.Preset == ExportPreset.Original && animated.Animation == AnimationPolicy.Preserve
             && !animated.StripMetadata && animated.MaxEdge is null, "Default animated copy would flatten or re-encode the original.");
-        var image = StickerOutputPolicy.Options(false, StickerOutputKind.Image);
-        Check(image.Preset == ExportPreset.CompatiblePng && image.MaxEdge == 1024 && image.BackgroundRgba is null
-            && image.StripMetadata, "Static copy lost the approved transparent PNG limits.");
+        var image = StickerOutputPolicy.Options(false, StickerOutputKind.Image, OutputDefaults.CopyDefault);
+        Check(image.Preset == ExportPreset.BestCompatibility && image.MaxEdge is null && image.BackgroundRgba is null
+            && image.StripMetadata, "Static copy lost the approved best-compatibility limits.");
+        // An untouched drag follows the drag defaults, which are the original bytes,
+        // in both content kinds.
         foreach (var isAnimated in new[] { false, true })
         {
-            var original = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.OriginalFile);
-            Check(original.Preset == ExportPreset.Original && original.Animation == AnimationPolicy.Preserve && !original.StripMetadata,
-                "File transfer would modify original bytes.");
-            var frame = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.FirstFrame);
-            Check(frame.Preset == ExportPreset.CompatiblePng && frame.Animation == AnimationPolicy.FirstFrame && frame.MaxEdge == 1024,
-                "First-frame conversion was implicit or lost its bounds.");
+            var dragged = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.Image, OutputDefaults.DragDefault);
+            Check(dragged.Preset == ExportPreset.Original && !dragged.StripMetadata && dragged.Animation == AnimationPolicy.Preserve,
+                "Default drag changed the original bytes.");
+        }
+        foreach (var defaults in new[] { OutputDefaults.CopyDefault, OutputDefaults.DragDefault })
+        {
+            foreach (var isAnimated in new[] { false, true })
+            {
+                var original = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.OriginalFile, defaults);
+                Check(original.Preset == ExportPreset.Original && original.Animation == AnimationPolicy.Preserve && !original.StripMetadata,
+                    "File transfer would modify original bytes.");
+                var frame = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.FirstFrame, defaults);
+                Check(frame.Preset == ExportPreset.CompatiblePng && frame.Animation == AnimationPolicy.FirstFrame && frame.MaxEdge == 1024,
+                    "First-frame conversion was implicit, lost its bounds or followed a preset.");
+            }
         }
         var metadata = new StickerMetadata("sticker", "title", "image.gif", "", false, new(2, 1, 0, 0, null, null));
         var target = new StickerOutputTarget("sticker", 2);
@@ -123,6 +143,90 @@ internal static class Program
         try { target.Validate(metadata with { Lifecycle = metadata.Lifecycle with { DeletedAt = 1 } }); throw new InvalidOperationException("Deleted target accepted."); }
         catch (BridgeException.Failure failure) { Check(failure.code == ErrorCode.EntityDeleted, "Wrong deleted-target error."); }
         Console.WriteLine("PASS: original/PNG/first-frame output policy and captured-target validation");
+    }
+
+    /// <summary>
+    /// The settings page writes one of these presets, so the full parameter tuple is
+    /// pinned here. <c>crates/domain/src/export.rs::ExportOptions::for_preset</c> is the
+    /// authority; a mismatch means the app would ask for options the domain rejects.
+    /// </summary>
+    private static void OutputPresetTable()
+    {
+        Check(StickerOutputPresets.For(false).SequenceEqual(
+                [ExportPreset.Original, ExportPreset.CompatiblePng, ExportPreset.SmallJpeg, ExportPreset.BestCompatibility]),
+            "The still-image preset list changed.");
+        Check(StickerOutputPresets.For(true).SequenceEqual([ExportPreset.Original, ExportPreset.CompatibleGif]),
+            "The animated preset list must not offer still-only presets.");
+
+        (ExportPreset Preset, uint? MaxEdge, uint? Background, bool Strip)[] stills =
+        [
+            (ExportPreset.Original, null, null, false),
+            (ExportPreset.CompatiblePng, 1024, null, true),
+            (ExportPreset.SmallJpeg, 512, 0xFFFFFFFF, true),
+            (ExportPreset.BestCompatibility, null, null, true),
+        ];
+        foreach (var (preset, maxEdge, background, strip) in stills)
+        {
+            var options = StickerOutputPresets.Options(preset, animated: false);
+            Check(options.Preset == preset && options.MaxEdge == maxEdge && options.BackgroundRgba == background
+                  && options.StripMetadata == strip && options.Animation == AnimationPolicy.Preserve,
+                $"Still preset {preset} does not match ExportOptions::for_preset.");
+        }
+        (ExportPreset Preset, uint? MaxEdge, uint? Background, bool Strip)[] animations =
+        [
+            (ExportPreset.Original, null, null, false),
+            (ExportPreset.CompatibleGif, 512, null, true),
+        ];
+        foreach (var (preset, maxEdge, background, strip) in animations)
+        {
+            var options = StickerOutputPresets.Options(preset, animated: true);
+            Check(options.Preset == preset && options.MaxEdge == maxEdge && options.BackgroundRgba == background
+                  && options.StripMetadata == strip && options.Animation == AnimationPolicy.Preserve,
+                $"Animated preset {preset} does not match ExportOptions::for_preset.");
+        }
+        Check(!StickerOutputPresets.Supports(ExportPreset.CompatibleGif, animated: false)
+              && !StickerOutputPresets.Supports(ExportPreset.SmallJpeg, animated: true)
+              && !StickerOutputPresets.Supports(ExportPreset.CompatiblePng, animated: true),
+            "A content kind accepted a preset the domain would reject.");
+        Check(new OutputDefaults(ExportPreset.CompatibleGif, ExportPreset.SmallJpeg).Sanitized(OutputDefaults.CopyDefault)
+                == OutputDefaults.CopyDefault,
+            "A hand-edited file with swapped presets was not sanitized.");
+        Check(new OutputDefaults(ExportPreset.SmallJpeg, ExportPreset.CompatibleGif).Sanitized(OutputDefaults.CopyDefault)
+                == new OutputDefaults(ExportPreset.SmallJpeg, ExportPreset.CompatibleGif),
+            "Valid presets were replaced during sanitizing.");
+
+        // Every label and hint the settings page can render must exist in both files.
+        var root = FindRepository();
+        var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
+        var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
+        foreach (var animated in new[] { false, true })
+        {
+            foreach (var preset in StickerOutputPresets.For(animated))
+            {
+                var label = StickerOutputPresets.LabelKey(preset);
+                var hint = StickerOutputPresets.HintKey(preset, animated);
+                Check(english.ContainsKey(label) && chinese.ContainsKey(label), $"Missing preset label: {label}");
+                Check(english.ContainsKey(hint) && chinese.ContainsKey(hint), $"Missing preset hint: {hint}");
+            }
+        }
+        Console.WriteLine("PASS: every output preset maps to the domain parameters and to bilingual copy");
+    }
+
+    private static void VersionMetadata(string root)
+    {
+        Check(AppVersion.Display("0.2.0+3f2a1c", new Version(9, 9, 9)) == "0.2.0",
+            "The commit suffix leaked into the displayed version.");
+        Check(AppVersion.Display(" 0.2.0 ", null) == "0.2.0", "The displayed version kept surrounding whitespace.");
+        Check(AppVersion.Display(null, new Version(1, 2, 3, 4)) == "1.2.3", "The assembly version lost its patch number.");
+        Check(AppVersion.Display("", null) == AppVersion.Unknown, "A missing version did not fall back to the placeholder.");
+
+        var workspace = AppVersion.WorkspaceVersion(File.ReadAllText(Path.Combine(root, "Cargo.toml")));
+        Check(workspace is { Length: > 0 }, "The workspace version could not be read from Cargo.toml.");
+        var project = XDocument.Load(Path.Combine(root, "apps/windows/app/MemeDock.Windows.csproj"))
+            .Root!.Elements("PropertyGroup").Elements("Version").Select(element => element.Value).FirstOrDefault();
+        Check(project == workspace, $"Windows app version {project} differs from the workspace version {workspace}.");
+        Check(AppVersion.FromAssembly(typeof(Program).Assembly).Length > 0, "Assembly metadata produced no version.");
+        Console.WriteLine("PASS: version display, workspace alignment and commit-suffix trimming");
     }
 
     // Shutdown is the last chance to release the library, so a failing step must
@@ -515,6 +619,15 @@ internal static class Program
             ["desktop_clear_selection"] = "clearSelection", ["desktop_selection_loaded_only"] = "selectionLoadedOnly",
             ["desktop_details"] = "details", ["desktop_selection_over_limit"] = "selectionOverLimit"
         };
+        // Windows-only copy for the desktop settings page. Mobile has no drag
+        // hand-off, a GIF preset, or a device identity panel, so these keys have no
+        // Android source; they must not be invented there either.
+        var windowsOnly = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "output_copy_group", "output_drag_group", "output_still", "output_animated",
+            "export_gif", "export_gif_hint", "settings_library_id", "settings_device_id",
+            "settings_license_text", "about_copy", "about_copy_failed"
+        };
         var macos = File.ReadAllText(Path.Combine(root, "apps/macos/Sources/MemeDock/Support/Localization.swift"));
         var split = macos.IndexOf("private static let chinese:", StringComparison.Ordinal);
         foreach (var (locale, resources, desktopSection) in new[]
@@ -550,6 +663,11 @@ internal static class Program
                     Check(value.Contains(locale == "values" ? "运行" : "running", StringComparison.OrdinalIgnoreCase)
                           && value.Contains(locale == "values" ? "关闭" : "close", StringComparison.OrdinalIgnoreCase),
                         $"Sync lifecycle hint does not describe the Windows lifecycle: {key}/{locale}");
+                    continue;
+                }
+                if (windowsOnly.Contains(key))
+                {
+                    Check(!android.ContainsKey(key), $"Windows-only resource leaked into Android: {key}");
                     continue;
                 }
                 Check(android.TryGetValue(key, out var source), $"Resource has no approved Android/desktop source: {key}");
@@ -991,7 +1109,8 @@ internal static class Program
         var detail = await session.DetailAsync(id, token);
         var target = new StickerOutputTarget(id, detail.Sticker.Lifecycle.Generation);
         target.Validate(detail.Sticker);
-        using var original = await session.ExportAsync(id, StickerOutputPolicy.Options(false, StickerOutputKind.OriginalFile), token);
+        using var original = await session.ExportAsync(id,
+            StickerOutputPolicy.Options(false, StickerOutputKind.OriginalFile, OutputDefaults.CopyDefault), token);
         var artifact = await session.PrepareHandoffAsync(original, token);
         Check((await File.ReadAllBytesAsync(artifact.Path)).SequenceEqual(await File.ReadAllBytesAsync(source)), "Original handoff changed bytes.");
         Check(artifact.RetainedUntil > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), "Handoff did not durably retain its file.");
@@ -1000,7 +1119,8 @@ internal static class Program
         var failedPublication = await session.ProtectClipboardAsync(original, token);
         await session.AbortClipboardAsync(failedPublication);
         await session.ReconcileClipboardAsync(pin);
-        using var png = await session.ExportAsync(id, StickerOutputPolicy.Options(false, StickerOutputKind.Image), token);
+        using var png = await session.ExportAsync(id,
+            StickerOutputPolicy.Options(false, StickerOutputKind.Image, OutputDefaults.CopyDefault), token);
         var converted = await session.PrepareHandoffAsync(png, token);
         Check(converted.Mime == "image/png" && !converted.Animated && File.Exists(converted.Path), "PNG export did not publish a verified static file.");
         var replacement = await session.ProtectClipboardAsync(png, token);
@@ -1015,12 +1135,12 @@ internal static class Program
         var moving = await session.DetailAsync(imported.Sticker.Id, token);
         Check(moving.Asset.Animated, "Two-frame fixture was not recognized as animated.");
         using var movingOriginal = await session.ExportAsync(imported.Sticker.Id,
-            StickerOutputPolicy.Options(moving.Asset.Animated, StickerOutputKind.Image), token);
+            StickerOutputPolicy.Options(moving.Asset.Animated, StickerOutputKind.Image, OutputDefaults.CopyDefault), token);
         var movingArtifact = await session.PrepareHandoffAsync(movingOriginal, token);
         Check(movingArtifact.Animated && (await File.ReadAllBytesAsync(movingArtifact.Path)).SequenceEqual(gif),
             "Default animated copy changed the original GIF or lost animation.");
         using var firstFrame = await session.ExportAsync(imported.Sticker.Id,
-            StickerOutputPolicy.Options(true, StickerOutputKind.FirstFrame), token);
+            StickerOutputPolicy.Options(true, StickerOutputKind.FirstFrame, OutputDefaults.CopyDefault), token);
         var frameArtifact = await session.PrepareHandoffAsync(firstFrame, token);
         var frameBytes = await File.ReadAllBytesAsync(frameArtifact.Path);
         Check(!frameArtifact.Animated && frameArtifact.Mime == "image/png"
@@ -1091,21 +1211,99 @@ internal static class Program
         var root = Path.Combine(parent, "MemeDock-Windows-preferences-" + Guid.NewGuid().ToString("N"));
         try
         {
+            Directory.CreateDirectory(root);
+            var path = Path.Combine(root, "preferences.json");
+            // The appearance selector picks its row from the enum value, so the enum
+            // order is part of the settings contract, not an incidental detail.
+            Check((int)AppearanceMode.System == 0 && (int)AppearanceMode.Light == 1 && (int)AppearanceMode.Dark == 2,
+                "The appearance selector order no longer matches the AppearanceMode values.");
             var preferences = new AppPreferences(root);
             await preferences.LoadAsync();
-            Check(preferences.Language == LanguageMode.System, "A fresh install did not follow the system language.");
+            Check(preferences.Language == LanguageMode.System && preferences.Appearance == AppearanceMode.System
+                  && preferences.CopyOutput == OutputDefaults.CopyDefault && preferences.DragOutput == OutputDefaults.DragDefault,
+                "A fresh install did not start from the approved defaults.");
+
             await preferences.SaveLanguageAsync(LanguageMode.Chinese);
+            await preferences.SaveAppearanceAsync(AppearanceMode.Dark);
+            await preferences.SaveOutputPresetAsync(OutputAction.Copy, animated: false, ExportPreset.SmallJpeg);
+            await preferences.SaveOutputPresetAsync(OutputAction.Drag, animated: true, ExportPreset.CompatibleGif);
             var reopened = new AppPreferences(root);
             await reopened.LoadAsync();
-            Check(reopened.Language == LanguageMode.Chinese, "Language did not survive a process restart.");
-            await Task.WhenAll(preferences.SaveLanguageAsync(LanguageMode.English), preferences.SaveLanguageAsync(LanguageMode.System));
-            await reopened.LoadAsync();
-            Check(reopened.Language == LanguageMode.System, "Concurrent preference writes lost the final selection.");
-            await File.WriteAllTextAsync(Path.Combine(root, "preferences.json"), "broken json");
+            Check(reopened.Language == LanguageMode.Chinese && reopened.Appearance == AppearanceMode.Dark,
+                "Language or appearance did not survive a process restart.");
+            Check(reopened.CopyOutput == new OutputDefaults(ExportPreset.SmallJpeg, ExportPreset.Original)
+                  && reopened.DragOutput == new OutputDefaults(ExportPreset.Original, ExportPreset.CompatibleGif),
+                "An output preset did not survive a process restart.");
+
+            // Enum names keep the file readable and immune to ordinal changes.
+            var json = await File.ReadAllTextAsync(path);
+            Check(json.Contains("\"Dark\"", StringComparison.Ordinal) && json.Contains("\"SmallJpeg\"", StringComparison.Ordinal),
+                "Preferences were written as ordinals instead of enum names.");
+
+            // Writes to different fields must compose, not overwrite each other.
+            await Task.WhenAll(
+                preferences.SaveLanguageAsync(LanguageMode.English),
+                preferences.SaveAppearanceAsync(AppearanceMode.Light),
+                preferences.SaveOutputPresetAsync(OutputAction.Copy, animated: false, ExportPreset.SmallJpeg));
+            var merged = new AppPreferences(root);
+            await merged.LoadAsync();
+            Check(merged.Language == LanguageMode.English && merged.Appearance == AppearanceMode.Light
+                  && merged.CopyOutput == new OutputDefaults(ExportPreset.SmallJpeg, ExportPreset.Original)
+                  && merged.DragOutput == new OutputDefaults(ExportPreset.Original, ExportPreset.CompatibleGif),
+                "Concurrent preference writes lost a field.");
+
+            // A file written before this batch only has Language; the rest defaults.
+            await File.WriteAllTextAsync(path, "{\"Language\":\"Chinese\"}");
+            var legacy = new AppPreferences(root);
+            await legacy.LoadAsync();
+            Check(legacy.Language == LanguageMode.Chinese && legacy.Appearance == AppearanceMode.System
+                  && legacy.CopyOutput == OutputDefaults.CopyDefault && legacy.DragOutput == OutputDefaults.DragDefault,
+                "A language-only file did not migrate to the other defaults.");
+
+            // Unknown enums, presets that do not fit their field and wrong value
+            // kinds all fall back per field instead of failing the whole load.
+            await File.WriteAllTextAsync(path,
+                "{\"Language\":\"Klingon\",\"Appearance\":42,\"Output\":{\"Copy\":{\"Still\":\"CompatibleGif\",\"Animated\":\"SmallJpeg\"},\"Drag\":5}}");
+            var sanitized = new AppPreferences(root);
+            await sanitized.LoadAsync();
+            Check(sanitized.Language == LanguageMode.System && sanitized.Appearance == AppearanceMode.System
+                  && sanitized.CopyOutput == OutputDefaults.CopyDefault && sanitized.DragOutput == OutputDefaults.DragDefault,
+                "Invalid persisted values did not fall back to their own defaults.");
+
+            await File.WriteAllTextAsync(path, "{\"Appearance\":\"Dark\",\"Output\":{\"Copy\":{\"Animated\":\"Original\"}}}");
+            var partial = new AppPreferences(root);
+            await partial.LoadAsync();
+            Check(partial.Appearance == AppearanceMode.Dark && partial.CopyOutput == OutputDefaults.CopyDefault,
+                "A partial file changed fields it did not mention.");
+
+            await File.WriteAllTextAsync(path, "broken json");
             var damaged = new AppPreferences(root);
             await damaged.LoadAsync();
-            Check(damaged.Language == LanguageMode.System, "Damaged preferences prevented system-language fallback.");
-            Console.WriteLine("PASS: preference persistence, serialized writes and damaged-file recovery");
+            Check(damaged.Language == LanguageMode.System && damaged.CopyOutput == OutputDefaults.CopyDefault,
+                "Damaged preferences prevented defaults from applying.");
+
+            // A failed write must leave both the file and the instance on the old value.
+            await File.WriteAllTextAsync(path, "{\"Appearance\":\"Dark\"}");
+            var stable = new AppPreferences(root);
+            await stable.LoadAsync();
+            var temporary = path + ".tmp";
+            Directory.CreateDirectory(temporary);
+            try
+            {
+                await stable.SaveAppearanceAsync(AppearanceMode.Light);
+                throw new InvalidOperationException("A directory blocking the temporary file did not fail the write.");
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or NotSupportedException) { }
+            finally
+            {
+                if (Directory.Exists(temporary)) Directory.Delete(temporary);
+            }
+            Check(stable.Appearance == AppearanceMode.Dark, "A failed write changed the in-memory appearance.");
+            var intact = new AppPreferences(root);
+            await intact.LoadAsync();
+            Check(intact.Appearance == AppearanceMode.Dark, "A failed write damaged the preference file.");
+
+            Console.WriteLine("PASS: preference defaults, restart round-trips, fault-tolerant migration, concurrent writes and failed writes");
         }
         finally
         {

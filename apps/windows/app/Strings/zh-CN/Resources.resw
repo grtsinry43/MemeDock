@@ -34,6 +34,33 @@
   <data name="language_english" xml:space="preserve"><value>English</value></data>
   <data name="settings_language_save_failed" xml:space="preserve"><value>语言设置保存失败，请重试</value></data>
   <data name="settings_general" xml:space="preserve"><value>通用</value></data>
+  <data name="settings_appearance" xml:space="preserve"><value>外观</value></data>
+  <data name="theme_system" xml:space="preserve"><value>跟随系统</value></data>
+  <data name="theme_light" xml:space="preserve"><value>浅色</value></data>
+  <data name="theme_dark" xml:space="preserve"><value>深色</value></data>
+  <data name="settings_save_failed" xml:space="preserve"><value>外观设置保存失败，请重试</value></data>
+  <data name="settings_output" xml:space="preserve"><value>输出默认设置</value></data>
+  <data name="settings_output_failed" xml:space="preserve"><value>输出设置读写失败，请重试</value></data>
+  <data name="output_copy_group" xml:space="preserve"><value>复制</value></data>
+  <data name="output_drag_group" xml:space="preserve"><value>拖放</value></data>
+  <data name="output_still" xml:space="preserve"><value>静态图片</value></data>
+  <data name="output_animated" xml:space="preserve"><value>动画图片</value></data>
+  <data name="export_small" xml:space="preserve"><value>小图</value></data>
+  <data name="export_best" xml:space="preserve"><value>最佳兼容</value></data>
+  <data name="export_gif" xml:space="preserve"><value>GIF</value></data>
+  <data name="export_original_hint" xml:space="preserve"><value>保持原始文件，保留透明通道与动效</value></data>
+  <data name="export_png_hint" xml:space="preserve"><value>保留透明通道，最长边限制 1024px</value></data>
+  <data name="export_small_hint" xml:space="preserve"><value>缩放至最长边 512px，填充白色背景</value></data>
+  <data name="export_best_hint" xml:space="preserve"><value>静态图输出透明 PNG（1024px），动图输出 GIF（512px，最高 30 帧/秒）</value></data>
+  <data name="export_gif_hint" xml:space="preserve"><value>GIF，最长边 512px、最高 30 帧/秒</value></data>
+  <data name="settings_about" xml:space="preserve"><value>关于</value></data>
+  <data name="settings_version" xml:space="preserve"><value>版本</value></data>
+  <data name="settings_library_id" xml:space="preserve"><value>库 ID</value></data>
+  <data name="settings_device_id" xml:space="preserve"><value>设备 ID</value></data>
+  <data name="settings_licenses" xml:space="preserve"><value>开源许可</value></data>
+  <data name="settings_license_text" xml:space="preserve"><value>MIT 许可证。完整文本见项目仓库中的 LICENSE 文件。</value></data>
+  <data name="about_copy" xml:space="preserve"><value>复制</value></data>
+  <data name="about_copy_failed" xml:space="preserve"><value>复制失败，请手动选中文本复制。</value></data>
   <data name="failure_permission" xml:space="preserve"><value>缺少存储访问权限，请重试</value></data>
   <data name="failure_io" xml:space="preserve"><value>文件读写失败，请重试</value></data>
   <data name="failure_full" xml:space="preserve"><value>设备存储空间不足</value></data>
