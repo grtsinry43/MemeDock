@@ -14,9 +14,21 @@
   <ItemGroup>
     <ProjectReference Include="..\bridge\MemeDock.Bridge.csproj" />
     <Compile Include="..\app\Models\LibraryFilter.cs" Link="Models\LibraryFilter.cs" />
+    <Compile Include="..\app\Models\StorageSnapshot.cs" Link="Models\StorageSnapshot.cs" />
     <Compile Include="..\app\Models\StickerEditState.cs" Link="Models\StickerEditState.cs" />
     <Compile Include="..\app\Models\StickerOutput.cs" Link="Models\StickerOutput.cs" />
+    <Compile Include="..\app\Models\StickerOutputPreferences.cs" Link="Models\StickerOutputPreferences.cs" />
     <Compile Include="..\app\Services\AppPreferences.cs" Link="Services\AppPreferences.cs" />
+    <Compile Include="..\app\Services\ByteSize.cs" Link="Services\ByteSize.cs" />
+    <Compile Include="..\app\Services\DirectoryOpener.cs" Link="Services\DirectoryOpener.cs" />
+    <Compile Include="..\app\Services\IStorageWorkspace.cs" Link="Services\IStorageWorkspace.cs" />
+    <Compile Include="..\app\Services\IBackupWorkspace.cs" Link="Services\IBackupWorkspace.cs" />
+    <Compile Include="..\app\Services\IBackupDestinationPicker.cs" Link="Services\IBackupDestinationPicker.cs" />
+    <Compile Include="..\app\Services\IArchiveWorkspace.cs" Link="Services\IArchiveWorkspace.cs" />
+    <Compile Include="..\app\Services\IArchiveSourcePicker.cs" Link="Services\IArchiveSourcePicker.cs" />
+    <Compile Include="..\app\Services\IRestoreLifecycle.cs" Link="Services\IRestoreLifecycle.cs" />
+    <Compile Include="..\app\Services\BackupFileWriter.cs" Link="Services\BackupFileWriter.cs" />
+    <Compile Include="..\app\Services\AppVersion.cs" Link="Services\AppVersion.cs" />
     <Compile Include="..\app\Services\SyncAdapter.cs" Link="Services\SyncAdapter.cs" />
     <Compile Include="..\app\Services\SyncCoordinator.cs" Link="Services\SyncCoordinator.cs" />
     <Compile Include="..\app\Services\SyncPresentation.cs" Link="Services\SyncPresentation.cs" />
@@ -26,6 +38,8 @@
     <Compile Include="..\app\Services\ITrashCatalog.cs" Link="Services\ITrashCatalog.cs" />
     <Compile Include="..\app\Localization\ICatalogStrings.cs" Link="Localization\ICatalogStrings.cs" />
     <Compile Include="..\app\ViewModels\RefreshQueue.cs" Link="ViewModels\RefreshQueue.cs" />
+    <Compile Include="..\app\ViewModels\StorageViewModel.cs" Link="ViewModels\StorageViewModel.cs" />
+    <Compile Include="..\app\ViewModels\BackupViewModel.cs" Link="ViewModels\BackupViewModel.cs" />
     <Compile Include="..\app\ViewModels\TrashGroupsPresentation.cs" Link="ViewModels\TrashGroupsPresentation.cs" />
     <Compile Include="..\app\ViewModels\TrashGroupsViewModel.cs" Link="ViewModels\TrashGroupsViewModel.cs" />
     <Compile Include="..\app\LibrarySession.cs" Link="LibrarySession.cs" />

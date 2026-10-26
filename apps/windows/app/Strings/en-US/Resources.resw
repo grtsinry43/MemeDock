@@ -34,6 +34,33 @@
   <data name="language_english" xml:space="preserve"><value>English</value></data>
   <data name="settings_language_save_failed" xml:space="preserve"><value>Failed to save language settings. Please try again.</value></data>
   <data name="settings_general" xml:space="preserve"><value>General</value></data>
+  <data name="settings_appearance" xml:space="preserve"><value>Appearance</value></data>
+  <data name="theme_system" xml:space="preserve"><value>Follow system</value></data>
+  <data name="theme_light" xml:space="preserve"><value>Light</value></data>
+  <data name="theme_dark" xml:space="preserve"><value>Dark</value></data>
+  <data name="settings_save_failed" xml:space="preserve"><value>Failed to save appearance settings. Please try again.</value></data>
+  <data name="settings_output" xml:space="preserve"><value>Output Defaults</value></data>
+  <data name="settings_output_failed" xml:space="preserve"><value>Could not read or save output settings. Please try again.</value></data>
+  <data name="output_copy_group" xml:space="preserve"><value>Copy</value></data>
+  <data name="output_drag_group" xml:space="preserve"><value>Drag and drop</value></data>
+  <data name="output_still" xml:space="preserve"><value>Still images</value></data>
+  <data name="output_animated" xml:space="preserve"><value>Animated images</value></data>
+  <data name="export_small" xml:space="preserve"><value>Small JPG</value></data>
+  <data name="export_best" xml:space="preserve"><value>Best Compatibility</value></data>
+  <data name="export_gif" xml:space="preserve"><value>GIF</value></data>
+  <data name="export_original_hint" xml:space="preserve"><value>Original file with transparent background and animation preserved</value></data>
+  <data name="export_png_hint" xml:space="preserve"><value>Preserves transparency, max dimension 1024px</value></data>
+  <data name="export_small_hint" xml:space="preserve"><value>Max dimension 512px, white background</value></data>
+  <data name="export_best_hint" xml:space="preserve"><value>Transparent PNG for stills (1024px), GIF for animations (512px, up to 30 FPS)</value></data>
+  <data name="export_gif_hint" xml:space="preserve"><value>GIF, max dimension 512px and 30 FPS</value></data>
+  <data name="settings_about" xml:space="preserve"><value>About</value></data>
+  <data name="settings_version" xml:space="preserve"><value>Version</value></data>
+  <data name="settings_library_id" xml:space="preserve"><value>Library ID</value></data>
+  <data name="settings_device_id" xml:space="preserve"><value>Device ID</value></data>
+  <data name="settings_licenses" xml:space="preserve"><value>Open-source licenses</value></data>
+  <data name="settings_license_text" xml:space="preserve"><value>MIT License. See the LICENSE file in the repository for the full text.</value></data>
+  <data name="about_copy" xml:space="preserve"><value>Copy</value></data>
+  <data name="about_copy_failed" xml:space="preserve"><value>Could not copy. Select the text and copy it manually.</value></data>
   <data name="failure_permission" xml:space="preserve"><value>Storage permission denied. Please try again.</value></data>
   <data name="failure_io" xml:space="preserve"><value>File I/O error. Please try again.</value></data>
   <data name="failure_full" xml:space="preserve"><value>Device storage is full</value></data>
@@ -156,4 +183,72 @@
   <data name="sync_failure_unauthorized" xml:space="preserve"><value>Device token expired or invalid. Please enter a new token.</value></data>
   <data name="sync_failure_network" xml:space="preserve"><value>Could not connect to the server. Will retry automatically.</value></data>
   <data name="sync_failure_credential" xml:space="preserve"><value>Could not access saved credentials. Please enter your device token again.</value></data>
+  <data name="settings_original_count" xml:space="preserve"><value>Original stickers</value></data>
+  <data name="settings_saved_originals" xml:space="preserve"><value>Storage used</value></data>
+  <data name="settings_cache_usage" xml:space="preserve"><value>Cache used</value></data>
+  <data name="settings_cache_footer" xml:space="preserve"><value>Cache includes thumbnails and temporary sharing files</value></data>
+  <data name="desktop_space" xml:space="preserve"><value>Space</value></data>
+  <data name="desktop_cleanup" xml:space="preserve"><value>Clean up</value></data>
+  <data name="desktop_clean" xml:space="preserve"><value>Clean</value></data>
+  <data name="desktop_cleanup_hint" xml:space="preserve"><value>Removes expired temporary files made for copying and sharing; files still on the clipboard are kept. Thumbnails are managed by the app and rebuilt when needed. Originals are never touched.</value></data>
+  <data name="desktop_locations" xml:space="preserve"><value>Locations</value></data>
+  <data name="desktop_data_directory" xml:space="preserve"><value>Library folder</value></data>
+  <data name="desktop_cache_directory" xml:space="preserve"><value>Cache folder</value></data>
+  <data name="desktop_export_directory" xml:space="preserve"><value>Share folder</value></data>
+  <data name="desktop_open" xml:space="preserve"><value>Open…</value></data>
+  <data name="desktop_refresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="desktop_cleanup_result" xml:space="preserve"><value>Cleaned {0} temporary share item(s)</value></data>
+  <data name="desktop_storage_not_ready" xml:space="preserve"><value>The library is not ready, so storage usage cannot be read yet.</value></data>
+  <data name="desktop_directory_missing" xml:space="preserve"><value>The folder does not exist.</value></data>
+  <data name="desktop_directory_open_failed" xml:space="preserve"><value>The folder could not be opened.</value></data>
+  <data name="desktop_backup" xml:space="preserve"><value>Backup</value></data>
+  <data name="desktop_backup_hint" xml:space="preserve"><value>A backup holds the whole library in one file</value></data>
+  <data name="desktop_backup_create" xml:space="preserve"><value>Create a backup</value></data>
+  <data name="desktop_backup_file_type" xml:space="preserve"><value>MemeDock backup</value></data>
+  <data name="desktop_backup_saved" xml:space="preserve"><value>Backup saved</value></data>
+  <data name="desktop_backup_saved_to" xml:space="preserve"><value>Saved to</value></data>
+  <data name="desktop_backup_exists" xml:space="preserve"><value>A file with that name appeared before it could be written. Run the backup again and confirm the replacement, or choose another name.</value></data>
+  <data name="desktop_backup_too_large" xml:space="preserve"><value>The backup is larger than the {0} limit, so it was not saved.</value></data>
+  <data name="desktop_checkpoint" xml:space="preserve"><value>Checkpoint</value></data>
+  <data name="desktop_checkpoint_hint" xml:space="preserve"><value>Saves a snapshot of the library database in the library folder. Original files are not included.</value></data>
+  <data name="desktop_checkpoint_create" xml:space="preserve"><value>Create checkpoint</value></data>
+  <data name="desktop_checkpoint_created" xml:space="preserve"><value>Checkpoint created: {0}</value></data>
+  <data name="desktop_restore" xml:space="preserve"><value>Restore</value></data>
+  <data name="desktop_restore_hint" xml:space="preserve"><value>Choose a backup file. MemeDock checks the file before showing anything about its contents.</value></data>
+  <data name="desktop_restore_choose" xml:space="preserve"><value>Choose a backup file</value></data>
+  <data name="desktop_restore_source" xml:space="preserve"><value>File</value></data>
+  <data name="desktop_restore_file_size" xml:space="preserve"><value>File size</value></data>
+  <data name="desktop_restore_stickers" xml:space="preserve"><value>Stickers</value></data>
+  <data name="desktop_restore_deleted_stickers" xml:space="preserve"><value>Deleted stickers</value></data>
+  <data name="desktop_restore_collections" xml:space="preserve"><value>Collections</value></data>
+  <data name="desktop_restore_tags" xml:space="preserve"><value>Tags</value></data>
+  <data name="desktop_restore_original_bytes" xml:space="preserve"><value>Original files</value></data>
+  <data name="desktop_restore_prediction" xml:space="preserve"><value>If merged into this library</value></data>
+  <data name="desktop_restore_prediction_value" xml:space="preserve"><value>{0} added, {1} already present, {2} relations skipped</value></data>
+  <data name="desktop_restore_mode" xml:space="preserve"><value>How to restore</value></data>
+  <data name="desktop_restore_merge" xml:space="preserve"><value>Merge</value></data>
+  <data name="desktop_restore_merge_hint" xml:space="preserve"><value>Keep the current library and add what the backup contains.</value></data>
+  <data name="desktop_restore_replace" xml:space="preserve"><value>Replace</value></data>
+  <data name="desktop_restore_replace_hint" xml:space="preserve"><value>Delete the current library and use the backup instead. This cannot be undone.</value></data>
+  <data name="desktop_restore_apply" xml:space="preserve"><value>Restore</value></data>
+  <data name="desktop_restore_confirm_title" xml:space="preserve"><value>Replace this library?</value></data>
+  <data name="desktop_restore_confirm_hint" xml:space="preserve"><value>Everything currently in the library will be replaced by {0}. This cannot be undone.</value></data>
+  <data name="desktop_restore_confirm_action" xml:space="preserve"><value>Replace</value></data>
+  <data name="desktop_restore_merge_done" xml:space="preserve"><value>Restored. {0} added, {1} already present, {2} relations skipped.</value></data>
+  <data name="desktop_restore_replace_done" xml:space="preserve"><value>The library was replaced with the backup.</value></data>
+  <data name="desktop_restore_busy" xml:space="preserve"><value>Another operation is using the library. Wait for it to finish and try again.</value></data>
+  <data name="desktop_restore_corrupt" xml:space="preserve"><value>This is not a valid backup, or parts of it are damaged, so nothing was restored.</value></data>
+  <data name="desktop_restore_unsupported" xml:space="preserve"><value>This backup was made by a version or in a format this app cannot restore.</value></data>
+  <data name="desktop_restore_changed" xml:space="preserve"><value>The library changed after the backup was checked, so nothing was restored. Choose the file again.</value></data>
+  <data name="desktop_restore_too_large" xml:space="preserve"><value>The backup is larger than the {0} limit, so it was not restored.</value></data>
+  <data name="desktop_restore_read_failed" xml:space="preserve"><value>The file could not be read. Check that it still exists and can be opened.</value></data>
+  <data name="desktop_restore_reopen_failed" xml:space="preserve"><value>The backup was restored, but the library could not be opened again. Restart the app.</value></data>
+  <data name="desktop_restore_state_reopened" xml:space="preserve"><value>The library was reopened; the current contents are available.</value></data>
+  <data name="desktop_restore_state_unchanged" xml:space="preserve"><value>The library was left as it was.</value></data>
+  <data name="desktop_restore_state_applied" xml:space="preserve"><value>The restore took effect, but the page could not reload. Try reloading it; restart the app if that fails.</value></data>
+  <data name="desktop_restore_state_stopped" xml:space="preserve"><value>The library is closed. Restart the app to use it again.</value></data>
+  <data name="desktop_restore_state_unconfirmed" xml:space="preserve"><value>The backup was applied, but this page still uses the session it had before the restore, so what it shows cannot be confirmed. The library keeps working; reopening the app shows the restored contents.</value></data>
+  <data name="desktop_restore_retry_action" xml:space="preserve"><value>Reload page</value></data>
+  <data name="backup_creating" xml:space="preserve"><value>Creating backup…</value></data>
+  <data name="backup_saving" xml:space="preserve"><value>Saving backup…</value></data>
 </root>

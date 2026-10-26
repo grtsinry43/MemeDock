@@ -17,6 +17,9 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <DefaultLanguage>en-US</DefaultLanguage>
     <WindowsSdkPackageVersion>10.0.26100.56</WindowsSdkPackageVersion>
+    <!-- Single source for the version shown in Settings > About; the test compares
+         it with [workspace.package] in Cargo.toml. -->
+    <Version>0.2.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />

@@ -10,6 +10,21 @@
                 <Grid ColumnSpacing="16" RowSpacing="12">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <FontIcon Glyph="&#xE790;" FontSize="20" VerticalAlignment="Center" />
+                    <TextBlock x:Name="AppearanceLabel" Grid.Column="1" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    <ComboBox x:Name="AppearanceSelector" Grid.Column="2" MinWidth="160" MaxWidth="240" HorizontalAlignment="Right" SelectionChanged="OnAppearanceChanged">
+                        <ComboBoxItem x:Name="SystemAppearance" Tag="System" />
+                        <ComboBoxItem x:Name="LightAppearance" Tag="Light" />
+                        <ComboBoxItem x:Name="DarkAppearance" Tag="Dark" />
+                    </ComboBox>
+                    <InfoBar x:Name="AppearanceError" Grid.Row="1" Grid.ColumnSpan="3" IsClosable="False" Severity="Error" />
+                </Grid>
+            </Border>
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <Grid ColumnSpacing="16" RowSpacing="12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                     <FontIcon Glyph="&#xE774;" FontSize="20" VerticalAlignment="Center" />
                     <TextBlock x:Name="LanguageLabel" Grid.Column="1" VerticalAlignment="Center" TextWrapping="Wrap" />
                     <ComboBox x:Name="LanguageSelector" Grid.Column="2" MinWidth="160" MaxWidth="240" HorizontalAlignment="Right" SelectionChanged="OnLanguageChanged">
@@ -20,7 +35,285 @@
                     <InfoBar x:Name="SaveError" Grid.Row="1" Grid.ColumnSpan="3" IsClosable="False" Severity="Error" />
                 </Grid>
             </Border>
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE8B9;" FontSize="20" VerticalAlignment="Center" />
+                        <TextBlock x:Name="OutputLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Name="CopyGroupLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <Grid ColumnSpacing="12" RowSpacing="8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="190" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock x:Name="CopyStillLabel" VerticalAlignment="Center" />
+                            <ComboBox x:Name="CopyStillSelector" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnOutputPresetChanged" />
+                            <TextBlock x:Name="CopyStillHint" Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="CopyAnimatedLabel" Grid.Row="1" VerticalAlignment="Center" />
+                            <ComboBox x:Name="CopyAnimatedSelector" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnOutputPresetChanged" />
+                            <TextBlock x:Name="CopyAnimatedHint" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Grid>
+                    </StackPanel>
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Name="DragGroupLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <Grid ColumnSpacing="12" RowSpacing="8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="190" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock x:Name="DragStillLabel" VerticalAlignment="Center" />
+                            <ComboBox x:Name="DragStillSelector" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnOutputPresetChanged" />
+                            <TextBlock x:Name="DragStillHint" Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="DragAnimatedLabel" Grid.Row="1" VerticalAlignment="Center" />
+                            <ComboBox x:Name="DragAnimatedSelector" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnOutputPresetChanged" />
+                            <TextBlock x:Name="DragAnimatedHint" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Grid>
+                    </StackPanel>
+                    <InfoBar x:Name="OutputError" IsClosable="False" Severity="Error" />
+                </StackPanel>
+            </Border>
             <views:SyncSettingsView x:Name="SyncPanel" />
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <FontIcon Glyph="&#xE8B7;" FontSize="20" VerticalAlignment="Center" />
+                        <TextBlock x:Name="StorageSpaceLabel" Grid.Column="1" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <ProgressRing x:Name="StorageProgress" Width="16" Height="16" IsActive="False" />
+                            <Button x:Name="StorageRefresh" Width="32" Height="32" Padding="0"
+                                    Background="Transparent" BorderThickness="0" Click="OnStorageRefresh">
+                                <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="2">
+                            <TextBlock x:Name="OriginalCountLabel" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="OriginalCountValue" Style="{ThemeResource BodyStrongTextBlockStyle}" IsTextSelectionEnabled="True" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="2">
+                            <TextBlock x:Name="SavedOriginalsLabel" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="SavedOriginalsValue" Style="{ThemeResource BodyStrongTextBlockStyle}" IsTextSelectionEnabled="True" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="2">
+                            <TextBlock x:Name="CacheUsageLabel" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="CacheUsageValue" Style="{ThemeResource BodyStrongTextBlockStyle}" IsTextSelectionEnabled="True" />
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock x:Name="StorageHint" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <InfoBar x:Name="StorageNotice" IsClosable="False" Severity="Informational" />
+                    <InfoBar x:Name="StorageError" IsClosable="False" Severity="Error">
+                        <InfoBar.ActionButton>
+                            <Button x:Name="StorageRetry" Click="OnStorageRefresh" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                </StackPanel>
+            </Border>
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE74D;" FontSize="20" VerticalAlignment="Center" />
+                        <TextBlock x:Name="CleanupLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="CleanupHint" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="CleanButton" Click="OnCleanArtifacts" />
+                        <ProgressRing x:Name="CleanProgress" Width="16" Height="16" IsActive="False" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <InfoBar x:Name="CleanupBar" IsClosable="True" />
+                </StackPanel>
+            </Border>
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE896;" FontSize="20" VerticalAlignment="Center" />
+                        <TextBlock x:Name="BackupLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="BackupHint" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="CreateBackupButton" Style="{ThemeResource AccentButtonStyle}" Click="OnCreateBackup" />
+                        <ProgressRing x:Name="BackupProgress" Width="16" Height="16" IsActive="False" VerticalAlignment="Center" />
+                        <TextBlock x:Name="BackupStage" VerticalAlignment="Center" TextWrapping="Wrap"
+                                   Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <InfoBar x:Name="BackupBar" IsClosable="True" />
+                    <Grid x:Name="BackupSavedPanel" ColumnSpacing="16" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock x:Name="BackupSavedLabel" VerticalAlignment="Top" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="BackupSavedValue" Grid.Column="1" VerticalAlignment="Top" FontFamily="Consolas" FontSize="12"
+                                   TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                    </Grid>
+                    <StackPanel Spacing="8" Margin="0,4,0,0">
+                        <TextBlock x:Name="CheckpointLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <TextBlock x:Name="CheckpointHint" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button x:Name="CreateCheckpointButton" Click="OnCreateCheckpoint" />
+                            <ProgressRing x:Name="CheckpointProgress" Width="16" Height="16" IsActive="False" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <InfoBar x:Name="CheckpointBar" IsClosable="True" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE777;" FontSize="20" VerticalAlignment="Center" />
+                        <TextBlock x:Name="RestoreLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="RestoreHint" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="ChooseArchiveButton" Click="OnChooseArchive" />
+                        <ProgressRing x:Name="InspectProgress" Width="16" Height="16" IsActive="False" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel x:Name="PreviewPanel" Spacing="12" Visibility="Collapsed">
+                        <Grid ColumnSpacing="16" RowSpacing="6">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock x:Name="PreviewSourceLabel" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="PreviewSourceValue" Grid.Column="1" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                            <TextBlock x:Name="PreviewSizeLabel" Grid.Row="1" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="PreviewSizeValue" Grid.Row="1" Grid.Column="1" />
+                        </Grid>
+                        <Grid ColumnSpacing="24" RowSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <StackPanel>
+                                <TextBlock x:Name="PreviewStickersLabel" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="PreviewStickersValue" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock x:Name="PreviewDeletedLabel" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="PreviewDeletedValue" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock x:Name="PreviewCollectionsLabel" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="PreviewCollectionsValue" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1">
+                                <TextBlock x:Name="PreviewTagsLabel" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="PreviewTagsValue" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1">
+                                <TextBlock x:Name="PreviewOriginalsLabel" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="PreviewOriginalsValue" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel x:Name="PredictionPanel" Spacing="4">
+                            <TextBlock x:Name="PredictionLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock x:Name="PredictionValue" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                        <StackPanel Spacing="8">
+                            <TextBlock x:Name="ModeLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <RadioButton x:Name="MergeOption" GroupName="RestoreMode" Checked="OnRestoreModeChanged">
+                                <StackPanel Spacing="2">
+                                    <TextBlock x:Name="MergeOptionLabel" />
+                                    <TextBlock x:Name="MergeOptionHint" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="ReplaceOption" GroupName="RestoreMode" Checked="OnRestoreModeChanged">
+                                <StackPanel Spacing="2">
+                                    <TextBlock x:Name="ReplaceOptionLabel" />
+                                    <TextBlock x:Name="ReplaceOptionHint" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </RadioButton>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button x:Name="ApplyRestoreButton" Style="{ThemeResource AccentButtonStyle}" Click="OnApplyRestore" />
+                            <ProgressRing x:Name="RestoreProgress" Width="16" Height="16" IsActive="False" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </StackPanel>
+                    <InfoBar x:Name="RestoreBar" IsClosable="True" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TextBlock x:Name="RestoreState" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                   VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
+                        <Button x:Name="RetryRestoreRefreshButton" Click="OnRetryRestoreRefresh"
+                                Visibility="Collapsed" VerticalAlignment="Center" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE838;" FontSize="20" VerticalAlignment="Center" />
+                        <TextBlock x:Name="LocationsLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <Grid ColumnSpacing="16" RowSpacing="10">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <TextBlock x:Name="DataDirectoryLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="DataDirectoryValue" Grid.Column="1" VerticalAlignment="Center" FontFamily="Consolas" FontSize="12"
+                                   TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
+                        <Button x:Name="OpenDataDirectory" Grid.Column="2" Click="OnOpenDataDirectory" />
+                        <TextBlock x:Name="CacheDirectoryLabel" Grid.Row="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="CacheDirectoryValue" Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" FontFamily="Consolas" FontSize="12"
+                                   TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
+                        <Button x:Name="OpenCacheDirectory" Grid.Row="1" Grid.Column="2" Click="OnOpenCacheDirectory" />
+                        <TextBlock x:Name="ShareDirectoryLabel" Grid.Row="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="ShareDirectoryValue" Grid.Row="2" Grid.Column="1" VerticalAlignment="Center" FontFamily="Consolas" FontSize="12"
+                                   TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
+                        <Button x:Name="OpenShareDirectory" Grid.Row="2" Grid.Column="2" Click="OnOpenShareDirectory" />
+                    </Grid>
+                    <InfoBar x:Name="DirectoryBar" IsClosable="True" />
+                </StackPanel>
+            </Border>
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE946;" FontSize="20" VerticalAlignment="Center" />
+                        <TextBlock x:Name="AboutLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <Grid ColumnSpacing="16" RowSpacing="10">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <TextBlock x:Name="VersionLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="VersionValue" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        <TextBlock x:Name="LibraryIdLabel" Grid.Row="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="LibraryIdValue" Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" FontFamily="Consolas"
+                                   IsTextSelectionEnabled="True" TextTrimming="CharacterEllipsis" />
+                        <Button x:Name="CopyLibraryId" Grid.Row="1" Grid.Column="2" IsEnabled="False" Click="OnCopyLibraryId" />
+                        <TextBlock x:Name="DeviceIdLabel" Grid.Row="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="DeviceIdValue" Grid.Row="2" Grid.Column="1" VerticalAlignment="Center" FontFamily="Consolas"
+                                   IsTextSelectionEnabled="True" TextTrimming="CharacterEllipsis" />
+                        <Button x:Name="CopyDeviceId" Grid.Row="2" Grid.Column="2" IsEnabled="False" Click="OnCopyDeviceId" />
+                    </Grid>
+                    <StackPanel Spacing="4">
+                        <TextBlock x:Name="LicensesLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                        <TextBlock x:Name="LicenseValue" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <InfoBar x:Name="AboutFeedback" IsClosable="True" />
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </UserControl>
