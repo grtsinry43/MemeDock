@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using MemeDock.Bridge;
@@ -17,7 +18,13 @@ namespace MemeDock.Windows.ViewModels;
 /// restore or purge into an action failure, and a successful operation is the
 /// only thing that can publish a success message.
 /// </remarks>
-public sealed class TrashGroupsViewModel : ObservableObject, IAsyncDisposable
+/// <remarks>
+/// <see cref="INotifyPropertyChanged"/> is listed again so this class owns the
+/// event it notifies through: the inherited one can only be raised as a single
+/// multicast delegate, which stops at the first subscriber that throws. See
+/// <see cref="Notify"/>.
+/// </remarks>
+public sealed class TrashGroupsViewModel : ObservableObject, INotifyPropertyChanged, IAsyncDisposable
 {
     private readonly ITrashCatalog _catalog;
     private readonly ICatalogStrings _strings;
@@ -33,6 +40,15 @@ public sealed class TrashGroupsViewModel : ObservableObject, IAsyncDisposable
     private string? _messageKey;
     private int _messageSucceeded;
     private int _messageFailed;
+
+    /// <summary>
+    /// Declared here, not inherited: only the declaring class may read the
+    /// subscriber list of a field-like event, and the inherited multicast
+    /// invocation stops at the first subscriber that throws. Interface-typed
+    /// subscribers reach this event because <see cref="INotifyPropertyChanged"/>
+    /// is implemented again on this class.
+    /// </summary>
+    public new event PropertyChangedEventHandler? PropertyChanged;
 
     public ObservableCollection<CollectionMetadata> Collections { get; } = [];
     public ObservableCollection<TagMetadata> Tags { get; } = [];
@@ -163,11 +179,11 @@ public sealed class TrashGroupsViewModel : ObservableObject, IAsyncDisposable
         finally
         {
             // The pass held back by Suspend has to run on every path, including a
-            // throw from a notification handler above: a queue left suspended
-            // would never reflect the catalog again. A committed change also has
-            // to be reflected even when no notification arrived. On shutdown the
-            // queue is already stopped, so this is a no-op instead of a late read
-            // of a released session.
+            // throw from the success message above: a queue left suspended would
+            // never reflect the catalog again. A committed change also has to be
+            // reflected even when no notification arrived. On shutdown the queue
+            // is already stopped, so this is a no-op instead of a late read of a
+            // released session.
             //
             // RefreshQueue traps every failure of a pass and only traces it, so
             // this await cannot fault and mask the operation's own outcome; the
@@ -228,13 +244,48 @@ public sealed class TrashGroupsViewModel : ObservableObject, IAsyncDisposable
 
     private void NotifyBars()
     {
-        OnPropertyChanged(nameof(IsBusy));
-        OnPropertyChanged(nameof(ErrorText));
-        OnPropertyChanged(nameof(MessageText));
-        OnPropertyChanged(nameof(HasAny));
-        OnPropertyChanged(nameof(HasVisibleContent));
-        OnPropertyChanged(nameof(TotalCount));
+        Notify(nameof(IsBusy), nameof(ErrorText), nameof(MessageText), nameof(HasAny),
+            nameof(HasVisibleContent), nameof(TotalCount));
     }
+
+    /// <summary>
+    /// Raises the given notifications while dispatching one subscriber at a
+    /// time, so a view that throws neither stops the other views from updating
+    /// nor reaches the operation or the refresh queue: the business change is
+    /// already committed when a banner is published, so a notification failure
+    /// is traced, never reported as an operation or refresh error.
+    /// </summary>
+    /// <remarks>
+    /// The subscriber list is snapshotted per notification, which also keeps a
+    /// handler that subscribes or unsubscribes while being notified from
+    /// changing the dispatch.
+    /// </remarks>
+    private void Notify(params string?[] names)
+    {
+        if (PropertyChanged is not { } handlers) return;
+        var subscribers = handlers.GetInvocationList();
+        foreach (var name in names)
+        {
+            var args = new PropertyChangedEventArgs(name);
+            foreach (var subscriber in subscribers)
+            {
+                try
+                {
+                    ((PropertyChangedEventHandler)subscriber)(this, args);
+                }
+                catch (Exception error)
+                {
+                    Trace.WriteLine(error);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Anything the toolkit raises on this class (property setters, for example)
+    /// goes through the same isolated dispatch instead of the base event.
+    /// </summary>
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e) => Notify(e.PropertyName);
 
     public void DismissMessage()
     {
@@ -251,11 +302,7 @@ public sealed class TrashGroupsViewModel : ObservableObject, IAsyncDisposable
         NotifyBars();
     }
 
-    public void Relocalize()
-    {
-        OnPropertyChanged(nameof(ErrorText));
-        OnPropertyChanged(nameof(MessageText));
-    }
+    public void Relocalize() => Notify(nameof(ErrorText), nameof(MessageText));
 
     /// <summary>
     /// Asks the panel to stop: drops queued reads and cancels the ones in

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Buffers.Binary;
+using System.ComponentModel;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
@@ -328,9 +329,10 @@ internal static class Program
             Check(model.MessageKey == "restored", "The retried restore did not announce success.");
         }
 
-        // An exception escaping the success notification must not leave the
-        // queue suspended: the pass held back by the operation still runs, and
-        // later requests keep reading the catalog.
+        // A notification subscriber that throws is isolated: the committed
+        // result stands, the subscribers after it still receive the
+        // notification, and the operation's lifecycle (busy flag, held-back
+        // refresh, disposal) is untouched.
         var escapedReads = 0;
         catalog = new FakeTrashCatalog { RestoreCollection = _ => Task.FromResult(collection) };
         catalog.Collections = _ =>
@@ -339,25 +341,44 @@ internal static class Program
             return Task.FromResult(Array.Empty<CollectionMetadata>());
         };
         var escaped = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask);
-        var threw = false;
+        var failed = false;
+        PropertyChangedEventArgs? aborted = null;
         escaped.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName != nameof(TrashGroupsViewModel.MessageText)
-                || escaped.MessageKey is null || threw) return;
-            threw = true;
+                || escaped.MessageKey is null || failed) return;
+            failed = true;
+            aborted = args;
             throw new InvalidOperationException("subscriber failed");
         };
-        try { await escaped.RestoreCollectionAsync(collection); }
-        catch (InvalidOperationException) { }
-        Check(threw, "The failing subscriber was never reached.");
+        // Registered after the failing subscriber. It counts only the very
+        // notification the previous subscriber aborted, so the longer dispatch
+        // cannot be mistaken for a later notification.
+        var deliveredSame = false;
+        escaped.PropertyChanged += (_, args) => deliveredSame |= ReferenceEquals(args, aborted);
+        // Interface-typed subscribers (the XAML binding engine) have to reach
+        // the same event, not the one inherited from ObservableObject.
+        var seenThroughInterface = 0;
+        ((INotifyPropertyChanged)escaped).PropertyChanged += (_, _) => seenThroughInterface++;
+        Check(await escaped.RestoreCollectionAsync(collection),
+            "A notification failure turned a committed restore into an operation failure.");
+        Check(failed, "The failing subscriber was never reached.");
+        Check(deliveredSame, "A failing subscriber hid the notification from the subscribers after it.");
+        Check(seenThroughInterface > 0,
+            "A subscriber bound through INotifyPropertyChanged received no notification.");
+        Check(escaped.MessageKey == "restored", "A notification failure discarded the success message.");
+        Check(!escaped.IsBusy, "A notification failure left the panel busy.");
         Check(Volatile.Read(ref escapedReads) == 1,
-            "An exception after a committed operation skipped the refresh it held back.");
+            "A notification failure skipped the refresh the committed operation held back.");
         await escaped.RefreshAsync();
         Check(Volatile.Read(ref escapedReads) == 2,
-            "The queue stayed suspended after an exception escaped a committed operation.");
-        // The exception also faults the operation task the caller owns.
+            "The queue stayed suspended after a notification failure.");
+        // Nor may it resurface at close: a faulted operation task would be
+        // rethrown by DisposeAsync long after the subscriber failed.
+        Exception? disposal = null;
         try { await escaped.DisposeAsync(); }
-        catch (InvalidOperationException) { }
+        catch (Exception error) { disposal = error; }
+        Check(disposal is null, $"A notification failure faulted disposal: {disposal?.Message}");
 
         // A burst of notifications during an operation becomes one read.
         var gate = new TaskCompletionSource<CollectionMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -467,14 +467,22 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         // Shutdown has to reach the session even when a background task or a
         // child view model throws: the window closes regardless, and skipping
         // the session would leave the native library (and its files) open.
-        var failure = await ShutdownRun.SequenceAsync(() => _observer, () => _reload, () => _trashBatch);
         var held = false;
+        var failure = await ShutdownRun.SequenceAsync(
+            () => _observer,
+            () => _reload,
+            () => _trashBatch,
+            async () =>
+            {
+                // In-flight queries finish (their token is already cancelled)
+                // before the handles and the session they use are released. The
+                // wait is a step like any other: if it fails, the cleanup below
+                // still runs instead of leaving the library open.
+                await _queries.WaitAsync();
+                held = true;
+            });
         try
         {
-            // In-flight queries finish (their token is already cancelled) before
-            // the handles and the session they use are released.
-            await _queries.WaitAsync();
-            held = true;
             // Assigned through a local: ??= would skip the whole cleanup sequence
             // when a background task already failed.
             var cleanup = await ShutdownRun.SequenceAsync(
