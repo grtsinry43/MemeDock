@@ -468,6 +468,10 @@ internal static class Program
         var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
         var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
         Check(chinese.Keys.Order().SequenceEqual(english.Keys.Order()), "Chinese and English resource keys differ.");
+        // The shared key promises a background loop that survives the window,
+        // which Windows does not have; it must stay replaced by the lifecycle hint.
+        Check(!chinese.ContainsKey("sync_background_hint"),
+            "Windows must not claim background sync; use sync_lifecycle_hint.");
         foreach (var file in Directory.EnumerateFiles(Path.Combine(root, "apps/windows/app"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
             foreach (Match match in Regex.Matches(File.ReadAllText(file), "(?:Strings|_strings)\\[\"([^\"]+)\"\\]"))
@@ -508,6 +512,19 @@ internal static class Program
                 if (key == "desktop_collection_delete_hint")
                 {
                     Check(android["organize_collections_footer"].EndsWith(value, StringComparison.Ordinal), "Collection deletion hint differs from Android.");
+                    continue;
+                }
+                // Windows has no tray process: MainWindow.OnClosing stops the sync
+                // loop, so Android's "runs in the background" copy would promise a
+                // behaviour this platform does not have. The key stays Windows-only
+                // and must name both halves of the lifecycle: syncing while the app
+                // runs, stopped once it is paused or closed.
+                if (key == "sync_lifecycle_hint")
+                {
+                    Check(!android.ContainsKey(key), "The Windows-only sync lifecycle hint leaked into Android.");
+                    Check(value.Contains(locale == "values" ? "运行" : "running", StringComparison.OrdinalIgnoreCase)
+                          && value.Contains(locale == "values" ? "关闭" : "close", StringComparison.OrdinalIgnoreCase),
+                        $"Sync lifecycle hint does not describe the Windows lifecycle: {key}/{locale}");
                     continue;
                 }
                 Check(android.TryGetValue(key, out var source), $"Resource has no approved Android/desktop source: {key}");

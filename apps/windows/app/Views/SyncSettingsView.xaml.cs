@@ -50,7 +50,7 @@ public sealed partial class SyncSettingsView : UserControl
         LastSyncLabel.Text = _strings["sync_last_success"];
         BlockedHint.Text = _strings["sync_blocked_hint"];
         MergeHint.Text = _strings["sync_merge_hint"];
-        BackgroundHint.Text = _strings["sync_background_hint"];
+        LifecycleHint.Text = _strings["sync_lifecycle_hint"];
         Render();
     }
 
@@ -109,7 +109,7 @@ public sealed partial class SyncSettingsView : UserControl
         PauseButton.Content = _strings[state.Status.Paused ? "sync_resume" : "sync_pause"];
         TokenButton.IsEnabled = connected && !busy;
         DisconnectButton.IsEnabled = connected && !busy;
-        BackgroundHint.Visibility = connected && !showForm ? Visibility.Visible : Visibility.Collapsed;
+        LifecycleHint.Visibility = connected && !showForm ? Visibility.Visible : Visibility.Collapsed;
 
         var error = ErrorText(state);
         ErrorBar.Message = error ?? "";

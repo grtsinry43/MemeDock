@@ -150,7 +150,7 @@
   <data name="sync_reauthorize" xml:space="preserve"><value>更换 Token</value></data>
   <data name="sync_disconnect" xml:space="preserve"><value>断开连接</value></data>
   <data name="sync_disconnect_hint" xml:space="preserve"><value>断开后将停止同步，本机已有的表情不会受影响。</value></data>
-  <data name="sync_background_hint" xml:space="preserve"><value>自动同步在后台运行，你也可以随时手动同步。</value></data>
+  <data name="sync_lifecycle_hint" xml:space="preserve"><value>应用运行期间会自动同步；暂停同步或关闭应用时停止。</value></data>
   <data name="sync_merge_hint" xml:space="preserve"><value>首次连接会自动合并本机与云端的表情。删除操作也会同步到其他设备。</value></data>
   <data name="sync_blocked_hint" xml:space="preserve"><value>部分内容因冲突未能同步，可在网页端查看详情。</value></data>
   <data name="sync_failure_unauthorized" xml:space="preserve"><value>设备 Token 已失效，请重新输入。</value></data>
