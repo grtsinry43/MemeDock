@@ -734,6 +734,7 @@ internal static class Program
                 Check(page.Stickers.Length == 2, "Adapter shutdown/reopen lost data or retained the library lock.");
                 await TrashCatalogRestartAsync();
                 await TrashCatalogRelationsAsync(reopened, root);
+                await LargeExportAsync(reopened, root);
             }
             Console.WriteLine("PASS: real session import, scoped search, catalogs, cancellation, thumbnail and reopen");
         }
@@ -1123,6 +1124,14 @@ internal static class Program
             StickerOutputPolicy.Options(false, StickerOutputKind.Image, OutputDefaults.CopyDefault), token);
         var converted = await session.PrepareHandoffAsync(png, token);
         Check(converted.Mime == "image/png" && !converted.Animated && File.Exists(converted.Path), "PNG export did not publish a verified static file.");
+        // Dragging used to bypass preferences through StickerOutputKind.OriginalFile; the
+        // default drag preset must still hand over the very same bytes without a re-encode.
+        using var dragged = await session.ExportAsync(id,
+            StickerOutputPolicy.Options(false, StickerOutputKind.Image, OutputDefaults.DragDefault), token);
+        var draggedArtifact = await session.PrepareHandoffAsync(dragged, token);
+        Check(!draggedArtifact.Animated
+              && (await File.ReadAllBytesAsync(draggedArtifact.Path)).SequenceEqual(await File.ReadAllBytesAsync(source)),
+            "Default drag changed the original still bytes.");
         var replacement = await session.ProtectClipboardAsync(png, token);
         await session.ReconcileClipboardAsync(replacement);
         await session.ReconcileClipboardAsync(null);
@@ -1139,6 +1148,12 @@ internal static class Program
         var movingArtifact = await session.PrepareHandoffAsync(movingOriginal, token);
         Check(movingArtifact.Animated && (await File.ReadAllBytesAsync(movingArtifact.Path)).SequenceEqual(gif),
             "Default animated copy changed the original GIF or lost animation.");
+        using var draggedMoving = await session.ExportAsync(imported.Sticker.Id,
+            StickerOutputPolicy.Options(true, StickerOutputKind.Image, OutputDefaults.DragDefault), token);
+        var draggedMovingArtifact = await session.PrepareHandoffAsync(draggedMoving, token);
+        Check(draggedMovingArtifact.Animated
+              && (await File.ReadAllBytesAsync(draggedMovingArtifact.Path)).SequenceEqual(gif),
+            "Default animated drag changed the original GIF or lost animation.");
         using var firstFrame = await session.ExportAsync(imported.Sticker.Id,
             StickerOutputPolicy.Options(true, StickerOutputKind.FirstFrame, OutputDefaults.CopyDefault), token);
         var frameArtifact = await session.PrepareHandoffAsync(firstFrame, token);
@@ -1150,6 +1165,34 @@ internal static class Program
         await session.DeleteStickerAsync(new(imported.Sticker.Id, imported.Sticker.Lifecycle.Generation), token);
         Console.WriteLine("PASS: real export, durable handoff, clipboard replacement/abort, usage recording and immutable originals");
         Console.WriteLine("PASS: real animated GIF preservation and explicit first-frame PNG conversion");
+    }
+
+    /// <summary>
+    /// The still default must stay a transparent PNG capped at 1024px through the real
+    /// encoder, not only in the preset table.
+    /// </summary>
+    private static async Task LargeExportAsync(LibrarySession session, string root)
+    {
+        var token = CancellationToken.None;
+        var source = Path.Combine(root, "large-output.png");
+        await File.WriteAllBytesAsync(source, Png(1600, 900, 10, 20, 30, 128));
+        try
+        {
+            var imported = await session.ImportAsync(source, null, token);
+            using var exported = await session.ExportAsync(imported.Sticker.Id,
+                StickerOutputPolicy.Options(false, StickerOutputKind.Image, OutputDefaults.CopyDefault), token);
+            var artifact = await session.PrepareHandoffAsync(exported, token);
+            var header = PngHeader(await File.ReadAllBytesAsync(artifact.Path));
+            Check(artifact.Mime == "image/png" && !artifact.Animated, "The large still default was not a static PNG.");
+            Check(header is { } size && Math.Max(size.Width, size.Height) == 1024 && size.ColorType == 6,
+                $"The still default was not a transparent PNG capped at 1024px (got {header?.Width}x{header?.Height}, color type {header?.ColorType}).");
+            await session.DeleteStickerAsync(new(imported.Sticker.Id, imported.Sticker.Lifecycle.Generation), token);
+            Console.WriteLine("PASS: still default keeps an alpha PNG capped at 1024px through the real encoder");
+        }
+        finally
+        {
+            File.Delete(source);
+        }
     }
 
     // GIF89a: 1px red/green frames, a two-color global palette and 100ms delays.
@@ -1169,23 +1212,46 @@ internal static class Program
         return output.ToArray();
     }
 
-    // A valid 1px RGBA PNG, using the same fixture construction as NativeContracts.
-    private static byte[] Png(byte red, byte green, byte blue)
+    private static byte[] Png(byte red, byte green, byte blue) => Png(1, 1, red, green, blue, 255);
+
+    // A valid RGBA PNG of any size, using the same fixture construction as NativeContracts.
+    private static byte[] Png(int width, int height, byte red, byte green, byte blue, byte alpha)
     {
         using var output = new MemoryStream();
         output.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
         var header = new byte[13];
-        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(0, 4), 1);
-        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4, 4), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(0, 4), (uint)width);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4, 4), (uint)height);
         header[8] = 8;
         header[9] = 6;
         Chunk(output, "IHDR"u8, header);
+        var row = new byte[1 + width * 4];
+        for (var x = 0; x < width; x++)
+        {
+            row[1 + x * 4] = red;
+            row[2 + x * 4] = green;
+            row[3 + x * 4] = blue;
+            row[4 + x * 4] = alpha;
+        }
         using var compressed = new MemoryStream();
         using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
-            zlib.Write(new byte[] { 0, red, green, blue, 255 });
+        {
+            for (var y = 0; y < height; y++) zlib.Write(row);
+        }
         Chunk(output, "IDAT"u8, compressed.ToArray());
         Chunk(output, "IEND"u8, []);
         return output.ToArray();
+    }
+
+    private static (int Width, int Height, byte ColorType)? PngHeader(byte[] bytes)
+    {
+        if (bytes.Length < 26
+            || !bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })
+            || !bytes.AsSpan(12, 4).SequenceEqual("IHDR"u8))
+            return null;
+        return ((int)BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(16, 4)),
+            (int)BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(20, 4)),
+            bytes[25]);
     }
 
     private static void Chunk(Stream output, ReadOnlySpan<byte> type, ReadOnlySpan<byte> bytes)

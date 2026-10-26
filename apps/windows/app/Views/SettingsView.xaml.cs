@@ -144,6 +144,31 @@ public sealed partial class SettingsView : UserControl
         }
     }
 
+    /// <summary>
+    /// Re-applies every selector from the persisted values after a write commits.
+    /// A relocalization triggered while another write was pending can leave a
+    /// selector showing the previous value even though the new value is stored.
+    /// </summary>
+    private void SyncSelectors()
+    {
+        if (_preferences is null) return;
+        _updating = true;
+        try
+        {
+            AppearanceSelector.SelectedIndex = (int)_preferences.Appearance;
+            LanguageSelector.SelectedIndex = (int)_preferences.Language;
+            SelectPreset(CopyStillSelector, _preferences.CopyOutput.Still);
+            SelectPreset(CopyAnimatedSelector, _preferences.CopyOutput.Animated);
+            SelectPreset(DragStillSelector, _preferences.DragOutput.Still);
+            SelectPreset(DragAnimatedSelector, _preferences.DragOutput.Animated);
+        }
+        finally
+        {
+            _updating = false;
+        }
+        UpdateHints();
+    }
+
     private void UpdateHints()
     {
         if (_strings is null) return;
@@ -182,12 +207,15 @@ public sealed partial class SettingsView : UserControl
             // still the one that survives a restart, and a failure reverts here.
             AppearanceChanged?.Invoke(mode);
             await _preferences.SaveAppearanceAsync(mode);
+            SyncSelectors();
         }
         catch (Exception error)
         {
             Trace.WriteLine($"Appearance could not be saved: {error}");
             AppearanceChanged?.Invoke(previous);
-            Relocalize();
+            _updating = true;
+            try { AppearanceSelector.SelectedIndex = (int)previous; }
+            finally { _updating = false; }
             AppearanceError.IsOpen = true;
         }
         finally { AppearanceSelector.IsEnabled = true; }
@@ -242,6 +270,9 @@ public sealed partial class SettingsView : UserControl
         try
         {
             await _preferences!.SaveOutputPresetAsync(action, animated, preset);
+            // A language change can relocalize this page while the write is in flight,
+            // which resets the selector to the value that was persisted back then.
+            SyncSelectors();
         }
         catch (Exception error)
         {
