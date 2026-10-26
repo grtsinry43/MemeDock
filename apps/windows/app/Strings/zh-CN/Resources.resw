@@ -103,6 +103,12 @@
   <data name="select_tags" xml:space="preserve"><value>选择标签</value></data>
   <data name="restored" xml:space="preserve"><value>已恢复</value></data>
   <data name="restore" xml:space="preserve"><value>恢复</value></data>
+  <data name="trash" xml:space="preserve"><value>回收站</value></data>
+  <data name="trash_empty" xml:space="preserve"><value>回收站为空</value></data>
+  <data name="trash_empty_hint" xml:space="preserve"><value>已删除的表情、合集和标签会暂存在这里，可随时恢复</value></data>
+  <data name="purge_title" xml:space="preserve"><value>彻底删除</value></data>
+  <data name="purge_hint" xml:space="preserve"><value>将彻底删除确认列表中的 {0} 个项目，此操作无法撤销。之后进入回收站的项目不会被删除。</value></data>
+  <data name="purge_result" xml:space="preserve"><value>已删除 {0} 个，未完成 {1} 个</value></data>
   <data name="batch_organize" xml:space="preserve"><value>批量整理</value></data>
   <data name="assign_collection" xml:space="preserve"><value>归入合集</value></data>
   <data name="clear_collection" xml:space="preserve"><value>取消归类</value></data>
@@ -124,4 +130,30 @@
   <data name="share_preparing" xml:space="preserve"><value>正在准备…</value></data>
   <data name="export_choose" xml:space="preserve"><value>发送格式</value></data>
   <data name="reorder" xml:space="preserve"><value>调整顺序</value></data>
+  <data name="sync_title" xml:space="preserve"><value>同步</value></data>
+  <data name="sync_server" xml:space="preserve"><value>服务器地址</value></data>
+  <data name="sync_token" xml:space="preserve"><value>设备 Token</value></data>
+  <data name="sync_token_hint" xml:space="preserve"><value>在网页端添加设备后，将生成的 Token 填入此处。</value></data>
+  <data name="sync_connect" xml:space="preserve"><value>连接并同步</value></data>
+  <data name="sync_failed" xml:space="preserve"><value>同步失败</value></data>
+  <data name="sync_running" xml:space="preserve"><value>正在同步…</value></data>
+  <data name="sync_ready" xml:space="preserve"><value>已同步</value></data>
+  <data name="sync_paused" xml:space="preserve"><value>已暂停</value></data>
+  <data name="sync_authorize" xml:space="preserve"><value>未连接</value></data>
+  <data name="sync_pending" xml:space="preserve"><value>待同步</value></data>
+  <data name="sync_blocked" xml:space="preserve"><value>未能同步</value></data>
+  <data name="sync_last_success" xml:space="preserve"><value>上次同步</value></data>
+  <data name="sync_never" xml:space="preserve"><value>尚未同步</value></data>
+  <data name="sync_now" xml:space="preserve"><value>立即同步</value></data>
+  <data name="sync_resume" xml:space="preserve"><value>恢复同步</value></data>
+  <data name="sync_pause" xml:space="preserve"><value>暂停同步</value></data>
+  <data name="sync_reauthorize" xml:space="preserve"><value>更换 Token</value></data>
+  <data name="sync_disconnect" xml:space="preserve"><value>断开连接</value></data>
+  <data name="sync_disconnect_hint" xml:space="preserve"><value>断开后将停止同步，本机已有的表情不会受影响。</value></data>
+  <data name="sync_background_hint" xml:space="preserve"><value>自动同步在后台运行，你也可以随时手动同步。</value></data>
+  <data name="sync_merge_hint" xml:space="preserve"><value>首次连接会自动合并本机与云端的表情。删除操作也会同步到其他设备。</value></data>
+  <data name="sync_blocked_hint" xml:space="preserve"><value>部分内容因冲突未能同步，可在网页端查看详情。</value></data>
+  <data name="sync_failure_unauthorized" xml:space="preserve"><value>设备 Token 已失效，请重新输入。</value></data>
+  <data name="sync_failure_network" xml:space="preserve"><value>无法连接服务器，稍后将自动重试。</value></data>
+  <data name="sync_failure_credential" xml:space="preserve"><value>无法读取登录凭证，请重新输入设备 Token。</value></data>
 </root>

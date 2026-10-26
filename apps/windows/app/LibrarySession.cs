@@ -7,6 +7,7 @@ internal sealed class LibrarySession : IAsyncDisposable
 {
     private readonly LibraryHandle _library;
     private readonly ulong _maxInputBytes;
+    private bool _disposed;
     public string LibraryId { get; }
 
     private LibrarySession(LibraryHandle library, ulong maxInputBytes)
@@ -219,6 +220,19 @@ internal sealed class LibrarySession : IAsyncDisposable
         using var registration = cancellation.Register(() => request.Cancel());
         return await request.AwaitResult().ConfigureAwait(false);
     });
+
+    // Purge is a core-owned tombstone: the row survives for sync while the
+    // original and its derived cache are released, so nothing here touches files.
+    // The revision is the one observed at deletion; a stale value only fails
+    // that entry instead of purging something that changed meanwhile.
+    public Task PurgeStickerAsync(EntityReference target, long deletedRevision, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.PurgeSticker(target, deletedRevision);
+        using var registration = cancellation.Register(() => request.Cancel());
+        await request.AwaitResult().ConfigureAwait(false);
+    });
+
     public Task MoveCollectionItemAsync(EntityReference collection, EntityReference sticker, string? before,
         CancellationToken cancellation) => Task.Run(async () =>
     {
@@ -277,8 +291,34 @@ internal sealed class LibrarySession : IAsyncDisposable
         await request.AwaitResult().ConfigureAwait(false);
     });
 
+    public Task<SyncStatus> SyncStatusAsync(CancellationToken cancellation)
+        => RunSyncAsync(_library.SyncStatus, cancellation);
+
+    public Task<SyncStatus> ConnectSyncAsync(string origin, string token, CancellationToken cancellation)
+        => RunSyncAsync(() => _library.ConnectSync(origin, token), cancellation);
+
+    public Task<SyncStatus> SynchronizeAsync(string token, CancellationToken cancellation)
+        => RunSyncAsync(() => _library.Synchronize(token), cancellation);
+
+    public Task<SyncStatus> SetSyncPausedAsync(bool paused, CancellationToken cancellation)
+        => RunSyncAsync(() => _library.SetSyncPaused(paused), cancellation);
+
+    public SyncSubscriptionHandle SubscribeSync() => _library.SubscribeSync();
+
+    private Task<SyncStatus> RunSyncAsync(Func<SyncStatusTask> start, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = start();
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
     public async ValueTask DisposeAsync()
     {
+        // Closing the window is the only caller today, but a second call must not
+        // shut down an already disposed UniFFI handle.
+        if (_disposed) return;
+        _disposed = true;
         try { await Task.Run(() => _library.Shutdown()).ConfigureAwait(false); }
         finally { _library.Dispose(); }
     }
