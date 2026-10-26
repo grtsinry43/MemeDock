@@ -23,6 +23,15 @@ public sealed partial class SettingsView : UserControl
         Relocalize();
     }
 
+    public void ConfigureSync(SyncCoordinator? sync, LocalizationService strings)
+    {
+        SyncPanel.Configure(sync, strings);
+        _strings = strings;
+        Relocalize();
+    }
+
+    public void ShutdownSync() => SyncPanel.Shutdown();
+
     public void Relocalize()
     {
         if (_strings is null || _preferences is null) return;
@@ -37,6 +46,7 @@ public sealed partial class SettingsView : UserControl
             EnglishLanguage.Content = _strings["language_english"];
             LanguageSelector.SelectedIndex = (int)_preferences.Language;
             SaveError.Message = _strings["settings_language_save_failed"];
+            SyncPanel.Relocalize();
         }
         finally { _updating = false; }
     }

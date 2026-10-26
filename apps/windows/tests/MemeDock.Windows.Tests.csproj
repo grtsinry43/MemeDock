@@ -13,6 +13,12 @@
     <Compile Include="..\app\Models\StickerEditState.cs" Link="Models\StickerEditState.cs" />
     <Compile Include="..\app\Models\StickerOutput.cs" Link="Models\StickerOutput.cs" />
     <Compile Include="..\app\Services\AppPreferences.cs" Link="Services\AppPreferences.cs" />
+    <Compile Include="..\app\Services\SyncAdapter.cs" Link="Services\SyncAdapter.cs" />
+    <Compile Include="..\app\Services\SyncCoordinator.cs" Link="Services\SyncCoordinator.cs" />
+    <Compile Include="..\app\Services\SyncPresentation.cs" Link="Services\SyncPresentation.cs" />
+    <Compile Include="..\app\Services\SyncTokenStore.cs" Link="Services\SyncTokenStore.cs" />
+    <Compile Include="..\app\Services\ShutdownRun.cs" Link="Services\ShutdownRun.cs" />
+    <Compile Include="..\app\Services\TrashOperations.cs" Link="Services\TrashOperations.cs" />
     <Compile Include="..\app\LibrarySession.cs" Link="LibrarySession.cs" />
   </ItemGroup>
 </Project>

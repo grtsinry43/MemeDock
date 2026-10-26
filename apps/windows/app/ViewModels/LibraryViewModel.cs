@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using CommunityToolkit.Mvvm.ComponentModel;
 using MemeDock.Bridge;
 using MemeDock.Windows.Localization;
@@ -22,6 +23,8 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public string? ErrorKey { get; private set; }
     public string? CatalogErrorKey { get; private set; }
     public bool IsImporting { get; private set; }
+    public bool IsTrashing { get; private set; }
+    public bool IsTrash => Filter.IsTrash;
     public string? ImportMessageKey { get; private set; }
     public int ImportCompleted { get; private set; }
     public int ImportTotal { get; private set; }
@@ -35,6 +38,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public BatchOrganizeViewModel? Batch { get; private set; }
     public CatalogViewModel? Catalog { get; private set; }
     public StickerOutputViewModel? Output { get; private set; }
+    public SyncCoordinator? Sync { get; private set; }
     internal ThumbnailLoader? Thumbnails { get; private set; }
 
     private LibrarySession? _session;
@@ -46,19 +50,23 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     private readonly BrowseRequestState _requests = new();
     private Task _observer = Task.CompletedTask;
     private Task _reload = Task.CompletedTask;
+    private Task _trashBatch = Task.CompletedTask;
     private bool _dirty;
     private bool _stopping;
+    private bool _disposed;
 
     public string Heading => Filter.Scope switch
     {
         LibraryScope.Starred => strings["favorites_only"],
         LibraryScope.Recent => strings["filter_recent"],
+        LibraryScope.Trash => strings["trash"],
         LibraryScope.Collection or LibraryScope.Tag => Filter.Name ?? "",
         _ => strings["filter_all"]
     };
     public string EmptyHeading => strings[SearchText.Length > 0 ? "library_no_matches" : Filter.Scope switch
     {
         LibraryScope.Starred => "starred_empty",
+        LibraryScope.Trash => "trash_empty",
         LibraryScope.Collection => "collection_empty",
         LibraryScope.Tag => "tag_empty",
         _ => "library_empty"
@@ -83,7 +91,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         Catalog?.Relocalize();
         Output?.Relocalize();
         foreach (var property in new[] { nameof(Heading), nameof(EmptyHeading), nameof(CountText), nameof(SelectionText),
-            nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText) }) OnPropertyChanged(property);
+            nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText), nameof(IsTrash) }) OnPropertyChanged(property);
     }
 
     public async Task InitializeAsync(string root)
@@ -97,10 +105,13 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             Batch = new BatchOrganizeViewModel(_session, strings);
             Catalog = new CatalogViewModel(_session, strings, RefreshCatalogsAsync);
             Output = new StickerOutputViewModel(_session, strings);
+            Sync ??= new SyncCoordinator(
+                new LibrarySyncAdapter(_session), new WindowsCredentialTokenStore(), _session.LibraryId);
             _subscription = _session.Subscribe();
             IsReady = true;
             OnPropertyChanged(nameof(IsReady));
             _observer = ObserveAsync();
+            await Sync.StartAsync();
             await RefreshCatalogsAsync();
             await RefreshAsync();
         }
@@ -293,6 +304,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
                     if (notification is Notification.CollectionsChanged or Notification.TagsChanged or Notification.ReloadRequired)
                         await RefreshCatalogsAsync();
                     _dirty = true;
+                    Sync?.NotifyContentChanged();
                     if (_reload.IsCompleted) _reload = ReloadWhenQuietAsync();
                 }
             }
@@ -308,7 +320,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             {
                 _dirty = false;
                 await Task.Delay(200, _lifetime.Token);
-                if (IsImporting || Batch?.IsRunning == true) { _dirty = true; continue; }
+                if (IsImporting || IsTrashing || Batch?.IsRunning == true) { _dirty = true; continue; }
                 await RefreshAsync(preserveLoaded: true);
             }
         }
@@ -358,6 +370,61 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         }
     }
 
+    internal Task<TrashOutcome> RestoreAsync(IReadOnlyList<StickerCard> cards) =>
+        TrackTrashAsync(() => ApplyTrashAsync(cards, TrashOperations.RestoreAsync));
+
+    internal Task<TrashOutcome> PurgeAsync(IReadOnlyList<StickerCard> cards) =>
+        TrackTrashAsync(() => ApplyTrashAsync(cards, TrashOperations.PurgeAsync));
+
+    /// <summary>
+    /// Keeps the running batch reachable so <see cref="DisposeAsync"/> can wait
+    /// for it before releasing the session. The inner guard runs first, which
+    /// keeps a second click from replacing the tracked task.
+    /// </summary>
+    private async Task<TrashOutcome> TrackTrashAsync(Func<Task<TrashOutcome>> work)
+    {
+        if (_session is null || _stopping || IsTrashing) return TrashOutcome.Empty;
+        var task = work();
+        _trashBatch = task;
+        return await task;
+    }
+
+    /// <summary>
+    /// Applies a trash action one entity at a time, then reloads the current
+    /// listing so restored stickers leave the trash and purged ones disappear
+    /// from both listings. A failed entry keeps its place and its file.
+    /// </summary>
+    private async Task<TrashOutcome> ApplyTrashAsync(IReadOnlyList<StickerCard> cards,
+        Func<LibrarySession, IReadOnlyList<TrashEntry>, Func<Exception, string>, CancellationToken, Task<TrashOutcome>> apply)
+    {
+        if (_session is null || _stopping || IsTrashing || cards.Count == 0) return TrashOutcome.Empty;
+        var entries = cards.Select(card => new TrashEntry(card.Id, card.Generation, card.Revision)).ToArray();
+        IsTrashing = true;
+        ErrorKey = null;
+        NotifyState();
+        TrashOutcome outcome;
+        try
+        {
+            outcome = await apply(_session, entries, strings.ErrorKey, _lifetime.Token);
+        }
+        catch (OperationCanceledException) { outcome = TrashOutcome.Empty; }
+        catch (Exception error)
+        {
+            Trace.WriteLine(error);
+            outcome = new TrashOutcome(0, cards.Count, strings.ErrorKey(error));
+        }
+        finally
+        {
+            // The flag gates navigation and the selection bar, so it must fall
+            // even when the native call throws something unexpected.
+            IsTrashing = false;
+        }
+        if (!_stopping) await RefreshAsync(preserveLoaded: true);
+        if (outcome.AnyFailed) ErrorKey = outcome.ErrorKey;
+        NotifyState();
+        return outcome;
+    }
+
     private void Report(Exception error)
     {
         Trace.WriteLine(error);
@@ -367,8 +434,8 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
 
     private void NotifyState()
     {
-        foreach (var property in new[] { nameof(IsLoading), nameof(IsImporting), nameof(HasMore), nameof(ErrorText),
-            nameof(ImportText), nameof(CountText), nameof(EmptyHeading) }) OnPropertyChanged(property);
+        foreach (var property in new[] { nameof(IsLoading), nameof(IsImporting), nameof(IsTrashing), nameof(HasMore),
+            nameof(ErrorText), nameof(ImportText), nameof(CountText), nameof(EmptyHeading) }) OnPropertyChanged(property);
     }
 
     public void RequestStop()
@@ -378,30 +445,55 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         _lifetime.Cancel();
         _queryCancellation?.Cancel();
         _subscription?.Unsubscribe();
+        Sync?.RequestStop();
     }
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
+        _disposed = true;
         RequestStop();
-        await Task.WhenAll(_observer, _reload);
-        await _queries.WaitAsync();
+        // Shutdown has to reach the session even when a background task or a
+        // child view model throws: the window closes regardless, and skipping
+        // the session would leave the native library (and its files) open.
+        var failure = await ShutdownRun.SequenceAsync(() => _observer, () => _reload, () => _trashBatch);
+        var held = false;
         try
         {
-            if (Output is not null) await Output.DisposeAsync();
-            if (Details is not null) await Details.DisposeAsync();
-            if (Batch is not null) await Batch.DisposeAsync();
-            if (Catalog is not null) await Catalog.DisposeAsync();
-            if (Thumbnails is not null) await Thumbnails.DisposeAsync();
-            _cursor?.Dispose();
-            _subscription?.Dispose();
-            if (_session is not null) await _session.DisposeAsync();
+            // In-flight queries finish (their token is already cancelled) before
+            // the handles and the session they use are released.
+            await _queries.WaitAsync();
+            held = true;
+            // Assigned through a local: ??= would skip the whole cleanup sequence
+            // when a background task already failed.
+            var cleanup = await ShutdownRun.SequenceAsync(
+                () => Sync is null ? Task.CompletedTask : Sync.DisposeAsync().AsTask(),
+                () => Output is null ? Task.CompletedTask : Output.DisposeAsync().AsTask(),
+                () => Details is null ? Task.CompletedTask : Details.DisposeAsync().AsTask(),
+                () => Batch is null ? Task.CompletedTask : Batch.DisposeAsync().AsTask(),
+                () => Catalog is null ? Task.CompletedTask : Catalog.DisposeAsync().AsTask(),
+                () => Thumbnails is null ? Task.CompletedTask : Thumbnails.DisposeAsync().AsTask(),
+                ReleaseHandles,
+                () => _session is null ? Task.CompletedTask : _session.DisposeAsync().AsTask());
+            failure ??= cleanup;
+            _session = null;
         }
         finally
         {
-            _queries.Release();
+            if (held) _queries.Release();
             _queries.Dispose();
             _queryCancellation?.Dispose();
             _lifetime.Dispose();
         }
+        if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private Task ReleaseHandles()
+    {
+        _cursor?.Dispose();
+        _cursor = null;
+        _subscription?.Dispose();
+        _subscription = null;
+        return Task.CompletedTask;
     }
 }

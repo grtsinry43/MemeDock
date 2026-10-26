@@ -27,6 +27,7 @@
                 <NavigationViewItem x:Name="AllNavigation" Tag="all" Icon="AllApps" />
                 <NavigationViewItem x:Name="StarredNavigation" Tag="starred" Icon="Favorite" />
                 <NavigationViewItem x:Name="RecentNavigation" Tag="recent" Icon="Clock" />
+                <NavigationViewItem x:Name="TrashNavigation" Tag="trash" Icon="Delete" />
                 <NavigationViewItemSeparator />
                 <NavigationViewItem x:Name="CollectionsNavigation" Icon="Library" SelectsOnInvoked="False" />
                 <NavigationViewItem x:Name="TagsNavigation" Tag="tags" Icon="Tag" IsEnabled="False" />
@@ -101,13 +102,15 @@
                                 <InfoBar.ActionButton><Button x:Name="UndoButton" Click="OnUndoDelete" /></InfoBar.ActionButton>
                             </InfoBar>
                             <Grid x:Name="SelectionBar" Visibility="Collapsed" ColumnSpacing="12">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                 <StackPanel Spacing="2" VerticalAlignment="Center">
                                     <TextBlock Text="{x:Bind ViewModel.SelectionText, Mode=OneWay}" />
                                     <TextBlock x:Name="SelectionHint" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </StackPanel>
-                                <AppBarButton x:Name="SelectAllButton" Grid.Column="1" Icon="SelectAll" LabelPosition="Collapsed" Click="OnSelectAll" VerticalAlignment="Center" />
-                                <AppBarButton x:Name="ClearSelectionButton" Grid.Column="2" Icon="Cancel" LabelPosition="Collapsed" Click="OnClearSelection" VerticalAlignment="Center" />
+                                <Button x:Name="RestoreButton" Grid.Column="1" Visibility="Collapsed" Click="OnRestoreSelected" VerticalAlignment="Center" />
+                                <Button x:Name="PurgeButton" Grid.Column="2" Visibility="Collapsed" Click="OnPurgeSelected" VerticalAlignment="Center" />
+                                <AppBarButton x:Name="SelectAllButton" Grid.Column="3" Icon="SelectAll" LabelPosition="Collapsed" Click="OnSelectAll" VerticalAlignment="Center" />
+                                <AppBarButton x:Name="ClearSelectionButton" Grid.Column="4" Icon="Cancel" LabelPosition="Collapsed" Click="OnClearSelection" VerticalAlignment="Center" />
                             </Grid>
                         </StackPanel>
                         <Grid Grid.Row="3">
