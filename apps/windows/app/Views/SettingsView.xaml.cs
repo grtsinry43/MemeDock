@@ -625,8 +625,9 @@ public sealed partial class SettingsView : UserControl
         RestoreState.Visibility = ToVisibility(RestoreState.Text.Length > 0);
 
         // Only a committed merge whose reload failed offers this: reloading is safe and
-        // never applies the archive again.
-        RetryRestoreRefreshButton.Text = _strings["desktop_restore_retry_action"];
+        // never applies the archive again. The label is set here because the XAML declares
+        // the button without content, like every other button on this page.
+        RetryRestoreRefreshButton.Content = _strings["desktop_restore_retry_action"];
         RetryRestoreRefreshButton.Visibility = ToVisibility(backup?.CanRetryRefresh == true);
         RetryRestoreRefreshButton.IsEnabled = backup?.CanRetryRefresh == true;
     }
