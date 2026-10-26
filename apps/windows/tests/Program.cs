@@ -1,13 +1,16 @@
 using System.Globalization;
 using System.Buffers.Binary;
+using System.ComponentModel;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using System.Xml.Linq;
 using MemeDock.Bridge;
 using MemeDock.Windows;
+using MemeDock.Windows.Localization;
 using MemeDock.Windows.Models;
 using MemeDock.Windows.Services;
+using MemeDock.Windows.ViewModels;
 
 internal static class Program
 {
@@ -19,9 +22,14 @@ internal static class Program
             RequestGenerations();
             EditDrafts();
             OutputPolicies();
+            CatalogFeedback();
+            await RefreshMergingAsync();
+            await TrashGroupsModelAsync();
             await ShutdownSequenceAsync();
             ResourceParity(FindRepository());
+            SyncStatusBrushes(FindRepository());
             await PreferencesAsync();
+            SyncStatusMapping();
             await SyncStateMachineAsync();
             await SessionQueriesAsync();
             Console.WriteLine("PASS: Windows browsing state, localization and preference checks");
@@ -33,6 +41,13 @@ internal static class Program
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static async Task<ErrorCode> ExpectFailure(Func<Task> operation)
+    {
+        try { await operation(); }
+        catch (BridgeException.Failure failure) { return failure.code; }
+        throw new InvalidOperationException("Expected a bridge failure.");
     }
 
     private static void QueryScopes()
@@ -137,6 +152,282 @@ internal static class Program
         Console.WriteLine("PASS: shutdown keeps releasing resources after a failed background task");
     }
 
+    // The operation the user asked for and the refresh that follows it are two
+    // results. A failed refresh must not read as a failed restore or purge, and
+    // only a completed operation may announce success.
+    private static void CatalogFeedback()
+    {
+        Check(TrashGroupsPresentation.VisibleErrorKey(null, null) is null,
+            "A clean catalog reported an error.");
+        Check(TrashGroupsPresentation.VisibleErrorKey(null, "E_RUNTIME") == TrashGroupsPresentation.RefreshFailureKey,
+            "A failed refresh was not reported as a list failure.");
+        Check(TrashGroupsPresentation.VisibleErrorKey("E_CONFLICT", null) == "E_CONFLICT",
+            "A failed operation lost its own error.");
+        Check(TrashGroupsPresentation.VisibleErrorKey("E_CONFLICT", "E_RUNTIME") == "E_CONFLICT",
+            "A refresh failure replaced the operation failure instead of staying secondary.");
+        Check(TrashGroupsPresentation.ShowsMessage(true, "restored")
+              && !TrashGroupsPresentation.ShowsMessage(false, "restored")
+              && !TrashGroupsPresentation.ShowsMessage(true, null),
+            "Success was announced for a failed operation or without a message.");
+        Check(TrashGroupsPresentation.ExtraPurgeHintKey(true) == "desktop_collection_delete_hint"
+              && TrashGroupsPresentation.ExtraPurgeHintKey(false) is null,
+            "The collection-only purge hint leaked into the tag dialog.");
+        Console.WriteLine("PASS: trash operation/refresh feedback separation and purge copy");
+    }
+
+    // A catalog notification must never be dropped, but a burst must not turn
+    // into a burst of reads either: one operation ends with one refreshed list.
+    private static async Task RefreshMergingAsync()
+    {
+        var heldPasses = 0;
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queue = new RefreshQueue(async () =>
+        {
+            Interlocked.Increment(ref heldPasses);
+            await held.Task;
+            return true;
+        });
+        queue.Suspend();
+        var firstQueued = queue.Request();
+        var secondQueued = queue.Request();
+        Check(firstQueued.IsCompleted && secondQueued.IsCompleted,
+            "A refresh requested during an operation waited for a pass that had not started.");
+        Check(Volatile.Read(ref heldPasses) == 0, "A suspended queue refreshed while the operation was running.");
+        var resumed = queue.Resume();
+        Check(Volatile.Read(ref heldPasses) == 1, "Finishing an operation did not run the refresh it held back.");
+        held.SetResult();
+        await resumed;
+        Check(Volatile.Read(ref heldPasses) == 1,
+            "Two notifications during one operation produced more than one refresh.");
+
+        // A notification during a running pass latches exactly one follow-up,
+        // and the caller settles after that follow-up instead of the stale pass.
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var livePasses = 0;
+        var live = new RefreshQueue(async () =>
+        {
+            var index = Interlocked.Increment(ref livePasses);
+            if (index == 1) started.SetResult();
+            if (index == 1) await release.Task;
+            return true;
+        });
+        var running = live.Request();
+        await started.Task;
+        var mergedOne = live.Request();
+        var mergedTwo = live.Request();
+        Check(!mergedOne.IsCompleted, "A refresh requested during a pass settled before the follow-up ran.");
+        release.SetResult();
+        await running;
+        Check(Volatile.Read(ref livePasses) == 2,
+            "A burst during a running pass did not collapse into exactly one follow-up pass.");
+        Check(mergedOne.IsCompleted && mergedTwo.IsCompleted, "A merged refresh was never completed.");
+
+        // A pass that fails reports through the view model; the queue itself
+        // must survive so a later notification still refreshes the list.
+        var attempts = 0;
+        var recovering = new RefreshQueue(() => Interlocked.Increment(ref attempts) == 1
+            ? Task.FromException<bool>(new InvalidOperationException("pass failed"))
+            : Task.FromResult(true));
+        await recovering.Request();
+        Check(Volatile.Read(ref attempts) == 1, "The failing pass did not run.");
+        await recovering.Request();
+        Check(Volatile.Read(ref attempts) == 2, "A failed pass ended the queue and lost later notifications.");
+
+        // Closing discards what is queued, still waits for the pass in flight,
+        // and accepts nothing afterwards.
+        var closingStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closingRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closingPasses = 0;
+        var closing = new RefreshQueue(async () =>
+        {
+            Interlocked.Increment(ref closingPasses);
+            closingStart.SetResult();
+            await closingRelease.Task;
+            return true;
+        });
+        var inFlight = closing.Request();
+        await closingStart.Task;
+        _ = closing.Request();
+        closing.Stop();
+        Check(!closing.Completion.IsCompleted, "Stopping released a pass that was still querying.");
+        closingRelease.SetResult();
+        await inFlight;
+        await closing.Completion;
+        Check(Volatile.Read(ref closingPasses) == 1, "A queued refresh ran after the panel stopped.");
+        await closing.Resume();
+        await closing.Request();
+        Check(Volatile.Read(ref closingPasses) == 1, "A stopped queue accepted a refresh during shutdown.");
+        Console.WriteLine("PASS: trash refresh coalescing, failure recovery and shutdown discard");
+    }
+
+    // The view model wiring behind those rules: a committed operation keeps its
+    // success even when the follow-up read fails, a new operation does not
+    // inherit the previous banner, and a closing panel publishes nothing.
+    private static async Task TrashGroupsModelAsync()
+    {
+        var catalog = new FakeTrashCatalog();
+        var strings = new FakeCatalogStrings();
+        var collection = new CollectionMetadata(
+            "c-restore", "合集", "a", new EntityLifecycle(1, 0, 0, 0, 100, null));
+
+        // Operation succeeds, refresh fails: success message plus a list error.
+        var reloads = 0;
+        catalog.RestoreCollection = _ => Task.FromResult(collection);
+        catalog.Collections = _ => Task.FromException<CollectionMetadata[]>(new InvalidOperationException("refresh failed"));
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () =>
+        {
+            reloads++;
+            return Task.CompletedTask;
+        }))
+        {
+            Check(await model.RestoreCollectionAsync(collection), "A committed restore was reported as failed.");
+            Check(model.MessageKey == "restored", "A committed restore did not announce success.");
+            Check(model.MessageText.Length > 0, "The success message was not resolved.");
+            Check(model.ErrorKey == TrashGroupsPresentation.RefreshFailureKey,
+                "A refresh failure turned a committed restore into an operation failure.");
+            Check(reloads == 1, "A restore did not reload the library catalogs.");
+        }
+
+        // Both fail: the operation's reason stays the visible one.
+        catalog = new FakeTrashCatalog
+        {
+            RestoreCollection = _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("restore failed")),
+            Collections = _ => Task.FromException<CollectionMetadata[]>(new InvalidOperationException("refresh failed"))
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            Check(!await model.RestoreCollectionAsync(collection), "A failed restore was reported as committed.");
+            Check(model.ErrorKey == "restore failed", "The refresh failure replaced the operation failure.");
+            Check(model.MessageKey is null, "A failed operation announced success.");
+        }
+
+        // Operation fails, refresh works: only the operation error remains.
+        catalog = new FakeTrashCatalog
+        {
+            RestoreCollection = _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("restore failed")),
+            Collections = _ => Task.FromResult(Array.Empty<CollectionMetadata>())
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            Check(!await model.RestoreCollectionAsync(collection), "A failed restore was reported as committed.");
+            Check(model.ErrorKey == "restore failed", "A failed operation lost its error after a clean refresh.");
+            Check(model.MessageKey is null, "A failed operation announced success.");
+        }
+
+        // The previous failure must not survive the next successful action.
+        catalog = new FakeTrashCatalog
+        {
+            RestoreCollection = _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("first failure")),
+            Collections = _ => Task.FromResult(Array.Empty<CollectionMetadata>())
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            Check(!await model.RestoreCollectionAsync(collection), "A failed restore was reported as committed.");
+            Check(model.ErrorKey == "first failure", "The failed operation did not report its own reason.");
+            catalog.RestoreCollection = _ => Task.FromResult(collection);
+            Check(await model.RestoreCollectionAsync(collection), "The retried restore did not commit.");
+            Check(model.ErrorKey is null, "An old operation error stayed visible after the next success.");
+            Check(model.MessageKey == "restored", "The retried restore did not announce success.");
+        }
+
+        // A notification subscriber that throws is isolated: the committed
+        // result stands, the subscribers after it still receive the
+        // notification, and the operation's lifecycle (busy flag, held-back
+        // refresh, disposal) is untouched.
+        var escapedReads = 0;
+        catalog = new FakeTrashCatalog { RestoreCollection = _ => Task.FromResult(collection) };
+        catalog.Collections = _ =>
+        {
+            Interlocked.Increment(ref escapedReads);
+            return Task.FromResult(Array.Empty<CollectionMetadata>());
+        };
+        var escaped = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask);
+        var failed = false;
+        PropertyChangedEventArgs? aborted = null;
+        escaped.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(TrashGroupsViewModel.MessageText)
+                || escaped.MessageKey is null || failed) return;
+            failed = true;
+            aborted = args;
+            throw new InvalidOperationException("subscriber failed");
+        };
+        // Registered after the failing subscriber. It counts only the very
+        // notification the previous subscriber aborted, so the longer dispatch
+        // cannot be mistaken for a later notification.
+        var deliveredSame = false;
+        escaped.PropertyChanged += (_, args) => deliveredSame |= ReferenceEquals(args, aborted);
+        // Interface-typed subscribers (the XAML binding engine) have to reach
+        // the same event, not the one inherited from ObservableObject.
+        var seenThroughInterface = 0;
+        ((INotifyPropertyChanged)escaped).PropertyChanged += (_, _) => seenThroughInterface++;
+        Check(await escaped.RestoreCollectionAsync(collection),
+            "A notification failure turned a committed restore into an operation failure.");
+        Check(failed, "The failing subscriber was never reached.");
+        Check(deliveredSame, "A failing subscriber hid the notification from the subscribers after it.");
+        Check(seenThroughInterface > 0,
+            "A subscriber bound through INotifyPropertyChanged received no notification.");
+        Check(escaped.MessageKey == "restored", "A notification failure discarded the success message.");
+        Check(!escaped.IsBusy, "A notification failure left the panel busy.");
+        Check(Volatile.Read(ref escapedReads) == 1,
+            "A notification failure skipped the refresh the committed operation held back.");
+        await escaped.RefreshAsync();
+        Check(Volatile.Read(ref escapedReads) == 2,
+            "The queue stayed suspended after a notification failure.");
+        // Nor may it resurface at close: a faulted operation task would be
+        // rethrown by DisposeAsync long after the subscriber failed.
+        Exception? disposal = null;
+        try { await escaped.DisposeAsync(); }
+        catch (Exception error) { disposal = error; }
+        Check(disposal is null, $"A notification failure faulted disposal: {disposal?.Message}");
+
+        // A burst of notifications during an operation becomes one read.
+        var gate = new TaskCompletionSource<CollectionMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+        catalog = new FakeTrashCatalog { RestoreCollection = _ => gate.Task };
+        catalog.Collections = _ =>
+        {
+            Interlocked.Increment(ref reads);
+            return Task.FromResult(Array.Empty<CollectionMetadata>());
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            var operation = model.RestoreCollectionAsync(collection);
+            var first = model.RefreshAsync();
+            var second = model.RefreshAsync();
+            Check(first.IsCompleted && second.IsCompleted,
+                "A refresh waited for a pass the running operation held back.");
+            gate.SetResult(collection);
+            Check(await operation, "The gated restore did not commit.");
+            Check(Volatile.Read(ref reads) == 1,
+                "Notifications during one operation produced more than one catalog read.");
+            Check(model.MessageKey == "restored", "The gated restore did not announce success.");
+        }
+
+        // Closing during an operation drops the queued read and reports nothing.
+        var closingGate = new TaskCompletionSource<CollectionMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closingReads = 0;
+        catalog = new FakeTrashCatalog { RestoreCollection = _ => closingGate.Task };
+        catalog.Collections = _ =>
+        {
+            Interlocked.Increment(ref closingReads);
+            return Task.FromResult(Array.Empty<CollectionMetadata>());
+        };
+        var stopping = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask);
+        var stoppedOperation = stopping.RestoreCollectionAsync(collection);
+        _ = stopping.RefreshAsync();
+        stopping.RequestStop();
+        closingGate.SetResult(collection);
+        await stoppedOperation;
+        await stopping.DisposeAsync();
+        Check(Volatile.Read(ref closingReads) == 0, "A stopped panel read the catalog after shutdown.");
+        Check(stopping.MessageKey is null && stopping.ErrorKey is null, "A stopped panel published a banner.");
+        await stopping.RefreshAsync();
+        Check(Volatile.Read(ref closingReads) == 0, "A stopped panel accepted a refresh after disposal.");
+        Console.WriteLine("PASS: trash operation/refresh combinations, stale errors and close discard");
+    }
+
     private static void EditDrafts()
     {
         var original = new StickerMetadata("sticker", "old", "original.png", "note", false, new EntityLifecycle(1, 1, 0, 0, null, null));
@@ -166,6 +457,30 @@ internal static class Program
         Console.WriteLine("PASS: draft ownership, in-flight typing, generation/revision rejection and discard");
     }
 
+    /// <summary>
+    /// The status line picks one of three brushes from this window's resource
+    /// dictionary. ResourceDictionary's C#/WinRT projection exposes only the
+    /// IDictionary members (indexer, ContainsKey, TryGetValue); the ABI names
+    /// Lookup/HasKey are not callable from C# (CS1061), which is invisible to
+    /// this test project because it never compiles the WinUI sources.
+    /// </summary>
+    private static void SyncStatusBrushes(string root)
+    {
+        var xaml = File.ReadAllText(Path.Combine(root, "apps/windows/app/MainWindow.xaml"));
+        var code = File.ReadAllText(Path.Combine(root, "apps/windows/app/MainWindow.xaml.cs"));
+        foreach (var key in new[] { "SyncIdleBrush", "SyncAttentionBrush", "SyncFailureBrush" })
+        {
+            Check(xaml.Contains($"x:Key=\"{key}\"", StringComparison.Ordinal),
+                $"MainWindow.xaml no longer declares the {key} resource.");
+            Check(code.Contains($"\"{key}\"", StringComparison.Ordinal),
+                $"MainWindow.xaml.cs no longer reads the {key} resource.");
+        }
+        Check(!code.Contains(".HasKey(", StringComparison.Ordinal)
+              && !code.Contains(".Lookup(", StringComparison.Ordinal),
+            "ResourceDictionary has no C# HasKey/Lookup; read the indexer instead.");
+        Console.WriteLine("PASS: sync status brushes stay declared in XAML and read through the indexer");
+    }
+
     private static Dictionary<string, string> ReadResw(string path)
     {
         var entries = XDocument.Load(path).Root!.Elements("data").ToArray();
@@ -178,6 +493,10 @@ internal static class Program
         var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
         var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
         Check(chinese.Keys.Order().SequenceEqual(english.Keys.Order()), "Chinese and English resource keys differ.");
+        // The shared key promises a background loop that survives the window,
+        // which Windows does not have; it must stay replaced by the lifecycle hint.
+        Check(!chinese.ContainsKey("sync_background_hint"),
+            "Windows must not claim background sync; use sync_lifecycle_hint.");
         foreach (var file in Directory.EnumerateFiles(Path.Combine(root, "apps/windows/app"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
             foreach (Match match in Regex.Matches(File.ReadAllText(file), "(?:Strings|_strings)\\[\"([^\"]+)\"\\]"))
@@ -218,6 +537,19 @@ internal static class Program
                 if (key == "desktop_collection_delete_hint")
                 {
                     Check(android["organize_collections_footer"].EndsWith(value, StringComparison.Ordinal), "Collection deletion hint differs from Android.");
+                    continue;
+                }
+                // Windows has no tray process: MainWindow.OnClosing stops the sync
+                // loop, so Android's "runs in the background" copy would promise a
+                // behaviour this platform does not have. The key stays Windows-only
+                // and must name both halves of the lifecycle: syncing while the app
+                // runs, stopped once it is paused or closed.
+                if (key == "sync_lifecycle_hint")
+                {
+                    Check(!android.ContainsKey(key), "The Windows-only sync lifecycle hint leaked into Android.");
+                    Check(value.Contains(locale == "values" ? "运行" : "running", StringComparison.OrdinalIgnoreCase)
+                          && value.Contains(locale == "values" ? "关闭" : "close", StringComparison.OrdinalIgnoreCase),
+                        $"Sync lifecycle hint does not describe the Windows lifecycle: {key}/{locale}");
                     continue;
                 }
                 Check(android.TryGetValue(key, out var source), $"Resource has no approved Android/desktop source: {key}");
@@ -282,6 +614,8 @@ internal static class Program
             {
                 using var page = await reopened.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null, CancellationToken.None);
                 Check(page.Stickers.Length == 2, "Adapter shutdown/reopen lost data or retained the library lock.");
+                await TrashCatalogRestartAsync();
+                await TrashCatalogRelationsAsync(reopened, root);
             }
             Console.WriteLine("PASS: real session import, scoped search, catalogs, cancellation, thumbnail and reopen");
         }
@@ -384,10 +718,10 @@ internal static class Program
                 "A deleted sticker stayed in the normal listing.");
         using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
         {
-            Check(trash.Stickers.Select(item => item.Id).OrderBy(id => id)
-                    .SequenceEqual(new[] { purple.Sticker.Id, cyan.Sticker.Id }.OrderBy(id => id)),
-                "The trash listing did not contain exactly the deleted stickers.");
-            Check(trash.Next is null, "A two-item trash page returned another cursor.");
+            var listed = trash.Stickers.Select(item => item.Id).ToHashSet();
+            Check(listed.Contains(purple.Sticker.Id) && listed.Contains(cyan.Sticker.Id),
+                "The trash listing did not contain the deleted stickers.");
+            Check(trash.Next is null, "Two deleted stickers returned another cursor.");
         }
         using (var search = await session.QueryAsync(new(LibraryScope.Trash), "紫色", StickerSort.Recent, null, token))
             Check(search.Stickers.Length == 1 && search.Stickers[0].Id == purple.Sticker.Id,
@@ -477,18 +811,179 @@ internal static class Program
             is { Succeeded: 0, Failed: 1, ErrorKey: "InvalidInput" }, "A malformed sticker id was not rejected as invalid input.");
 
         using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
-            Check(trash.Stickers.Length == 0 && trash.Next is null, "The emptied trash still listed stickers.");
+            Check(!trash.Stickers.Any(item => item.Id == purple.Sticker.Id || item.Id == cyan.Sticker.Id),
+                "The emptied trash still listed a purged sticker.");
         using (var active = await session.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null, token))
-            Check(active.Stickers.Length == 2, "Trash operations changed the active listing of unrelated stickers.");
+            Check(!active.Stickers.Any(item => item.Id == purple.Sticker.Id || item.Id == cyan.Sticker.Id),
+                "Trash operations changed the active listing of the stickers they touched.");
 
-        await session.DeleteCollectionAsync(new(collection.Id, collection.Lifecycle.Generation), token);
-        await session.DeleteTagAsync(new(tag.Id, tag.Lifecycle.Generation), token);
+        // Only the objects this test created are cleaned up here; the restart and
+        // relation tests build their own fixtures instead of reading these.
+        var deletedCollection = await session.DeleteCollectionAsync(
+            new(collection.Id, collection.Lifecycle.Generation), token);
+        var deletedTag = await session.DeleteTagAsync(new(tag.Id, tag.Lifecycle.Generation), token);
+        await session.PurgeCollectionAsync(
+            new(deletedCollection.Id, deletedCollection.Lifecycle.Generation), deletedCollection.Lifecycle.Revision, token);
+        await session.PurgeTagAsync(
+            new(deletedTag.Id, deletedTag.Lifecycle.Generation), deletedTag.Lifecycle.Revision, token);
         Console.WriteLine("PASS: real trash listing, search, restore, purge, idempotence and failure consistency");
     }
 
     // The trash entry uses the revision observed when the sticker was listed, so
     // a concurrent change fails for that entry only.
     private static TrashEntry Entry(StickerMetadata item) => new(item.Id, item.Lifecycle.Generation, item.Lifecycle.Revision);
+
+    // This test owns its library: it creates the deleted metadata, closes, and
+    // reopens to prove the core persisted it. Nothing here reads fixtures left by
+    // another test, so it can run alone or in any order.
+    private static async Task TrashCatalogRestartAsync()
+    {
+        var token = CancellationToken.None;
+        var parent = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+        var root = Path.Combine(parent, "MemeDock-Windows-restart-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string collectionId;
+            string tagId;
+            await using (var created = await LibrarySession.OpenAsync(root))
+            {
+                var collection = await created.CreateCollectionAsync("重启合集", token);
+                var tag = await created.CreateTagAsync("重启标签", token);
+                collectionId = collection.Id;
+                tagId = tag.Id;
+                await created.DeleteCollectionAsync(new(collection.Id, collection.Lifecycle.Generation), token);
+                await created.DeleteTagAsync(new(tag.Id, tag.Lifecycle.Generation), token);
+                Check(!(await created.CollectionsAsync(token)).Any(item => item.Id == collectionId)
+                      && !(await created.TagsAsync(token)).Any(item => item.Id == tagId),
+                    "Deleting a catalog left it in the active catalog list.");
+            }
+
+            await using var session = await LibrarySession.OpenAsync(root);
+            var deletedCollections = await session.CollectionsAsync(token, deleted: true);
+            var deletedTags = await session.TagsAsync(token, deleted: true);
+            var trashedCollection = deletedCollections.SingleOrDefault(item => item.Id == collectionId);
+            var trashedTag = deletedTags.SingleOrDefault(item => item.Id == tagId);
+            Check(trashedCollection is not null, "A deleted collection did not survive a library reopen.");
+            Check(trashedTag is not null, "A deleted tag did not survive a library reopen.");
+            Check(!(await session.CollectionsAsync(token)).Any(item => item.Id == trashedCollection!.Id),
+                "A deleted collection leaked into the active catalog after reopen.");
+            Check(!(await session.TagsAsync(token)).Any(item => item.Id == trashedTag!.Id),
+                "A deleted tag leaked into the active catalog after reopen.");
+
+            var restoredCollection = await session.RestoreCollectionAsync(
+                new(trashedCollection!.Id, trashedCollection.Lifecycle.Generation),
+                trashedCollection.Lifecycle.Revision, token);
+            Check(restoredCollection.Id == trashedCollection.Id
+                  && restoredCollection.Lifecycle.Generation > trashedCollection.Lifecycle.Generation,
+                "Restoring a collection did not advance its generation.");
+            Check((await session.CollectionsAsync(token)).Any(item => item.Id == restoredCollection.Id),
+                "A restored collection did not return to the active catalog.");
+            Check(!(await session.CollectionsAsync(token, deleted: true)).Any(item => item.Id == restoredCollection.Id),
+                "A restored collection stayed in the deleted catalog.");
+
+            Check(await ExpectFailure(() => session.PurgeCollectionAsync(
+                    new(restoredCollection.Id, restoredCollection.Lifecycle.Generation),
+                    restoredCollection.Lifecycle.Revision, token)) == ErrorCode.Conflict,
+                "An active collection was permanently deleted instead of rejected.");
+            Check(await ExpectFailure(() => session.PurgeCollectionAsync(
+                    new(trashedCollection.Id, trashedCollection.Lifecycle.Generation),
+                    trashedCollection.Lifecycle.Revision, token)) == ErrorCode.Conflict,
+                "A purge with the pre-restore generation was accepted.");
+            Check((await session.CollectionsAsync(token)).Any(item => item.Id == restoredCollection.Id),
+                "A rejected collection purge removed the active entry.");
+
+            var deletedAgain = await session.DeleteCollectionAsync(
+                new(restoredCollection.Id, restoredCollection.Lifecycle.Generation), token);
+            Check(await ExpectFailure(() => session.PurgeCollectionAsync(
+                    new(deletedAgain.Id, deletedAgain.Lifecycle.Generation),
+                    deletedAgain.Lifecycle.Revision + 1, token)) == ErrorCode.Conflict,
+                "A purge with a conflicting revision was accepted.");
+            await session.PurgeCollectionAsync(
+                new(deletedAgain.Id, deletedAgain.Lifecycle.Generation),
+                deletedAgain.Lifecycle.Revision, token);
+            Check(!(await session.CollectionsAsync(token, deleted: true)).Any(item => item.Id == deletedAgain.Id),
+                "A purged collection stayed in the deleted catalog.");
+
+            var restoredTag = await session.RestoreTagAsync(
+                new(trashedTag!.Id, trashedTag.Lifecycle.Generation),
+                trashedTag.Lifecycle.Revision, token);
+            Check(restoredTag.Id == trashedTag.Id
+                  && restoredTag.Lifecycle.Generation > trashedTag.Lifecycle.Generation,
+                "Restoring a tag did not advance its generation.");
+            Check((await session.TagsAsync(token)).Any(item => item.Id == restoredTag.Id),
+                "A restored tag did not return to the active catalog.");
+            Check(await ExpectFailure(() => session.PurgeTagAsync(
+                    new(restoredTag.Id, restoredTag.Lifecycle.Generation),
+                    restoredTag.Lifecycle.Revision, token)) == ErrorCode.Conflict,
+                "An active tag was permanently deleted instead of rejected.");
+
+            var deletedTagAgain = await session.DeleteTagAsync(
+                new(restoredTag.Id, restoredTag.Lifecycle.Generation), token);
+            await session.PurgeTagAsync(
+                new(deletedTagAgain.Id, deletedTagAgain.Lifecycle.Generation),
+                deletedTagAgain.Lifecycle.Revision, token);
+            Check(!(await session.TagsAsync(token, deleted: true)).Any(item => item.Id == deletedTagAgain.Id),
+                "A purged tag stayed in the deleted catalog.");
+            // Repeating a purge on a tombstone is not a failure.
+            await session.PurgeTagAsync(
+                new(deletedTagAgain.Id, deletedTagAgain.Lifecycle.Generation),
+                deletedTagAgain.Lifecycle.Revision, token);
+
+            const string missing = "0190f3a0-0000-7000-8000-000000000000";
+            Check(await ExpectFailure(() => session.PurgeTagAsync(new(missing, 1), 1, token)) == ErrorCode.NotFound,
+                "Purging an unknown tag did not report not-found.");
+            Check(await ExpectFailure(() => session.RestoreCollectionAsync(new(missing, 1), 1, token)) == ErrorCode.NotFound,
+                "Restoring an unknown collection did not report not-found.");
+            Console.WriteLine("PASS: deleted collections/tags survive reopen, restore, conflicts, purge and missing entities");
+        }
+        finally
+        {
+            if (Directory.Exists(root) && string.Equals(Path.GetDirectoryName(root), parent, StringComparison.OrdinalIgnoreCase)
+                && Path.GetFileName(root).StartsWith("MemeDock-Windows-restart-", StringComparison.Ordinal))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task TrashCatalogRelationsAsync(LibrarySession session, string root)
+    {
+        var token = CancellationToken.None;
+        var path = Path.Combine(root, "catalog-relations.png");
+        await File.WriteAllBytesAsync(path, Png(12, 34, 56));
+        var collection = await session.CreateCollectionAsync("关系合集", token);
+        var tag = await session.CreateTagAsync("关系标签", token);
+        var imported = await session.ImportAsync(path, collection.Id, token);
+        var detail = await session.DetailAsync(imported.Sticker.Id, token);
+        await session.OrganizeAsync(
+            new(imported.Sticker.Id, detail.Sticker.Lifecycle.Generation), true,
+            new(collection.Id, collection.Lifecycle.Generation),
+            [new(tag.Id, tag.Lifecycle.Generation)], token);
+        detail = await session.DetailAsync(imported.Sticker.Id, token);
+        Check(detail.Collection?.Id == collection.Id && detail.Tags.Any(item => item.Id == tag.Id),
+            "The catalog relation test did not establish its fixture.");
+
+        var deletedCollection = await session.DeleteCollectionAsync(
+            new(collection.Id, collection.Lifecycle.Generation), token);
+        var deletedTag = await session.DeleteTagAsync(
+            new(tag.Id, tag.Lifecycle.Generation), token);
+        Check(!(await session.CollectionsAsync(token)).Any(item => item.Id == collection.Id)
+              && !(await session.TagsAsync(token)).Any(item => item.Id == tag.Id),
+            "Deleting a catalog left it in the active catalog list.");
+        await session.PurgeCollectionAsync(
+            new(deletedCollection.Id, deletedCollection.Lifecycle.Generation),
+            deletedCollection.Lifecycle.Revision, token);
+        await session.PurgeTagAsync(
+            new(deletedTag.Id, deletedTag.Lifecycle.Generation),
+            deletedTag.Lifecycle.Revision, token);
+
+        var after = await session.DetailAsync(imported.Sticker.Id, token);
+        Check(after.Sticker.Lifecycle.DeletedAt is null && after.Sticker.Lifecycle.PurgedAt is null,
+            "Purging a collection or tag deleted its sticker.");
+        Check(after.OriginalPath is not null && File.Exists(after.OriginalPath),
+            "Purging a collection or tag deleted the sticker original.");
+        Check(after.Collection is null && after.Tags.Length == 0,
+            "Purging a collection or tag left an effective relation on the sticker.");
+        Console.WriteLine("PASS: purging collections/tags keeps stickers and originals and removes effective relations");
+    }
 
     private static async Task OutputContractsAsync(LibrarySession session, string id, string source)
     {
@@ -620,6 +1115,208 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// One table for every sync status the windows render: the phase, the text
+    /// key and the count are the only inputs the status-bar entry and the
+    /// settings page use, so they cannot disagree.
+    /// </summary>
+    private static void SyncStatusMapping()
+    {
+        static SyncState State(SyncStatus status, bool loaded = true, bool running = false,
+            bool hasCredential = true, Exception? error = null)
+            => new(status, loaded, running, hasCredential, Changing: false, error);
+
+        // Idle, nothing queued, and a round has completed.
+        var ready = State(SyncSnapshot(lastSuccess: 1_700_000_000_000));
+        Check(SyncPresentation.Phase(ready) == SyncPhase.UpToDate
+              && SyncPresentation.StatusKey(ready) == "sync_ready"
+              && SyncPresentation.HintKey(ready) is null
+              && SyncPresentation.IsVisible(ready),
+            "An idle, successfully synced binding did not report the ready state.");
+
+        // Connected, nothing queued, but no round has finished: not "up to date".
+        var unsynced = State(SyncSnapshot());
+        Check(SyncPresentation.Phase(unsynced) == SyncPhase.Unsynced
+              && SyncPresentation.StatusKey(unsynced) == "sync_never"
+              && SyncPresentation.StatusKey(unsynced) != "sync_ready",
+            "A binding without a completed round claimed to be up to date.");
+
+        // Local changes are still queued.
+        var pending = State(SyncSnapshot(pending: 3, lastSuccess: 1_700_000_000_000));
+        Check(SyncPresentation.Phase(pending) == SyncPhase.Pending
+              && SyncPresentation.StatusKey(pending) == "sync_pending"
+              && SyncPresentation.HintKey(pending) is null,
+            "Queued changes were reported as up to date.");
+
+        // Changes the server rejects have their own state and their own hint.
+        var blocked = State(SyncSnapshot(pending: 4, blocked: 2));
+        Check(SyncPresentation.Phase(blocked) == SyncPhase.Blocked
+              && SyncPresentation.StatusKey(blocked) == "sync_blocked"
+              && SyncPresentation.HintKey(blocked) == "sync_blocked_hint",
+            "Blocked changes were not reported as blocked.");
+
+        // A user pause is never a network error, and a retryable error recorded
+        // before pausing is history rather than a live failure.
+        var paused = State(SyncSnapshot(paused: true, pending: 6, error: "network"));
+        Check(SyncPresentation.Phase(paused) == SyncPhase.Paused
+              && SyncPresentation.StatusKey(paused) == "sync_paused"
+              && SyncPresentation.ErrorKey(paused) is null,
+            "A user pause was reported as a network failure.");
+
+        // Pairs that can co-occur, pinned here so the precedence in Phase stays a
+        // contract instead of something a future edit can reorder silently.
+        // Pausing outranks blocked changes: the pause is why nothing moves, and
+        // the settings page still reports the blocked count and its hint.
+        var pausedWithBlocked = State(SyncSnapshot(paused: true, pending: 4, blocked: 2));
+        Check(SyncPresentation.Phase(pausedWithBlocked) == SyncPhase.Paused
+              && SyncPresentation.StatusKey(pausedWithBlocked) == "sync_paused"
+              && SyncPresentation.HintKey(pausedWithBlocked) is null,
+            "A pause with blocked changes reported something other than the pause.");
+
+        // A rejected token is actionable whatever the pause says, so it wins over
+        // the pause instead of waiting for a resume that cannot succeed.
+        var pausedWithExpiredToken = State(SyncSnapshot(paused: true, error: "unauthorized"));
+        Check(SyncPresentation.Phase(pausedWithExpiredToken) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(pausedWithExpiredToken) == "sync_reauthorize"
+              && SyncPresentation.HintKey(pausedWithExpiredToken) == "sync_failure_unauthorized",
+            "A paused binding with a rejected token did not ask for a new token.");
+
+        // Any other terminal status error is history while paused and only
+        // becomes a failure once syncing resumes.
+        var pausedWithCorruptData = State(SyncSnapshot(paused: true, error: "corrupt_data"));
+        Check(SyncPresentation.Phase(pausedWithCorruptData) == SyncPhase.Paused
+              && SyncPresentation.ErrorKey(pausedWithCorruptData) is null,
+            "A paused binding with a terminal status error did not defer to the pause.");
+        var resumedCorruptData = State(SyncSnapshot(error: "corrupt_data"));
+        Check(SyncPresentation.Phase(resumedCorruptData) == SyncPhase.Failed
+              && !SyncPresentation.CanSynchronize(resumedCorruptData),
+            "Resuming did not surface the terminal status error recorded while paused.");
+
+        // A request in flight only claims that a request was sent, even when the
+        // failure is already known; the failure is shown once the request ends.
+        var runningWithExpiredToken = State(SyncSnapshot(error: "unauthorized"), running: true);
+        Check(SyncPresentation.Phase(runningWithExpiredToken) == SyncPhase.Running
+              && SyncPresentation.StatusKey(runningWithExpiredToken) == "sync_running",
+            "A running request was reported as something other than running.");
+        var runningWithCredentialFailure = State(SyncSnapshot(), running: true,
+            error: new SyncCredentialException("keychain"));
+        Check(SyncPresentation.Phase(runningWithCredentialFailure) == SyncPhase.Running
+              && SyncPresentation.StatusKey(runningWithCredentialFailure) == "sync_running",
+            "A running request reported a credential failure before it finished.");
+        var settledExpiredToken = State(SyncSnapshot(error: "unauthorized"));
+        Check(SyncPresentation.StatusKey(settledExpiredToken) == "sync_reauthorize",
+            "A finished request did not surface the rejected token.");
+
+        // Changes can be queued before the first round ever completes: the queue
+        // is the stronger fact, so the entry cannot claim it never synced.
+        var pendingBeforeFirstRound = State(SyncSnapshot(pending: 1));
+        Check(SyncPresentation.Phase(pendingBeforeFirstRound) == SyncPhase.Pending
+              && SyncPresentation.StatusKey(pendingBeforeFirstRound) == "sync_pending",
+            "Queued changes on a never-synced binding were not reported as pending.");
+
+        // Blocked changes outlive a retryable error, so they own the status; the
+        // retry detail stays available to the settings page's error line.
+        var blockedWithNetwork = State(SyncSnapshot(pending: 3, blocked: 1, error: "network"));
+        Check(SyncPresentation.Phase(blockedWithNetwork) == SyncPhase.Blocked
+              && SyncPresentation.StatusKey(blockedWithNetwork) == "sync_blocked"
+              && SyncPresentation.HintKey(blockedWithNetwork) == "sync_blocked_hint"
+              && SyncPresentation.ErrorKey(blockedWithNetwork) == "sync_failure_network",
+            "Blocked changes were replaced by the retryable error.");
+
+        // A failure carried by the snapshot is not reported while the user has
+        // paused: the pause is the reason nothing is moving.
+        var pausedWithBridgeFailure = State(SyncSnapshot(paused: true, error: "network"),
+            error: new BridgeException.Failure(ErrorCode.Network, "offline"));
+        Check(SyncPresentation.Phase(pausedWithBridgeFailure) == SyncPhase.Paused
+              && SyncPresentation.HintKey(pausedWithBridgeFailure) is null,
+            "A paused binding reported a network failure.");
+
+        // A request that was sent is not a finished round.
+        var running = State(SyncSnapshot(lastSuccess: 1_700_000_000_000), running: true);
+        Check(SyncPresentation.Phase(running) == SyncPhase.Running
+              && SyncPresentation.StatusKey(running) == "sync_running",
+            "A sent sync request did not report that it is running.");
+
+        // A failed round stays visible, with the retry explanation as its hint.
+        var failed = State(SyncSnapshot(pending: 2, error: "network"));
+        Check(SyncPresentation.Phase(failed) == SyncPhase.Failed
+              && SyncPresentation.StatusKey(failed) == "sync_failed"
+              && SyncPresentation.HintKey(failed) == "sync_failure_network",
+            "A failed round did not report the failure.");
+
+        // A library that was never connected stays out of the status bar.
+        var unconfigured = State(SyncSnapshot(origin: null, connected: false), hasCredential: false);
+        Check(SyncPresentation.Phase(unconfigured) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(unconfigured) == "sync_authorize"
+              && !SyncPresentation.IsVisible(unconfigured),
+            "An unconfigured library claimed a sync status.");
+
+        // A stored token that the server rejected needs its own instruction.
+        var expired = State(SyncSnapshot(error: "unauthorized"));
+        Check(SyncPresentation.Phase(expired) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(expired) == "sync_reauthorize"
+              && SyncPresentation.HintKey(expired) == "sync_failure_unauthorized"
+              && SyncPresentation.IsVisible(expired),
+            "An expired token was not distinguished from a disconnected library.");
+
+        // A credential store failure also asks for the token again.
+        var credential = State(SyncSnapshot(), error: new SyncCredentialException("keychain"));
+        Check(SyncPresentation.Phase(credential) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(credential) == "sync_reauthorize"
+              && SyncPresentation.ErrorKey(credential) == "sync_failure_credential",
+            "A credential lookup failure did not ask for a new token.");
+
+        // Recovery: the same binding, once the failure clears and a round lands.
+        var recovered = State(SyncSnapshot(lastSuccess: 1_700_000_200_000));
+        Check(SyncPresentation.Phase(recovered) == SyncPhase.UpToDate
+              && SyncPresentation.ErrorKey(recovered) is null,
+            "Clearing the failure did not return to the ready state.");
+
+        // Before the native status is read nothing is claimed.
+        var unavailable = State(SyncSnapshot(), loaded: false);
+        Check(SyncPresentation.Phase(unavailable) == SyncPhase.Unavailable
+              && !SyncPresentation.IsVisible(unavailable),
+            "Sync status was shown before the native status was read.");
+
+        // A status error this build does not know has no detail text but still
+        // shows the failure state, and a terminal one stops automatic retries.
+        var unknown = State(SyncSnapshot(error: "unsupported_schema"));
+        Check(SyncPresentation.Phase(unknown) == SyncPhase.Failed
+              && SyncPresentation.StatusKey(unknown) == "sync_failed"
+              && SyncPresentation.ErrorKey(unknown) is null
+              && SyncPresentation.HintKey(unknown) == "sync_failed"
+              && SyncPresentation.IsTerminal(unknown)
+              && !SyncPresentation.CanSynchronize(unknown),
+            "An unknown terminal status error failed silently.");
+
+        // Every key the table can return must exist in both resource files: the
+        // renderer looks these up by table, so the literal-usage scan in
+        // ResourceParity cannot see them.
+        var root = FindRepository();
+        var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
+        var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
+        string?[] keys =
+        [
+            SyncPresentation.StatusKey(ready), SyncPresentation.StatusKey(unsynced),
+            SyncPresentation.StatusKey(pending), SyncPresentation.StatusKey(blocked),
+            SyncPresentation.StatusKey(paused), SyncPresentation.StatusKey(running),
+            SyncPresentation.StatusKey(failed), SyncPresentation.StatusKey(unconfigured),
+            SyncPresentation.StatusKey(expired), SyncPresentation.StatusKey(credential),
+            SyncPresentation.StatusKey(recovered), SyncPresentation.StatusKey(unavailable),
+            SyncPresentation.StatusKey(unknown), SyncPresentation.HintKey(blocked),
+            SyncPresentation.HintKey(expired), SyncPresentation.HintKey(failed),
+            SyncPresentation.HintKey(pausedWithExpiredToken), SyncPresentation.HintKey(blockedWithNetwork),
+            SyncPresentation.StatusKey(pausedWithBlocked), SyncPresentation.StatusKey(pendingBeforeFirstRound),
+            SyncPresentation.StatusKey(runningWithCredentialFailure), SyncPresentation.ErrorKey(credential),
+            SyncPresentation.ErrorKey(blockedWithNetwork), SyncPresentation.ErrorKey(pausedWithBridgeFailure),
+        ];
+        foreach (var key in keys.Distinct())
+            Check(key is not null && english.ContainsKey(key) && chinese.ContainsKey(key),
+                $"Sync status text is missing from the resources: {key}");
+
+        Console.WriteLine("PASS: sync status mapping (ready, pending, blocked, paused, running, failed, authorization, recovery, precedence combinations)");
+    }
+
     private static async Task SyncStateMachineAsync()
     {
         const string library = "library-under-test";
@@ -630,7 +1327,8 @@ internal static class Program
         await sync.StartAsync(runLoop: false);
         Check(sync.State.Loaded && !sync.State.HasCredential && !sync.State.Status.Connected
               && SyncPresentation.StatusKey(sync.State) == "sync_authorize"
-              && SyncPresentation.NeedsAuthorization(sync.State),
+              && SyncPresentation.NeedsAuthorization(sync.State)
+              && !SyncPresentation.IsVisible(sync.State),
             "A fresh library did not report the disconnected sync state.");
         Check(adapter.Subscriptions.Count == 1, "Sync status was not observed exactly once.");
 
@@ -640,9 +1338,11 @@ internal static class Program
               && adapter.LastToken == "mdk_first", "Connecting did not trim or forward the server address.");
         Check(tokens.Saved.TryGetValue(library + "|https://sync.example.com/", out var stored) && stored == "mdk_first",
             "Connecting did not persist the device token.");
+        // The adapter's connect snapshot has no completed round, so a connected
+        // binding must not claim it is up to date yet.
         Check(sync.State.HasCredential && sync.State.Status.Connected
-              && SyncPresentation.StatusKey(sync.State) == "sync_ready",
-            "A successful connection did not produce the ready state.");
+              && SyncPresentation.StatusKey(sync.State) == "sync_never",
+            "A successful connection claimed a status no round has proven yet.");
 
         adapter.ConnectGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var second = sync.ConnectAsync("https://sync.example.com/", "mdk_second");
@@ -660,7 +1360,7 @@ internal static class Program
         await sync.SetPausedAsync(true);
         Check(sync.State.Status.Paused && SyncPresentation.StatusKey(sync.State) == "sync_paused",
             "Pausing was not reflected in the sync state.");
-        adapter.Status = SyncSnapshot(connected: true);
+        adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_699_999_000_000);
         await sync.SetPausedAsync(false);
         Check(!sync.State.Status.Paused && SyncPresentation.StatusKey(sync.State) == "sync_ready",
             "Resuming was not reflected in the sync state.");
@@ -668,7 +1368,9 @@ internal static class Program
         adapter.Status = SyncSnapshot(connected: true, pending: 5);
         adapter.Push(adapter.Status);
         await WaitForAsync(() => sync.State.Status.Pending == 5, "native status updates");
-        Check(sync.State.Status.Pending == 5, "A pushed native status did not reach the state.");
+        Check(sync.State.Status.Pending == 5
+              && SyncPresentation.StatusKey(sync.State) == "sync_pending",
+            "A pushed native status did not reach the state.");
 
         adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_700_000_000_000);
         await sync.SynchronizeNowAsync();
@@ -687,7 +1389,8 @@ internal static class Program
         adapter.SynchronizeFailure = null;
         adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_700_000_100_000);
         await sync.SynchronizeNowAsync();
-        Check(sync.State.Status.LastSuccessMs == 1_700_000_100_000 && SyncPresentation.ErrorKey(sync.State) is null,
+        Check(sync.State.Status.LastSuccessMs == 1_700_000_100_000 && SyncPresentation.ErrorKey(sync.State) is null
+              && SyncPresentation.StatusKey(sync.State) == "sync_ready",
             "Retrying after a network failure did not clear the error.");
 
         var callsBeforeTerminal = adapter.SynchronizeCalls;
@@ -707,20 +1410,24 @@ internal static class Program
         var unauthorized = new SyncState(
             SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: true, Changing: false,
             Error: new BridgeException.Failure(ErrorCode.Unauthorized, "expired"));
+        // The stored token is still there, so the entry asks to replace it
+        // rather than to connect from scratch.
         Check(SyncPresentation.NeedsAuthorization(unauthorized)
               && SyncPresentation.IsTerminal(unauthorized)
               && !SyncPresentation.CanSynchronize(unauthorized)
-              && SyncPresentation.StatusKey(unauthorized) == "sync_authorize"
+              && SyncPresentation.StatusKey(unauthorized) == "sync_reauthorize"
               && SyncPresentation.ErrorKey(unauthorized) == "sync_failure_unauthorized",
             "A bridge authorization failure was not presented as a re-authorization request.");
 
+        // Every coordinator path that hits a credential-store failure drops
+        // HasCredential first, so the entry falls back to the connect prompt.
         var credentialFailure = new SyncState(
-            SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: true, Changing: false,
+            SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: false, Changing: false,
             Error: new SyncCredentialException("credential store unavailable"));
         Check(SyncPresentation.ErrorKey(credentialFailure) == "sync_failure_credential"
               && SyncPresentation.StatusKey(credentialFailure) == "sync_authorize"
               && !SyncPresentation.CanSynchronize(credentialFailure),
-            "A credential store failure was not presented as a re-authorization request.");
+            "A credential store failure was not presented as a connect request.");
 
         adapter.Push(SyncSnapshot(connected: true));
         await WaitForAsync(() => sync.State.Status.Error is null, "the cleared sync error");
@@ -1023,7 +1730,10 @@ internal static class Program
         public Task<SyncStatus> SetPausedAsync(bool paused, CancellationToken cancellation)
         {
             LastPaused = paused;
-            Status = SyncSnapshot(origin: Status.Origin, paused: paused);
+            // The native call only flips the pause flag and returns the rest of
+            // the binding unchanged, so the fake keeps its cursor, queue and
+            // last successful round instead of rebuilding a fresh snapshot.
+            Status = Status with { Paused = paused };
             return Task.FromResult(Status);
         }
 
@@ -1061,5 +1771,50 @@ internal static class Program
         }
 
         public void Dispose() => Close();
+    }
+
+    private sealed class FakeTrashCatalog : ITrashCatalog
+    {
+        public Func<CancellationToken, Task<CollectionMetadata[]>> Collections { get; set; } =
+            _ => Task.FromResult(Array.Empty<CollectionMetadata>());
+        public Func<CancellationToken, Task<TagMetadata[]>> Tags { get; set; } =
+            _ => Task.FromResult(Array.Empty<TagMetadata>());
+        public Func<EntityReference, Task<CollectionMetadata>> RestoreCollection { get; set; } =
+            _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("unexpected collection restore"));
+        public Func<EntityReference, Task<TagMetadata>> RestoreTag { get; set; } =
+            _ => Task.FromException<TagMetadata>(new InvalidOperationException("unexpected tag restore"));
+        public Func<EntityReference, Task> PurgeCollection { get; set; } =
+            _ => Task.FromException(new InvalidOperationException("unexpected collection purge"));
+        public Func<EntityReference, Task> PurgeTag { get; set; } =
+            _ => Task.FromException(new InvalidOperationException("unexpected tag purge"));
+
+        public Task<CollectionMetadata[]> CollectionsAsync(CancellationToken cancellation, bool deleted = false)
+            => Collections(cancellation);
+
+        public Task<TagMetadata[]> TagsAsync(CancellationToken cancellation, bool deleted = false)
+            => Tags(cancellation);
+
+        public Task<CollectionMetadata> RestoreCollectionAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => RestoreCollection(target);
+
+        public Task<TagMetadata> RestoreTagAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => RestoreTag(target);
+
+        public Task PurgeCollectionAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => PurgeCollection(target);
+
+        public Task PurgeTagAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => PurgeTag(target);
+    }
+
+    private sealed class FakeCatalogStrings : ICatalogStrings
+    {
+        public string this[string key] => key;
+        public string Format(string key, params object[] arguments) => key;
+        public string ErrorKey(Exception error) => error.Message;
     }
 }

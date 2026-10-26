@@ -150,7 +150,7 @@
   <data name="sync_reauthorize" xml:space="preserve"><value>Update token</value></data>
   <data name="sync_disconnect" xml:space="preserve"><value>Disconnect</value></data>
   <data name="sync_disconnect_hint" xml:space="preserve"><value>Syncing will stop. Stickers on this device will not be affected.</value></data>
-  <data name="sync_background_hint" xml:space="preserve"><value>Sync runs automatically in the background. You can also sync manually anytime.</value></data>
+  <data name="sync_lifecycle_hint" xml:space="preserve"><value>Sync runs automatically while the app is running. It stops when syncing is paused or the app is closed.</value></data>
   <data name="sync_merge_hint" xml:space="preserve"><value>Connecting for the first time merges stickers on this device with the server. Deletions also sync across devices.</value></data>
   <data name="sync_blocked_hint" xml:space="preserve"><value>Some changes could not be synced due to conflicts. Check the web console for details.</value></data>
   <data name="sync_failure_unauthorized" xml:space="preserve"><value>Device token expired or invalid. Please enter a new token.</value></data>

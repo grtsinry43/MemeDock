@@ -8,6 +8,10 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Same version and package as the app; needed only to link the view model. -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\bridge\MemeDock.Bridge.csproj" />
     <Compile Include="..\app\Models\LibraryFilter.cs" Link="Models\LibraryFilter.cs" />
     <Compile Include="..\app\Models\StickerEditState.cs" Link="Models\StickerEditState.cs" />
@@ -19,6 +23,11 @@
     <Compile Include="..\app\Services\SyncTokenStore.cs" Link="Services\SyncTokenStore.cs" />
     <Compile Include="..\app\Services\ShutdownRun.cs" Link="Services\ShutdownRun.cs" />
     <Compile Include="..\app\Services\TrashOperations.cs" Link="Services\TrashOperations.cs" />
+    <Compile Include="..\app\Services\ITrashCatalog.cs" Link="Services\ITrashCatalog.cs" />
+    <Compile Include="..\app\Localization\ICatalogStrings.cs" Link="Localization\ICatalogStrings.cs" />
+    <Compile Include="..\app\ViewModels\RefreshQueue.cs" Link="ViewModels\RefreshQueue.cs" />
+    <Compile Include="..\app\ViewModels\TrashGroupsPresentation.cs" Link="ViewModels\TrashGroupsPresentation.cs" />
+    <Compile Include="..\app\ViewModels\TrashGroupsViewModel.cs" Link="ViewModels\TrashGroupsViewModel.cs" />
     <Compile Include="..\app\LibrarySession.cs" Link="LibrarySession.cs" />
   </ItemGroup>
 </Project>

@@ -37,6 +37,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public StickerDetailViewModel? Details { get; private set; }
     public BatchOrganizeViewModel? Batch { get; private set; }
     public CatalogViewModel? Catalog { get; private set; }
+    public TrashGroupsViewModel? TrashGroups { get; private set; }
     public StickerOutputViewModel? Output { get; private set; }
     public SyncCoordinator? Sync { get; private set; }
     internal ThumbnailLoader? Thumbnails { get; private set; }
@@ -89,6 +90,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         Details?.Relocalize();
         Batch?.Relocalize();
         Catalog?.Relocalize();
+        TrashGroups?.Relocalize();
         Output?.Relocalize();
         foreach (var property in new[] { nameof(Heading), nameof(EmptyHeading), nameof(CountText), nameof(SelectionText),
             nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText), nameof(IsTrash) }) OnPropertyChanged(property);
@@ -104,6 +106,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             Details = new StickerDetailViewModel(_session, strings);
             Batch = new BatchOrganizeViewModel(_session, strings);
             Catalog = new CatalogViewModel(_session, strings, RefreshCatalogsAsync);
+            TrashGroups ??= new TrashGroupsViewModel(_session, strings, RefreshCatalogsAsync);
             Output = new StickerOutputViewModel(_session, strings);
             Sync ??= new SyncCoordinator(
                 new LibrarySyncAdapter(_session), new WindowsCredentialTokenStore(), _session.LibraryId);
@@ -113,6 +116,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             _observer = ObserveAsync();
             await Sync.StartAsync();
             await RefreshCatalogsAsync();
+            if (TrashGroups is { } trashGroups) await trashGroups.RefreshAsync();
             await RefreshAsync();
         }
         catch (Exception error) { Report(error); }
@@ -302,7 +306,10 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
                 {
                     ContentChanged?.Invoke(this, notification is Notification.StickerChanged sticker ? sticker.StickerId : null);
                     if (notification is Notification.CollectionsChanged or Notification.TagsChanged or Notification.ReloadRequired)
+                    {
                         await RefreshCatalogsAsync();
+                        if (TrashGroups is { } trashGroups) await trashGroups.RefreshAsync();
+                    }
                     _dirty = true;
                     Sync?.NotifyContentChanged();
                     if (_reload.IsCompleted) _reload = ReloadWhenQuietAsync();
@@ -441,6 +448,10 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public void RequestStop()
     {
         _stopping = true;
+        // The deleted catalog owns its own query lifetime, so it has to be
+        // cancelled here: DisposeAsync only reaches it after the other children,
+        // and a closing window must not keep a catalog query alive meanwhile.
+        TrashGroups?.RequestStop();
         _requests.Invalidate();
         _lifetime.Cancel();
         _queryCancellation?.Cancel();
@@ -456,14 +467,22 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         // Shutdown has to reach the session even when a background task or a
         // child view model throws: the window closes regardless, and skipping
         // the session would leave the native library (and its files) open.
-        var failure = await ShutdownRun.SequenceAsync(() => _observer, () => _reload, () => _trashBatch);
         var held = false;
+        var failure = await ShutdownRun.SequenceAsync(
+            () => _observer,
+            () => _reload,
+            () => _trashBatch,
+            async () =>
+            {
+                // In-flight queries finish (their token is already cancelled)
+                // before the handles and the session they use are released. The
+                // wait is a step like any other: if it fails, the cleanup below
+                // still runs instead of leaving the library open.
+                await _queries.WaitAsync();
+                held = true;
+            });
         try
         {
-            // In-flight queries finish (their token is already cancelled) before
-            // the handles and the session they use are released.
-            await _queries.WaitAsync();
-            held = true;
             // Assigned through a local: ??= would skip the whole cleanup sequence
             // when a background task already failed.
             var cleanup = await ShutdownRun.SequenceAsync(
@@ -472,6 +491,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
                 () => Details is null ? Task.CompletedTask : Details.DisposeAsync().AsTask(),
                 () => Batch is null ? Task.CompletedTask : Batch.DisposeAsync().AsTask(),
                 () => Catalog is null ? Task.CompletedTask : Catalog.DisposeAsync().AsTask(),
+                () => TrashGroups is null ? Task.CompletedTask : TrashGroups.DisposeAsync().AsTask(),
                 () => Thumbnails is null ? Task.CompletedTask : Thumbnails.DisposeAsync().AsTask(),
                 ReleaseHandles,
                 () => _session is null ? Task.CompletedTask : _session.DisposeAsync().AsTask());

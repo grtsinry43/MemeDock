@@ -68,7 +68,7 @@
 
             <TextBlock x:Name="MergeHint" Style="{ThemeResource CaptionTextBlockStyle}"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
-            <TextBlock x:Name="BackgroundHint" Style="{ThemeResource CaptionTextBlockStyle}"
+            <TextBlock x:Name="LifecycleHint" Style="{ThemeResource CaptionTextBlockStyle}"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
         </StackPanel>
     </Border>

@@ -3,7 +3,7 @@ using MemeDock.Windows.Models;
 
 namespace MemeDock.Windows;
 
-internal sealed class LibrarySession : IAsyncDisposable
+internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog
 {
     private readonly LibraryHandle _library;
     private readonly ulong _maxInputBytes;
@@ -47,21 +47,23 @@ internal sealed class LibrarySession : IAsyncDisposable
 
     public SubscriptionHandle Subscribe() => _library.Subscribe();
 
-    public Task<CollectionMetadata[]> CollectionsAsync(CancellationToken cancellation) => Task.Run(async () =>
-    {
-        cancellation.ThrowIfCancellationRequested();
-        using var request = _library.Collections(false);
-        using var registration = cancellation.Register(() => request.Cancel());
-        return await request.AwaitResult().ConfigureAwait(false);
-    });
+    public Task<CollectionMetadata[]> CollectionsAsync(CancellationToken cancellation, bool deleted = false)
+        => Task.Run(async () =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            using var request = _library.Collections(deleted);
+            using var registration = cancellation.Register(() => request.Cancel());
+            return await request.AwaitResult().ConfigureAwait(false);
+        });
 
-    public Task<TagMetadata[]> TagsAsync(CancellationToken cancellation) => Task.Run(async () =>
-    {
-        cancellation.ThrowIfCancellationRequested();
-        using var request = _library.Tags(false);
-        using var registration = cancellation.Register(() => request.Cancel());
-        return await request.AwaitResult().ConfigureAwait(false);
-    });
+    public Task<TagMetadata[]> TagsAsync(CancellationToken cancellation, bool deleted = false)
+        => Task.Run(async () =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            using var request = _library.Tags(deleted);
+            using var registration = cancellation.Register(() => request.Cancel());
+            return await request.AwaitResult().ConfigureAwait(false);
+        });
 
     public Task<ImportOutcome> ImportAsync(string source, string? collectionId, CancellationToken cancellation) => Task.Run(async () =>
     {
@@ -229,6 +231,22 @@ internal sealed class LibrarySession : IAsyncDisposable
     {
         cancellation.ThrowIfCancellationRequested();
         using var request = _library.PurgeSticker(target, deletedRevision);
+        using var registration = cancellation.Register(() => request.Cancel());
+        await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task PurgeCollectionAsync(EntityReference target, long deletedRevision, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.PurgeCollection(target, deletedRevision);
+        using var registration = cancellation.Register(() => request.Cancel());
+        await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task PurgeTagAsync(EntityReference target, long deletedRevision, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.PurgeTag(target, deletedRevision);
         using var registration = cancellation.Register(() => request.Cancel());
         await request.AwaitResult().ConfigureAwait(false);
     });
