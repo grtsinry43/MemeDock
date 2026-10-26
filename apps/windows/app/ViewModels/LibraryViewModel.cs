@@ -40,6 +40,8 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
     public CatalogViewModel? Catalog { get; private set; }
     public TrashGroupsViewModel? TrashGroups { get; private set; }
     public StickerOutputViewModel? Output { get; private set; }
+    public StorageViewModel? Storage { get; private set; }
+    public BackupViewModel? Backup { get; private set; }
     public SyncCoordinator? Sync { get; private set; }
     internal ThumbnailLoader? Thumbnails { get; private set; }
 
@@ -97,7 +99,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
             nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText), nameof(IsTrash) }) OnPropertyChanged(property);
     }
 
-    public async Task InitializeAsync(string root)
+    public async Task InitializeAsync(string root, IBackupDestinationPicker backupDestinationPicker)
     {
         try
         {
@@ -110,6 +112,8 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
             Catalog = new CatalogViewModel(_session, strings, RefreshCatalogsAsync);
             TrashGroups ??= new TrashGroupsViewModel(_session, strings, RefreshCatalogsAsync);
             Output = new StickerOutputViewModel(_session, strings, outputDefaults);
+            Storage ??= new StorageViewModel(_session, strings);
+            Backup ??= new BackupViewModel(_session, backupDestinationPicker, strings);
             Sync ??= new SyncCoordinator(
                 new LibrarySyncAdapter(_session), new WindowsCredentialTokenStore(), _session.LibraryId);
             _subscription = _session.Subscribe();
@@ -454,6 +458,10 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         // cancelled here: DisposeAsync only reaches it after the other children,
         // and a closing window must not keep a catalog query alive meanwhile.
         TrashGroups?.RequestStop();
+        Storage?.RequestStop();
+        // A backup in flight keeps its staged archive and the session it needs until
+        // it finishes, so it is told to stop here and awaited in DisposeAsync.
+        Backup?.RequestStop();
         _requests.Invalidate();
         _lifetime.Cancel();
         _queryCancellation?.Cancel();
@@ -494,6 +502,10 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
                 () => Batch is null ? Task.CompletedTask : Batch.DisposeAsync().AsTask(),
                 () => Catalog is null ? Task.CompletedTask : Catalog.DisposeAsync().AsTask(),
                 () => TrashGroups is null ? Task.CompletedTask : TrashGroups.DisposeAsync().AsTask(),
+                () => Storage is null ? Task.CompletedTask : Storage.DisposeAsync().AsTask(),
+                // Must finish before the session closes: the staged archive is held
+                // by the library and its cleanup goes through the library handle.
+                () => Backup is null ? Task.CompletedTask : Backup.DisposeAsync().AsTask(),
                 () => Thumbnails is null ? Task.CompletedTask : Thumbnails.DisposeAsync().AsTask(),
                 ReleaseHandles,
                 () => _session is null ? Task.CompletedTask : _session.DisposeAsync().AsTask());

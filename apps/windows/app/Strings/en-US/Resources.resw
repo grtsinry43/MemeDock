@@ -183,4 +183,36 @@
   <data name="sync_failure_unauthorized" xml:space="preserve"><value>Device token expired or invalid. Please enter a new token.</value></data>
   <data name="sync_failure_network" xml:space="preserve"><value>Could not connect to the server. Will retry automatically.</value></data>
   <data name="sync_failure_credential" xml:space="preserve"><value>Could not access saved credentials. Please enter your device token again.</value></data>
+  <data name="settings_original_count" xml:space="preserve"><value>Original stickers</value></data>
+  <data name="settings_saved_originals" xml:space="preserve"><value>Storage used</value></data>
+  <data name="settings_cache_usage" xml:space="preserve"><value>Cache used</value></data>
+  <data name="settings_cache_footer" xml:space="preserve"><value>Cache includes thumbnails and temporary sharing files</value></data>
+  <data name="desktop_space" xml:space="preserve"><value>Space</value></data>
+  <data name="desktop_cleanup" xml:space="preserve"><value>Clean up</value></data>
+  <data name="desktop_clean" xml:space="preserve"><value>Clean</value></data>
+  <data name="desktop_cleanup_hint" xml:space="preserve"><value>Removes expired temporary files made for copying and sharing; files still on the clipboard are kept. Thumbnails are managed by the app and rebuilt when needed. Originals are never touched.</value></data>
+  <data name="desktop_locations" xml:space="preserve"><value>Locations</value></data>
+  <data name="desktop_data_directory" xml:space="preserve"><value>Library folder</value></data>
+  <data name="desktop_cache_directory" xml:space="preserve"><value>Cache folder</value></data>
+  <data name="desktop_export_directory" xml:space="preserve"><value>Share folder</value></data>
+  <data name="desktop_open" xml:space="preserve"><value>Open…</value></data>
+  <data name="desktop_refresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="desktop_cleanup_result" xml:space="preserve"><value>Cleaned {0} temporary share item(s)</value></data>
+  <data name="desktop_storage_not_ready" xml:space="preserve"><value>The library is not ready, so storage usage cannot be read yet.</value></data>
+  <data name="desktop_directory_missing" xml:space="preserve"><value>The folder does not exist.</value></data>
+  <data name="desktop_directory_open_failed" xml:space="preserve"><value>The folder could not be opened.</value></data>
+  <data name="desktop_backup" xml:space="preserve"><value>Backup</value></data>
+  <data name="desktop_backup_hint" xml:space="preserve"><value>A backup holds the whole library in one file</value></data>
+  <data name="desktop_backup_create" xml:space="preserve"><value>Create a backup</value></data>
+  <data name="desktop_backup_file_type" xml:space="preserve"><value>MemeDock backup</value></data>
+  <data name="desktop_backup_saved" xml:space="preserve"><value>Backup saved</value></data>
+  <data name="desktop_backup_saved_to" xml:space="preserve"><value>Saved to</value></data>
+  <data name="desktop_backup_exists" xml:space="preserve"><value>A file with that name appeared before it could be written. Run the backup again and confirm the replacement, or choose another name.</value></data>
+  <data name="desktop_backup_too_large" xml:space="preserve"><value>The backup is larger than the {0} limit, so it was not saved.</value></data>
+  <data name="desktop_checkpoint" xml:space="preserve"><value>Checkpoint</value></data>
+  <data name="desktop_checkpoint_hint" xml:space="preserve"><value>Saves a snapshot of the library database in the library folder. Original files are not included.</value></data>
+  <data name="desktop_checkpoint_create" xml:space="preserve"><value>Create checkpoint</value></data>
+  <data name="desktop_checkpoint_created" xml:space="preserve"><value>Checkpoint created: {0}</value></data>
+  <data name="backup_creating" xml:space="preserve"><value>Creating backup…</value></data>
+  <data name="backup_saving" xml:space="preserve"><value>Saving backup…</value></data>
 </root>

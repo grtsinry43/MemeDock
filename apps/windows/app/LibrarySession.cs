@@ -1,30 +1,47 @@
 using MemeDock.Bridge;
 using MemeDock.Windows.Models;
+using MemeDock.Windows.Services;
 
 namespace MemeDock.Windows;
 
-internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog
+internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorageWorkspace, IBackupWorkspace
 {
     private readonly LibraryHandle _library;
     private readonly ulong _maxInputBytes;
+    private readonly long _maxArchiveBytes;
     private bool _disposed;
     public string LibraryId => Identity.LibraryId;
     public LibraryIdentity Identity { get; }
 
-    private LibrarySession(LibraryHandle library, ulong maxInputBytes)
+    /// <summary>The library directory the core was opened with; never created here.</summary>
+    public string DataDirectory { get; }
+
+    public string CacheDirectory { get; }
+
+    public string ShareDirectory { get; }
+
+    // The core enforces the ceiling with its own unsigned value; this copy only feeds
+    // the explanation shown to the user, so it is clamped to what a size can express.
+    public long MaxArchiveBytes => _maxArchiveBytes;
+
+    private LibrarySession(LibraryHandle library, ulong maxInputBytes, ulong maxArchiveBytes,
+        string dataDirectory, string cacheDirectory, string shareDirectory)
     {
         (_library, _maxInputBytes) = (library, maxInputBytes);
+        _maxArchiveBytes = (long)Math.Min(maxArchiveBytes, long.MaxValue);
         Identity = library.Identity();
+        (DataDirectory, CacheDirectory, ShareDirectory) = (dataDirectory, cacheDirectory, shareDirectory);
     }
 
     public static Task<LibrarySession> OpenAsync(string root) => Task.Run(async () =>
     {
         var limits = MemeDockNative.DefaultResourceConfiguration();
-        var configuration = new LibraryConfiguration(
-            Path.Combine(root, "data"), Path.Combine(root, "cache"),
-            Path.Combine(root, "share"), limits);
+        var data = Path.Combine(root, "data");
+        var cache = Path.Combine(root, "cache");
+        var share = Path.Combine(root, "share");
+        var configuration = new LibraryConfiguration(data, cache, share, limits);
         var library = await MemeDockNative.OpenLibrary(configuration).ConfigureAwait(false);
-        return new LibrarySession(library, limits.MaxFileBytes);
+        return new LibrarySession(library, limits.MaxFileBytes, limits.MaxArchiveBytes, data, cache, share);
     });
 
     public Task<StickerPage> QueryAsync(LibraryFilter filter, string text, StickerSort sort,
@@ -309,6 +326,127 @@ internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog
         using var request = _library.RecordUse(id, action);
         await request.AwaitResult().ConfigureAwait(false);
     });
+
+    public Task<SpaceStatistics> StatisticsAsync(CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.SpaceStatistics();
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    // The core owns the decision of what is disposable: expired share copies,
+    // copies of purged stickers, and orphaned files that match its own naming
+    // scheme and are older than its retention window. The return value is the
+    // number of entries removed, not an amount of freed bytes.
+    public Task<ulong> CleanExportArtifactsAsync(CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.CleanExportArtifacts();
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    // The core writes the archive into its own data directory and enforces the size
+    // ceiling; nothing here assembles bytes. The file it returns is only a staging
+    // entry that must be saved elsewhere and then discarded.
+    public Task<IStagedBackup> StageBackupAsync(IProgress<string>? stages, CancellationToken cancellation)
+        => Task.Run(async () =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            using var request = _library.CreateBackup();
+            using var registration = cancellation.Register(() => request.Cancel());
+            using var progress = request.Progress();
+            var observed = ObserveStagesAsync(progress, stages);
+            BackupFileHandle file;
+            try
+            {
+                file = await request.AwaitResult().ConfigureAwait(false);
+            }
+            finally
+            {
+                // Closing the stream releases the observer even if the result was an
+                // error; the task itself has already reached a terminal state.
+                try { progress.Unsubscribe(); }
+                catch (BridgeException) { }
+                await observed.ConfigureAwait(false);
+            }
+
+            return (IStagedBackup)new StagedBackup(this, file);
+        });
+
+    // A checkpoint is a database snapshot the core keeps inside the data directory.
+    // The write is committed through the same permit as other writes, so it cannot
+    // interleave with a backup or a sync pass.
+    public Task<string> CreateCheckpointAsync(CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.CreateCheckpoint();
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    public Task DiscardBackupAsync(BackupFileHandle file) => Task.Run(async () =>
+    {
+        using var request = _library.DiscardBackup(file);
+        await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    private static async Task ObserveStagesAsync(TaskProgressHandle progress, IProgress<string>? stages)
+    {
+        if (stages is null) return;
+        try
+        {
+            while (await progress.Next().ConfigureAwait(false) is { } snapshot)
+            {
+                if (snapshot.Stage.Length > 0)
+                {
+                    stages.Report(snapshot.Stage);
+                }
+            }
+        }
+        catch (BridgeException)
+        {
+            // Observation is best effort: the task result carries the real outcome,
+            // and a closed stream must never replace it.
+        }
+    }
+
+    /// <summary>
+    /// The staging entry the core handed out. Discarding is the only way to release it
+    /// before the next library open sweeps abandoned archives.
+    /// </summary>
+    private sealed class StagedBackup : IStagedBackup
+    {
+        private readonly LibrarySession _session;
+        private readonly BackupFileHandle _file;
+        private bool _discarded;
+
+        public StagedBackup(LibrarySession session, BackupFileHandle file)
+        {
+            _session = session;
+            _file = file;
+            Path = file.Path();
+            FileName = file.FileName();
+            ByteSize = (long)Math.Min(file.ByteSize(), long.MaxValue);
+        }
+
+        public string Path { get; }
+
+        public string FileName { get; }
+
+        public long ByteSize { get; }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_discarded) return;
+            _discarded = true;
+            using (_file)
+            {
+                await _session.DiscardBackupAsync(_file).ConfigureAwait(false);
+            }
+        }
+    }
 
     public Task<SyncStatus> SyncStatusAsync(CancellationToken cancellation)
         => RunSyncAsync(_library.SyncStatus, cancellation);

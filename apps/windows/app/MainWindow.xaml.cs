@@ -45,6 +45,7 @@ public sealed partial class MainWindow : Window
     private string? _reorderCollection;
     private Task<bool>? _galleryDragPreparation;
     private SyncCoordinator? _sync;
+    private readonly BackupDestinationPicker _backupPicker;
 
     public MainWindow()
     {
@@ -61,6 +62,10 @@ public sealed partial class MainWindow : Window
         // Unpackaged WinUI apps cannot change Application.RequestedTheme at runtime,
         // so the saved appearance is applied to the window's content root instead.
         ApplyAppearance(_preferences.Appearance);
+        // The app is unpackaged, so the save dialog has to be constructed with the
+        // window's native identity. AppWindow.Id is that HWND-backed WindowId, and it
+        // stays valid for the life of the window, so one picker serves every backup.
+        _backupPicker = new BackupDestinationPicker(AppWindow.Id, Strings);
         Settings.AppearanceChanged += OnAppearanceChanged;
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new global::Windows.Graphics.SizeInt32(1180, 820));
@@ -126,7 +131,7 @@ public sealed partial class MainWindow : Window
         // applied to the first frame; only the language needs to reach the strings.
         Strings.SetLanguage(_preferences.Language);
         Settings.Configure(Strings, _preferences);
-        await ViewModel.InitializeAsync(_root);
+        await ViewModel.InitializeAsync(_root, _backupPicker);
         if (_stopping) return;
         Settings.ShowIdentity(ViewModel.Identity);
         UpdateState();
@@ -183,7 +188,8 @@ public sealed partial class MainWindow : Window
     private void UpdateState()
     {
         if (ViewModel.IsReady && !_childrenConfigured && ViewModel.Details is { } details && ViewModel.Batch is { } batch
-            && ViewModel.Catalog is { } catalog && ViewModel.TrashGroups is { } trashGroups && ViewModel.Output is { } output)
+            && ViewModel.Catalog is { } catalog && ViewModel.TrashGroups is { } trashGroups && ViewModel.Output is { } output
+            && ViewModel.Storage is { } storage && ViewModel.Backup is { } backup)
         {
             _childrenConfigured = true;
             Details.Configure(details, Strings, ViewModel.Collections, ViewModel.Tags, output);
@@ -191,6 +197,8 @@ public sealed partial class MainWindow : Window
             Catalog.Configure(catalog, Strings, ViewModel.Collections, ViewModel.Tags);
             TrashGroupsPanel.Configure(trashGroups, Strings);
             Settings.ConfigureSync(ViewModel.Sync, Strings);
+            Settings.ConfigureStorage(storage);
+            Settings.ConfigureBackup(backup);
             details.Deleted += OnStickerDeleted;
             batch.PropertyChanged += OnModelChanged;
             batch.Completed += OnBatchCompleted;
@@ -358,6 +366,8 @@ public sealed partial class MainWindow : Window
         Settings.Visibility = ToVisibility(_settingsVisible);
         Catalog.Visibility = ToVisibility(_catalogVisible);
         Details.SetActive(!_settingsVisible && !_catalogVisible && Inspector.IsPaneOpen);
+        // Disk figures age while the user works elsewhere; re-read on every visit.
+        if (_settingsVisible) _ = Settings.RefreshStorageAsync();
         if (_settingsVisible || _catalogVisible) return;
         _tagMode = item == TagsNavigation;
         TagSelector.Visibility = ToVisibility(_tagMode);
@@ -672,7 +682,7 @@ public sealed partial class MainWindow : Window
         if (ViewModel.IsReady) await ViewModel.RetryAsync();
         else
         {
-            _initialization = ViewModel.InitializeAsync(_root);
+            _initialization = ViewModel.InitializeAsync(_root, _backupPicker);
             await _initialization;
             if (_stopping) return;
             Settings.ShowIdentity(ViewModel.Identity);
@@ -692,6 +702,8 @@ public sealed partial class MainWindow : Window
         Catalog.Shutdown();
         TrashGroupsPanel.Shutdown();
         Settings.ShutdownSync();
+        Settings.ShutdownStorage();
+        Settings.ShutdownBackup();
         Root.IsHitTestVisible = false;
         _lifetime.Cancel();
         ViewModel.RequestStop();

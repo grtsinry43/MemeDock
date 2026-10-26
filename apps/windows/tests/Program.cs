@@ -23,6 +23,9 @@ internal static class Program
             EditDrafts();
             OutputPolicies();
             OutputPresetTable();
+            StorageFormatting();
+            await StorageModelAsync();
+            await BackupModelAsync();
             VersionMetadata(FindRepository());
             CatalogFeedback();
             await RefreshMergingAsync();
@@ -227,6 +230,514 @@ internal static class Program
         Check(project == workspace, $"Windows app version {project} differs from the workspace version {workspace}.");
         Check(AppVersion.FromAssembly(typeof(Program).Assembly).Length > 0, "Assembly metadata produced no version.");
         Console.WriteLine("PASS: version display, workspace alignment and commit-suffix trimming");
+    }
+
+    /// <summary>
+    /// Storage figures are displayed exactly as the core reports them. A negative
+    /// total would mean the bridge contract broke, so it is an error rather than a
+    /// formatted value, and a total that rounds up to the next unit is promoted so
+    /// the page never reads "1024 KB".
+    /// </summary>
+    private static void StorageFormatting()
+    {
+        Check(ByteSize.Format(0) == "0 B", "Zero bytes did not render as 0 B.");
+        Check(ByteSize.Format(1) == "1 B" && ByteSize.Format(1023) == "1023 B",
+            "A byte count below one kilobyte was rescaled.");
+        Check(ByteSize.Format(1024) == "1 KB", "One kilobyte was not promoted.");
+        Check(ByteSize.Format(1536) == "1.5 KB", "A fractional kilobyte lost its one decimal place.");
+        Check(ByteSize.Format(1024L * 1024 - 1) == "1 MB",
+            "A value that rounds up to 1024 KB was displayed as 1024 KB instead of 1 MB.");
+        Check(ByteSize.Format(1024L * 1024) == "1 MB", "One megabyte was not promoted.");
+        Check(ByteSize.Format(1024L * 1024 * 1024) == "1 GB", "One gigabyte was not promoted.");
+        Check(ByteSize.Format(1024L * 1024 * 1024 * 3 / 2) == "1.5 GB", "A fractional gigabyte lost its decimal.");
+        Check(ByteSize.Format(long.MaxValue) == "8192 PB",
+            "The largest reported total escaped the unit table or overflowed.");
+        try
+        {
+            ByteSize.Format(-1);
+            throw new InvalidOperationException("A negative byte total was formatted as storage usage.");
+        }
+        catch (ArgumentOutOfRangeException) { }
+
+        // The snapshot is the only place a figure is accepted, so the contract
+        // checks live here: one read, ready originals only, cache as a safe sum.
+        Check(StorageSnapshot.TryCreate(new SpaceStatistics(2, 4194304, 3145728, 1024, 512), out var snapshot)
+              && snapshot.OriginalCount == 2 && snapshot.OriginalBytes == 3145728 && snapshot.CacheBytes == 1536,
+            "A valid statistics read did not produce the expected snapshot.");
+        Check(!StorageSnapshot.TryCreate(new SpaceStatistics(-1, 0, 0, 0, 0), out _),
+            "A negative asset count was accepted as storage usage.");
+        Check(!StorageSnapshot.TryCreate(new SpaceStatistics(0, 0, -1, 0, 0), out _),
+            "A negative byte total was accepted as storage usage.");
+        Check(!StorageSnapshot.TryCreate(new SpaceStatistics(0, 0, 0, long.MaxValue, 1), out _),
+            "An overflowing cache total was accepted as storage usage.");
+        Console.WriteLine("PASS: byte formatting boundaries and statistics contract rejection");
+    }
+
+    /// <summary>
+    /// The storage section reads one snapshot, reports failures instead of zeroes,
+    /// and runs at most one cleanup that reports entries removed. The fake stands in
+    /// for the library so no real user directory is touched.
+    /// </summary>
+    private static async Task StorageModelAsync()
+    {
+        var workspace = new FakeStorageWorkspace
+        {
+            Statistics = _ => Task.FromResult(new SpaceStatistics(3, 12288, 4096, 100, 200))
+        };
+        var opened = new List<string>();
+        var openResult = DirectoryOpenResult.Opened;
+        await using var storage = new StorageViewModel(workspace, new FakeCatalogStrings(), path =>
+        {
+            opened.Add(path);
+            return openResult;
+        });
+
+        // Nothing read yet: the page must show "unknown", never 0 B.
+        Check(storage.Snapshot is null && storage.StatisticsErrorKey is null,
+            "An unread section started with figures instead of the unknown state.");
+
+        await storage.RefreshAsync();
+        Check(storage.Snapshot is { OriginalCount: 3, OriginalBytes: 4096, CacheBytes: 300 },
+            "The storage read did not publish the reported figures.");
+        Check(storage.StatisticsErrorKey is null && !storage.IsLoading,
+            "A successful read left an error or a spinner behind.");
+
+        // A failed read clears the figures instead of keeping stale ones or
+        // pretending the library holds zero bytes.
+        workspace.Statistics = _ => Task.FromException<SpaceStatistics>(new IOException("statistics unavailable"));
+        await storage.RefreshAsync();
+        Check(storage.Snapshot is null, "A failed read kept stale figures.");
+        Check(storage.StatisticsErrorKey == "statistics unavailable",
+            "A failed read did not surface the bridge error.");
+        Check(!storage.IsLoading, "A failed read left the loading state on.");
+
+        // The next successful read clears the error, and a real empty library is
+        // still a real zero because the read succeeded.
+        workspace.Statistics = _ => Task.FromResult(new SpaceStatistics(0, 0, 0, 0, 0));
+        await storage.RefreshAsync();
+        Check(storage.Snapshot is { OriginalCount: 0, OriginalBytes: 0, CacheBytes: 0 }
+              && storage.StatisticsErrorKey is null,
+            "An empty library was not reported as a real zero after a failure.");
+
+        workspace.Statistics = _ => Task.FromResult(new SpaceStatistics(1, 10, -5, 0, 0));
+        await storage.RefreshAsync();
+        Check(storage.Snapshot is null && storage.StatisticsErrorKey == "failure_unknown",
+            "A contract-breaking negative total was rendered as storage usage.");
+
+        // A read requested during a read is merged into one follow-up pass, and the
+        // older pass can never overwrite the newer figures.
+        var readsBeforeCoalesce = workspace.StatisticsCalls;
+        var blockReads = new int[1];
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        workspace.Statistics = async _ =>
+        {
+            if (Interlocked.Increment(ref blockReads[0]) == 1)
+            {
+                firstStarted.TrySetResult();
+                await releaseFirst.Task;
+                return new SpaceStatistics(1, 100, 100, 0, 0);
+            }
+            return new SpaceStatistics(2, 200, 200, 0, 0);
+        };
+        var stale = storage.RefreshAsync();
+        await firstStarted.Task;
+        Check(storage.IsLoading, "A running read did not expose its loading state.");
+        var newest = storage.RefreshAsync();
+        releaseFirst.SetResult();
+        await Task.WhenAll(stale, newest);
+        Check(workspace.StatisticsCalls == readsBeforeCoalesce + 2,
+            "A read during a read was not merged into a single follow-up pass.");
+        Check(storage.Snapshot is { OriginalCount: 2, OriginalBytes: 200 },
+            "An older read overwrote the newer figures.");
+
+        // Cleanup reports how many entries the core removed. The core never reports
+        // bytes, so neither the model nor the copy may claim released space.
+        workspace.Statistics = _ => Task.FromResult(new SpaceStatistics(2, 200, 200, 0, 0));
+        workspace.Clean = () => Task.FromResult(7UL);
+        var readsBeforeClean = workspace.StatisticsCalls;
+        var cleaned = await storage.CleanAsync();
+        Check(cleaned, "A successful cleanup was reported as a failure.");
+        Check(workspace.CleanCalls == 1, "One cleanup request ran more than once.");
+        Check(storage.CleanedItems == 7UL, "The cleanup result lost the number of removed entries.");
+        Check(storage.CleanupResultKey == "desktop_cleanup_result" && storage.CleanupErrorKey is null,
+            "A successful cleanup did not produce its result key.");
+        Check(workspace.StatisticsCalls == readsBeforeClean + 1,
+            "The figures were not re-read after a cleanup.");
+        Check(!storage.IsCleaning, "A finished cleanup left the progress state on.");
+
+        var root = FindRepository();
+        var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
+        var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
+        Check(english["desktop_cleanup_result"].Contains("{0}", StringComparison.Ordinal),
+            "The cleanup result copy lost its entry count placeholder.");
+        Check(!english["desktop_cleanup_result"].Contains("byte", StringComparison.OrdinalIgnoreCase)
+              && !chinese["desktop_cleanup_result"].Contains("字节", StringComparison.Ordinal),
+            "The cleanup result copy claims released bytes, but the core only counts entries.");
+
+        // A failed cleanup clears the previous success, keeps its own error, and
+        // still re-reads the figures because the deletion is not transactional.
+        workspace.Clean = () => Task.FromException<ulong>(new InvalidOperationException("cleanup failed"));
+        var failed = await storage.CleanAsync();
+        Check(!failed, "A failed cleanup was reported as success.");
+        Check(storage.CleanupErrorKey == "cleanup failed" && storage.CleanupResultKey is null
+              && storage.CleanedItems is null,
+            "A failed cleanup kept a stale success result.");
+        Check(storage.Snapshot is not null, "A failed cleanup skipped the following refresh.");
+
+        // A second click while the first is still running must not start a parallel
+        // deletion; it returns false immediately.
+        var cleaning = new TaskCompletionSource<ulong>(TaskCreationOptions.RunContinuationsAsynchronously);
+        workspace.Clean = () => cleaning.Task;
+        var callsBeforeRunning = workspace.CleanCalls;
+        var running = storage.CleanAsync();
+        var duplicate = storage.CleanAsync();
+        Check(duplicate.IsCompleted && !await duplicate,
+            "A second cleanup during a running cleanup was accepted.");
+        Check(storage.IsCleaning, "The running cleanup did not expose its progress state.");
+        Check(workspace.CleanCalls == callsBeforeRunning + 1,
+            "A duplicate cleanup request reached the core.");
+        cleaning.SetResult(2UL);
+        Check(await running, "The running cleanup did not finish.");
+        Check(storage.CleanedItems == 2UL, "The running cleanup lost its result.");
+
+        // Opening a folder never creates it: missing and unopenable paths are
+        // reported separately from a successful hand-off, with the exact path.
+        opened.Clear();
+        Check(storage.OpenDirectory(storage.ShareDirectory) && storage.DirectoryErrorKey is null
+              && opened.SequenceEqual([storage.ShareDirectory]),
+            "Opening the share folder did not reach the shell handler.");
+        openResult = DirectoryOpenResult.Missing;
+        Check(!storage.OpenDirectory(storage.DataDirectory)
+              && storage.DirectoryErrorKey == "desktop_directory_missing",
+            "A missing folder was not reported as missing.");
+        openResult = DirectoryOpenResult.Failed;
+        Check(!storage.OpenDirectory(storage.CacheDirectory)
+              && storage.DirectoryErrorKey == "desktop_directory_open_failed",
+            "A shell failure was not reported as a failure.");
+
+        // Once the window starts closing the section stops touching the core.
+        storage.RequestStop();
+        var callsAfterStop = workspace.CleanCalls;
+        Check(!await storage.CleanAsync() && workspace.CleanCalls == callsAfterStop,
+            "A stopped section still cleaned the export artifacts.");
+        Check(!storage.OpenDirectory(storage.DataDirectory), "A stopped section opened a folder.");
+        Check(!storage.IsReady, "A stopped section still reported itself as ready.");
+        Console.WriteLine("PASS: storage failures, cleanup semantics and folder reporting");
+    }
+
+    private static async Task BackupModelAsync()
+    {
+        var root = FindRepository();
+        var scratch = Path.Combine(Path.GetTempPath(), "memedock-backup-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+        try
+        {
+            // A backup only becomes the user's file after the core staged it, the user
+            // chose a location and the copy finished. The stage the core reports is
+            // translated, and the staging entry is always released.
+            var stagedPath = Path.Combine(scratch, "staged-archive.zip");
+            await File.WriteAllBytesAsync(stagedPath, Payload(200));
+            var stagedHandle = new FakeStagedBackup(stagedPath, 200);
+            var stageGate = new TaskCompletionSource<IStagedBackup>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var workspace = new FakeBackupWorkspace
+            {
+                Stage = (progress, _) =>
+                {
+                    progress?.Report("copying_backup_originals");
+                    return stageGate.Task;
+                }
+            };
+            var destination = Path.Combine(scratch, "My backup.zip");
+            var picker = new FakeBackupPicker
+            {
+                Choose = (suggested, _) =>
+                {
+                    Check(suggested == "staged-archive.zip",
+                        "The save dialog did not receive the name the core gave the archive.");
+                    return Task.FromResult<BackupDestination?>(new BackupDestination(destination, false));
+                }
+            };
+            var strings = new FakeCatalogStrings();
+            await using (var backup = new BackupViewModel(workspace, picker, strings))
+            {
+                Check(backup.IsReady && !backup.IsBusy && backup.StageKey is null && backup.BackupSavedPath is null,
+                    "A fresh backup section did not start in the idle state.");
+
+                var run = backup.CreateBackupAsync();
+                Check(backup.IsCreatingBackup && backup.IsBusy,
+                    "A running backup did not expose its progress state.");
+                Check(!await backup.CreateBackupAsync(), "A second backup request was accepted.");
+                Check(workspace.StageCalls == 1, "A duplicate request reached the core.");
+
+                await WaitUntilAsync(() => backup.StageKey is not null);
+                Check(backup.StageKey == "backup_creating",
+                    "A reported core stage was not translated, or an untranslated token leaked.");
+
+                stageGate.SetResult(stagedHandle);
+                Check(await run, "A completed backup was reported as a failure.");
+                Check(!backup.IsCreatingBackup && !backup.IsBusy && backup.StageKey is null,
+                    "A finished backup left its progress state or stage label behind.");
+                Check(backup.BackupErrorKey is null && backup.BackupSavedPath == destination
+                      && backup.BackupSavedBytes == 200,
+                    "A saved backup did not report its real location and size.");
+                Check((await File.ReadAllBytesAsync(destination)).Length == 200,
+                    "The saved backup does not hold the archive the core staged.");
+                Check(picker.Calls == 1, "The save dialog was opened more than once for one backup.");
+                Check(stagedHandle.Disposed == 1 && !File.Exists(stagedPath),
+                    "The staged archive was not released after the backup was saved.");
+            }
+
+            // Dismissing the dialog is a cancel: no file, no error, and the staging
+            // entry is still released.
+            var cancelledStagedPath = Path.Combine(scratch, "staged-cancelled.zip");
+            await File.WriteAllBytesAsync(cancelledStagedPath, Payload(32));
+            var cancelledHandle = new FakeStagedBackup(cancelledStagedPath, 32);
+            var dismissed = await RunBackupAsync(workspace, picker, strings, cancelledHandle,
+                (_, _) => Task.FromResult<BackupDestination?>(null));
+            Check(!dismissed.Saved, "A dismissed dialog was reported as a saved backup.");
+            Check(dismissed.ErrorKey is null && dismissed.SavedPath is null,
+                "Dismissing the dialog produced an error or a saved location.");
+            Check(cancelledHandle.Disposed == 1 && !File.Exists(cancelledStagedPath),
+                "The staged archive survived a cancelled save.");
+
+            // A failed copy keeps the staging entry released, reports a readable error
+            // and never registers the destination as a saved backup.
+            var failingStagedPath = Path.Combine(scratch, "staged-failing.zip");
+            await File.WriteAllBytesAsync(failingStagedPath, Payload(48));
+            var failingHandle = new FakeStagedBackup(failingStagedPath, 48);
+            var unwritable = Path.Combine(scratch, "missing-directory", "backup.zip");
+            var failed = await RunBackupAsync(workspace, picker, strings, failingHandle,
+                (_, _) => Task.FromResult<BackupDestination?>(new BackupDestination(unwritable, false)));
+            Check(!failed.Saved, "A failed copy was reported as a saved backup.");
+            Check(failed.SavedPath is null && failed.SavedBytes is null,
+                "A failed copy registered a saved location.");
+            Check(failed.ErrorKey is { Length: > 0 }, "A failed copy did not report an error.");
+            Check(failed.ErrorKey != "desktop_backup_exists",
+                "A missing folder was reported as an existing-file conflict.");
+            Check(failingHandle.Disposed == 1 && !File.Exists(failingStagedPath),
+                "The staged archive survived a failed save.");
+            Check(!File.Exists(unwritable), "A failed copy left a file under the backup name.");
+
+            // An unconfirmed overwrite is refused by the writer itself, so a file that
+            // the user did not agree to replace keeps its bytes.
+            var existing = Path.Combine(scratch, "existing.zip");
+            await File.WriteAllBytesAsync(existing, Payload(5));
+            var replacementSource = Path.Combine(scratch, "replacement.zip");
+            await File.WriteAllBytesAsync(replacementSource, Payload(64));
+
+            var conflict = await RunBackupAsync(workspace, picker, strings,
+                new FakeStagedBackup(replacementSource, 64, deleteOnDispose: false),
+                (_, _) => Task.FromResult<BackupDestination?>(new BackupDestination(existing, false)));
+            Check(!conflict.Saved && conflict.ErrorKey == "desktop_backup_exists",
+                "An unconfirmed replacement was not reported as an existing-file conflict.");
+            Check((await File.ReadAllBytesAsync(existing)).Length == 5,
+                "An unconfirmed save replaced the file on disk.");
+            Check(Directory.GetFiles(scratch, "*.partial", SearchOption.AllDirectories).Length == 0,
+                "A refused save left a partial file behind.");
+
+            // A confirmed replacement is written aside and moved into place, so the
+            // destination never holds a half-written archive.
+            await BackupFileWriter.WriteAsync(replacementSource, existing, 64, replaceExisting: true, CancellationToken.None);
+            Check((await File.ReadAllBytesAsync(existing)).Length == 64,
+                "A confirmed replacement did not write the archive.");
+            Check(Directory.GetFiles(scratch, "*.partial", SearchOption.AllDirectories).Length == 0,
+                "A completed save left its temporary file behind.");
+
+            // A short copy must never be presented as a finished backup.
+            var shortSource = Path.Combine(scratch, "short.zip");
+            await File.WriteAllBytesAsync(shortSource, Payload(8));
+            var shortTarget = Path.Combine(scratch, "short-target.zip");
+            var truncated = false;
+            try
+            {
+                await BackupFileWriter.WriteAsync(shortSource, shortTarget, 9, replaceExisting: false, CancellationToken.None);
+            }
+            catch (IOException error) when (error is not BackupTargetExistsException)
+            {
+                truncated = true;
+            }
+
+            Check(truncated && !File.Exists(shortTarget),
+                "A copy shorter than the core's size was left under the backup name.");
+
+            // The core enforces the archive ceiling. Only that refusal is named as a
+            // size limit, and it quotes the limit the core was actually given.
+            var tooLarge = new FakeBackupWorkspace
+            {
+                MaxArchiveBytes = 2048,
+                Stage = (_, _) => Task.FromException<IStagedBackup>(
+                    new BridgeException.Failure(ErrorCode.CorruptData, "archive exceeds byte limit"))
+            };
+            var oversized = await RunBackupAsync(tooLarge, picker, strings, null,
+                (_, _) => Task.FromResult<BackupDestination?>(new BackupDestination(destination, false)));
+            Check(!oversized.Saved && oversized.ErrorKey == "desktop_backup_too_large",
+                "The core's archive limit refusal was not reported as a size limit.");
+            Check(oversized.ErrorPlaceholder == "2 KB",
+                "The size limit error did not quote the configured limit.");
+
+            var corrupt = new FakeBackupWorkspace
+            {
+                Stage = (_, _) => Task.FromException<IStagedBackup>(
+                    new BridgeException.Failure(ErrorCode.CorruptData, "database is corrupt"))
+            };
+            var damaged = await RunBackupAsync(corrupt, picker, strings, null,
+                (_, _) => Task.FromResult<BackupDestination?>(new BackupDestination(destination, false)));
+            Check(!damaged.Saved && damaged.ErrorKey != "desktop_backup_too_large"
+                  && damaged.ErrorKey != "desktop_backup_exists",
+                "An unrelated corrupt-data failure was reported as a size limit.");
+
+            // Stopping the section cancels the running backup, reports no failure, and
+            // refuses new work.
+            var stoppingWorkspace = new FakeBackupWorkspace
+            {
+                Stage = (_, token) =>
+                {
+                    var gate = new TaskCompletionSource<IStagedBackup>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    token.Register(() => gate.TrySetCanceled(token));
+                    return gate.Task;
+                }
+            };
+            var stoppingPicker = new FakeBackupPicker();
+            var stopping = new BackupViewModel(stoppingWorkspace, stoppingPicker, strings);
+            var stoppingRun = stopping.CreateBackupAsync();
+            stopping.RequestStop();
+            Check(!await stoppingRun, "A cancelled backup was reported as saved.");
+            Check(stopping.BackupErrorKey is null && stopping.BackupSavedPath is null,
+                "A cancelled backup reported an error or a saved location.");
+            Check(stoppingPicker.Calls == 0, "A cancelled backup still opened the save dialog.");
+            var stageCallsBeforeStop = stoppingWorkspace.StageCalls;
+            Check(!await stopping.CreateBackupAsync() && stoppingWorkspace.StageCalls == stageCallsBeforeStop,
+                "A stopped section still staged a backup.");
+            Check(!stopping.IsReady, "A stopped section still reported itself as ready.");
+            await stopping.DisposeAsync();
+
+            // A checkpoint is a database snapshot the core keeps, so only its own name
+            // is reported. A backup cannot start while one is running, and the reverse.
+            var checkpointPath = Path.Combine(scratch, "checkpoints", "0f1e2d3c.sqlite");
+            var checkpointGate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var checkpointWorkspace = new FakeBackupWorkspace { Checkpoint = _ => checkpointGate.Task };
+            await using (var checkpointing = new BackupViewModel(checkpointWorkspace, picker, strings))
+            {
+                var checkpointRun = checkpointing.CreateCheckpointAsync();
+                Check(checkpointing.IsCreatingCheckpoint && checkpointing.IsBusy,
+                    "A running checkpoint did not expose its progress state.");
+                Check(!await checkpointing.CreateCheckpointAsync(),
+                    "A second checkpoint request was accepted.");
+                Check(!await checkpointing.CreateBackupAsync() && checkpointWorkspace.StageCalls == 0,
+                    "A backup started while a checkpoint was running.");
+                Check(checkpointWorkspace.CheckpointCalls == 1, "A duplicate checkpoint reached the core.");
+                checkpointGate.SetResult(checkpointPath);
+                Check(await checkpointRun, "A completed checkpoint was reported as a failure.");
+                Check(checkpointing.CheckpointName == "0f1e2d3c.sqlite"
+                      && checkpointing.CheckpointErrorKey is null && !checkpointing.IsCreatingCheckpoint,
+                    "A checkpoint did not report the name the core returned.");
+
+                checkpointWorkspace.Checkpoint = _ => Task.FromException<string>(new IOException("checkpoint failed"));
+                Check(!await checkpointing.CreateCheckpointAsync(),
+                    "A failed checkpoint was reported as a success.");
+                Check(checkpointing.CheckpointErrorKey == "checkpoint failed"
+                      && checkpointing.CheckpointName is null,
+                    "A failed checkpoint kept a stale name or lost its error.");
+            }
+
+            // Closing the window must wait for the running backup before the session is
+            // released, and a backup cancelled at that moment is not a failure.
+            var closingWorkspace = new FakeBackupWorkspace
+            {
+                Stage = (_, token) =>
+                {
+                    var gate = new TaskCompletionSource<IStagedBackup>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    token.Register(() => gate.TrySetCanceled(token));
+                    return gate.Task;
+                }
+            };
+            var closing = new BackupViewModel(closingWorkspace, picker, strings);
+            var closingRun = closing.CreateBackupAsync();
+            var disposal = closing.DisposeAsync().AsTask();
+            Check(!disposal.IsCompleted, "The session was released while a backup was still running.");
+            Check(!await closingRun, "A backup cancelled at shutdown was reported as saved.");
+            await disposal;
+            Check(closing.BackupErrorKey is null, "A backup cancelled at shutdown reported an error.");
+
+            // Both language files must carry the new keys, and the copy that names a
+            // value keeps that placeholder.
+            var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
+            var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
+            foreach (var key in new[]
+                     {
+                         "desktop_backup", "desktop_backup_hint", "desktop_backup_create",
+                         "desktop_backup_file_type", "desktop_backup_saved", "desktop_backup_saved_to",
+                         "desktop_backup_exists", "desktop_backup_too_large", "desktop_checkpoint",
+                         "desktop_checkpoint_hint", "desktop_checkpoint_create", "desktop_checkpoint_created",
+                         "backup_creating", "backup_saving"
+                     })
+            {
+                Check(english.ContainsKey(key) && chinese.ContainsKey(key),
+                    $"The backup section references a resource that is missing from one language: {key}");
+            }
+
+            Check(english["desktop_backup_too_large"].Contains("{0}", StringComparison.Ordinal)
+                  && english["desktop_checkpoint_created"].Contains("{0}", StringComparison.Ordinal),
+                "The backup size limit or the checkpoint result lost its value placeholder.");
+            Console.WriteLine("PASS: backup staging, save safety, checkpoints and shutdown ordering");
+        }
+        finally
+        {
+            TryDeleteDirectory(scratch);
+        }
+    }
+
+    /// <summary>What the section settled on after one backup ran to an end.</summary>
+    private sealed record BackupOutcome(
+        bool Saved,
+        string? ErrorKey,
+        string? ErrorPlaceholder,
+        string? SavedPath,
+        long? SavedBytes);
+
+    private static async Task<BackupOutcome> RunBackupAsync(
+        FakeBackupWorkspace workspace,
+        FakeBackupPicker picker,
+        ICatalogStrings strings,
+        FakeStagedBackup? staged,
+        Func<string, CancellationToken, Task<BackupDestination?>> choose)
+    {
+        if (staged is not null) workspace.Stage = (_, _) => Task.FromResult<IStagedBackup>(staged);
+        picker.Choose = choose;
+        await using var backup = new BackupViewModel(workspace, picker, strings);
+        var saved = await backup.CreateBackupAsync();
+        Check(!backup.IsBusy, "A finished backup left its busy state on.");
+        return new BackupOutcome(saved, backup.BackupErrorKey, backup.BackupErrorPlaceholder,
+            backup.BackupSavedPath, backup.BackupSavedBytes);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 400; attempt++)
+        {
+            if (condition()) return;
+            await Task.Delay(5);
+        }
+
+        throw new InvalidOperationException("The expected state never arrived.");
+    }
+
+    private static byte[] Payload(int length)
+    {
+        var bytes = new byte[length];
+        for (var index = 0; index < length; index++) bytes[index] = (byte)(index % 251);
+        return bytes;
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     // Shutdown is the last chance to release the library, so a failing step must
@@ -617,7 +1128,15 @@ internal static class Program
             ["desktop_settings"] = "settings", ["desktop_sort"] = "sortHint", ["desktop_sort_recent"] = "sortRecent",
             ["desktop_sort_collection"] = "sortCollectionOrder", ["desktop_select_all"] = "selectAll",
             ["desktop_clear_selection"] = "clearSelection", ["desktop_selection_loaded_only"] = "selectionLoadedOnly",
-            ["desktop_details"] = "details", ["desktop_selection_over_limit"] = "selectionOverLimit"
+            ["desktop_details"] = "details", ["desktop_selection_over_limit"] = "selectionOverLimit",
+            ["desktop_space"] = "space", ["desktop_cleanup"] = "cleanUp", ["desktop_clean"] = "clean",
+            ["desktop_cleanup_hint"] = "cleanExportsHint", ["desktop_locations"] = "locations",
+            ["desktop_data_directory"] = "dataDirectory", ["desktop_cache_directory"] = "cacheDirectory",
+            ["desktop_export_directory"] = "exportDirectory", ["desktop_open"] = "open",
+            ["desktop_backup"] = "backup", ["desktop_backup_create"] = "createBackup",
+            ["desktop_backup_hint"] = "backupHint", ["desktop_backup_saved"] = "backupSaved",
+            ["desktop_backup_saved_to"] = "backupSavedTo", ["desktop_checkpoint_create"] = "createCheckpoint",
+            ["desktop_checkpoint_hint"] = "checkpointHint"
         };
         // Windows-only copy for the desktop settings page. Mobile has no drag
         // hand-off, a GIF preset, or a device identity panel, so these keys have no
@@ -626,7 +1145,11 @@ internal static class Program
         {
             "output_copy_group", "output_drag_group", "output_still", "output_animated",
             "export_gif", "export_gif_hint", "settings_library_id", "settings_device_id",
-            "settings_license_text", "about_copy", "about_copy_failed"
+            "settings_license_text", "about_copy", "about_copy_failed",
+            "desktop_refresh", "desktop_cleanup_result", "desktop_storage_not_ready",
+            "desktop_directory_missing", "desktop_directory_open_failed",
+            "desktop_backup_file_type", "desktop_backup_exists", "desktop_backup_too_large",
+            "desktop_checkpoint", "desktop_checkpoint_created"
         };
         var macos = File.ReadAllText(Path.Combine(root, "apps/macos/Sources/MemeDock/Support/Localization.swift"));
         var split = macos.IndexOf("private static let chinese:", StringComparison.Ordinal);
@@ -703,6 +1226,13 @@ internal static class Program
             await File.WriteAllBytesAsync(greenPath, Png(0, 255, 0));
             await using (var session = await LibrarySession.OpenAsync(root))
             {
+                // The storage page shows these three folders but never creates or
+                // moves them: they are exactly the directories the core was opened
+                // with, and they must stay distinct.
+                Check(session.DataDirectory == Path.Combine(root, "data")
+                      && session.CacheDirectory == Path.Combine(root, "cache")
+                      && session.ShareDirectory == Path.Combine(root, "share"),
+                    "The reported folders do not match the directories the library was opened with.");
                 var first = await session.ImportAsync(redPath, collectionId, CancellationToken.None);
                 await session.ImportAsync(greenPath, null, CancellationToken.None);
                 Check((await session.CollectionsAsync(CancellationToken.None)).Single().Name == "中文合集", "Collection catalog did not cross the adapter.");
@@ -2073,6 +2603,134 @@ internal static class Program
         public Task PurgeTagAsync(
             EntityReference target, long deletedRevision, CancellationToken cancellation)
             => PurgeTag(target);
+    }
+
+    /// <summary>
+    /// Stands in for <see cref="LibrarySession"/> so the storage section's failure,
+    /// concurrency and folder rules can be exercised without touching real data.
+    /// </summary>
+    private sealed class FakeStorageWorkspace : IStorageWorkspace
+    {
+        private int _statisticsCalls;
+        private int _cleanCalls;
+
+        public string DataDirectory { get; init; } = @"C:\MemeDock\data";
+
+        public string CacheDirectory { get; init; } = @"C:\MemeDock\cache";
+
+        public string ShareDirectory { get; init; } = @"C:\MemeDock\share";
+
+        public Func<int, Task<SpaceStatistics>> Statistics { get; set; } =
+            _ => Task.FromResult(new SpaceStatistics(0, 0, 0, 0, 0));
+
+        public Func<Task<ulong>> Clean { get; set; } = () => Task.FromResult(0UL);
+
+        public int StatisticsCalls => Volatile.Read(ref _statisticsCalls);
+
+        public int CleanCalls => Volatile.Read(ref _cleanCalls);
+
+        public Task<SpaceStatistics> StatisticsAsync(CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            return Statistics(Interlocked.Increment(ref _statisticsCalls));
+        }
+
+        public Task<ulong> CleanExportArtifactsAsync(CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _cleanCalls);
+            return Clean();
+        }
+    }
+
+    /// <summary>
+    /// Stands in for <see cref="LibrarySession"/> so the backup section's staging,
+    /// cancellation, size-limit and checkpoint rules can be exercised without a
+    /// real library.
+    /// </summary>
+    private sealed class FakeBackupWorkspace : IBackupWorkspace
+    {
+        private int _stageCalls;
+        private int _checkpointCalls;
+
+        public long MaxArchiveBytes { get; set; } = 1L << 30;
+
+        public Func<IProgress<string>?, CancellationToken, Task<IStagedBackup>> Stage { get; set; } =
+            (_, _) => Task.FromException<IStagedBackup>(new InvalidOperationException("No staging was arranged."));
+
+        public Func<CancellationToken, Task<string>> Checkpoint { get; set; } =
+            _ => Task.FromException<string>(new InvalidOperationException("No checkpoint was arranged."));
+
+        public int StageCalls => Volatile.Read(ref _stageCalls);
+
+        public int CheckpointCalls => Volatile.Read(ref _checkpointCalls);
+
+        public Task<IStagedBackup> StageBackupAsync(IProgress<string>? stages, CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _stageCalls);
+            return Stage(stages, cancellation);
+        }
+
+        public Task<string> CreateCheckpointAsync(CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _checkpointCalls);
+            return Checkpoint(cancellation);
+        }
+    }
+
+    /// <summary>
+    /// An archive the core staged. Disposing removes the staged file and is counted, so
+    /// the tests can tell a released staging entry from a leaked one.
+    /// </summary>
+    private sealed class FakeStagedBackup : IStagedBackup
+    {
+        private readonly bool _deleteOnDispose;
+        private int _disposed;
+
+        public FakeStagedBackup(string path, long byteSize, bool deleteOnDispose = true)
+        {
+            Path = path;
+            FileName = System.IO.Path.GetFileName(path);
+            ByteSize = byteSize;
+            _deleteOnDispose = deleteOnDispose;
+        }
+
+        public string Path { get; }
+
+        public string FileName { get; }
+
+        public long ByteSize { get; }
+
+        public int Disposed => Volatile.Read(ref _disposed);
+
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0 && _deleteOnDispose && File.Exists(Path))
+            {
+                File.Delete(Path);
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FakeBackupPicker : IBackupDestinationPicker
+    {
+        private int _calls;
+
+        public Func<string, CancellationToken, Task<BackupDestination?>> Choose { get; set; } =
+            (_, _) => Task.FromResult<BackupDestination?>(null);
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public Task<BackupDestination?> PickSavePathAsync(string suggestedFileName, CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _calls);
+            return Choose(suggestedFileName, cancellation);
+        }
     }
 
     private sealed class FakeCatalogStrings : ICatalogStrings
