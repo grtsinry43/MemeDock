@@ -6,6 +6,7 @@ using MemeDock.Windows.Localization;
 using MemeDock.Windows.Models;
 using MemeDock.Windows.Services;
 using MemeDock.Windows.ViewModels;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Windows.ApplicationModel.DataTransfer;
@@ -19,6 +20,8 @@ public sealed partial class SettingsView : UserControl
     private StorageViewModel? _storage;
     private BackupViewModel? _backup;
     private bool _updating;
+    private bool _updatingRestoreMode;
+    private bool _confirming;
     private bool _closed;
     private Task _saving = Task.CompletedTask;
     public Task PendingSave => _saving;
@@ -49,7 +52,7 @@ public sealed partial class SettingsView : UserControl
     /// The storage section appears once the library is open. Until then the page
     /// says so instead of showing zeroes.
     /// </summary>
-    public void ConfigureStorage(StorageViewModel? storage)
+    internal void ConfigureStorage(StorageViewModel? storage)
     {
         _storage = storage;
         if (storage is null)
@@ -77,7 +80,7 @@ public sealed partial class SettingsView : UserControl
     /// stage text changes while a run is in flight, so the page listens instead of
     /// reading the model only after a click returns.
     /// </summary>
-    public void ConfigureBackup(BackupViewModel? backup)
+    internal void ConfigureBackup(BackupViewModel? backup)
     {
         if (_backup is not null) _backup.PropertyChanged -= OnBackupChanged;
         _backup = backup;
@@ -190,6 +193,26 @@ public sealed partial class SettingsView : UserControl
             CheckpointHint.Text = _strings["desktop_checkpoint_hint"];
             CreateCheckpointButton.Content = _strings["desktop_checkpoint_create"];
             AutomationProperties.SetName(CreateCheckpointButton, _strings["desktop_checkpoint_create"]);
+
+            RestoreLabel.Text = _strings["desktop_restore"];
+            RestoreHint.Text = _strings["desktop_restore_hint"];
+            ChooseArchiveButton.Content = _strings["desktop_restore_choose"];
+            AutomationProperties.SetName(ChooseArchiveButton, _strings["desktop_restore_choose"]);
+            PreviewSourceLabel.Text = _strings["desktop_restore_source"];
+            PreviewSizeLabel.Text = _strings["desktop_restore_file_size"];
+            PreviewStickersLabel.Text = _strings["desktop_restore_stickers"];
+            PreviewDeletedLabel.Text = _strings["desktop_restore_deleted_stickers"];
+            PreviewCollectionsLabel.Text = _strings["desktop_restore_collections"];
+            PreviewTagsLabel.Text = _strings["desktop_restore_tags"];
+            PreviewOriginalsLabel.Text = _strings["desktop_restore_original_bytes"];
+            PredictionLabel.Text = _strings["desktop_restore_prediction"];
+            ModeLabel.Text = _strings["desktop_restore_mode"];
+            MergeOptionLabel.Text = _strings["desktop_restore_merge"];
+            MergeOptionHint.Text = _strings["desktop_restore_merge_hint"];
+            ReplaceOptionLabel.Text = _strings["desktop_restore_replace"];
+            ReplaceOptionHint.Text = _strings["desktop_restore_replace_hint"];
+            ApplyRestoreButton.Content = _strings["desktop_restore_apply"];
+            AutomationProperties.SetName(ApplyRestoreButton, _strings["desktop_restore_apply"]);
 
             LocationsLabel.Text = _strings["desktop_locations"];
             DataDirectoryLabel.Text = _strings["desktop_data_directory"];
@@ -511,12 +534,167 @@ public sealed partial class SettingsView : UserControl
         {
             CheckpointBar.IsOpen = false;
         }
+
+        ShowRestore(backup);
     }
+
+    /// <summary>
+    /// Renders the restore card from the core's inspection result only. Every count here
+    /// came back from the archive check; the file name and size are the only local facts,
+    /// and the size is labelled as the file's own size rather than presented as contents.
+    /// </summary>
+    private void ShowRestore(BackupViewModel? backup)
+    {
+        if (_strings is null) return;
+        var ready = backup is not null && backup.IsReady;
+        var busy = backup?.IsBusy == true;
+        ChooseArchiveButton.IsEnabled = ready && !busy;
+        ApplyRestoreButton.IsEnabled = ready && backup?.HasPreview == true && !busy;
+        InspectProgress.IsActive = backup?.IsInspecting == true;
+        RestoreProgress.IsActive = backup?.IsRestoring == true;
+        MergeOption.IsEnabled = ReplaceOption.IsEnabled = !busy;
+
+        _updatingRestoreMode = true;
+        try
+        {
+            MergeOption.IsChecked = backup?.ReplaceSelected != true;
+            ReplaceOption.IsChecked = backup?.ReplaceSelected == true;
+        }
+        finally
+        {
+            _updatingRestoreMode = false;
+        }
+
+        var preview = backup?.HasPreview == true;
+        PreviewPanel.Visibility = ToVisibility(preview);
+        if (preview)
+        {
+            PreviewSourceValue.Text = backup!.PreviewSourceName ?? AppVersion.Unknown;
+            PreviewSizeValue.Text = backup.PreviewArchiveBytes is { } bytes
+                ? ByteSize.Format(bytes)
+                : AppVersion.Unknown;
+            PreviewStickersValue.Text = Count(backup.PreviewStickers);
+            PreviewDeletedValue.Text = Count(backup.PreviewDeletedStickers);
+            PreviewCollectionsValue.Text = Count(backup.PreviewCollections);
+            PreviewTagsValue.Text = Count(backup.PreviewTags);
+            PreviewOriginalsValue.Text = ByteSize.Format(backup.PreviewOriginalBytes);
+            PredictionValue.Text = _strings.Format(
+                "desktop_restore_prediction_value",
+                Count(backup.PreviewAdded),
+                Count(backup.PreviewPreserved),
+                Count(backup.PreviewSkippedRelations));
+        }
+
+        // The prediction describes a merge against the current library. A replace discards
+        // that library, so those numbers would describe something that will not happen.
+        PredictionPanel.Visibility = ToVisibility(preview && backup?.ReplaceSelected != true);
+
+        if (backup?.PreviewErrorKey is { } previewError)
+        {
+            RestoreBar.Severity = InfoBarSeverity.Error;
+            RestoreBar.Message = backup.PreviewErrorPlaceholder is { } placeholder
+                ? _strings.Format(previewError, placeholder)
+                : _strings[previewError];
+            RestoreBar.IsOpen = true;
+        }
+        else if (backup?.RestoreErrorKey is { } restoreError)
+        {
+            RestoreBar.Severity = InfoBarSeverity.Error;
+            RestoreBar.Message = backup.RestoreErrorPlaceholder is { } placeholder
+                ? _strings.Format(restoreError, placeholder)
+                : _strings[restoreError];
+            RestoreBar.IsOpen = true;
+        }
+        else if (backup?.RestoreDoneKey is { } done)
+        {
+            RestoreBar.Severity = InfoBarSeverity.Success;
+            // Only the merge line carries figures; the replace line has none, so a plain
+            // lookup keeps the two from needing different formatters.
+            RestoreBar.Message = done == "desktop_restore_merge_done"
+                ? _strings.Format(done, Count(backup.RestoredAdded), Count(backup.RestoredPreserved),
+                    Count(backup.RestoredSkippedRelations))
+                : _strings[done];
+            RestoreBar.IsOpen = true;
+        }
+        else
+        {
+            RestoreBar.IsOpen = false;
+        }
+
+        RestoreState.Text = backup?.RestoreStateKey is { } state ? _strings[state] : "";
+        RestoreState.Visibility = ToVisibility(RestoreState.Text.Length > 0);
+
+        // Only a committed merge whose reload failed offers this: reloading is safe and
+        // never applies the archive again.
+        RetryRestoreRefreshButton.Text = _strings["desktop_restore_retry_action"];
+        RetryRestoreRefreshButton.Visibility = ToVisibility(backup?.CanRetryRefresh == true);
+        RetryRestoreRefreshButton.IsEnabled = backup?.CanRetryRefresh == true;
+    }
+
+    private static string Count(long value) => value.ToString("N0", CultureInfo.CurrentCulture);
 
     private void OnBackupChanged(object? sender, PropertyChangedEventArgs args)
     {
         if (_closed) return;
         ShowBackup();
+    }
+
+    private async void OnChooseArchive(object sender, RoutedEventArgs args)
+    {
+        if (_backup is null || _closed) return;
+        await _backup.ChooseArchiveAsync();
+        if (!_closed) ShowBackup();
+    }
+
+    private async void OnRetryRestoreRefresh(object sender, RoutedEventArgs args)
+    {
+        if (_backup is null || _closed) return;
+        await _backup.RetryRefreshAsync();
+        if (!_closed) ShowBackup();
+    }
+
+    private void OnRestoreModeChanged(object sender, RoutedEventArgs args)
+    {
+        // Re-rendering writes IsChecked too; only a user click may change the model.
+        if (_updatingRestoreMode || _backup is null) return;
+        _backup.SelectMode(ReplaceOption.IsChecked == true);
+    }
+
+    private async void OnApplyRestore(object sender, RoutedEventArgs args)
+    {
+        var backup = _backup;
+        if (backup is null || _closed || !backup.HasPreview || backup.IsBusy || _confirming) return;
+
+        // Replace discards the current library, so it is confirmed and never the default.
+        // The flag keeps a second click from asking for a second dialog while one is open;
+        // it is cleared before the restore starts so the restore itself is not blocked.
+        if (backup.ReplaceSelected)
+        {
+            var confirmed = false;
+            _confirming = true;
+            try { confirmed = await ConfirmReplaceAsync(backup.PreviewSourceName ?? ""); }
+            finally { _confirming = false; }
+            if (!confirmed) return;
+        }
+
+        if (_closed) return;
+        await backup.RestoreAsync();
+        if (!_closed) ShowBackup();
+    }
+
+    private async Task<bool> ConfirmReplaceAsync(string source)
+    {
+        if (_strings is null) return false;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = _strings["desktop_restore_confirm_title"],
+            Content = _strings.Format("desktop_restore_confirm_hint", source),
+            PrimaryButtonText = _strings["desktop_restore_confirm_action"],
+            CloseButtonText = _strings["cancel"],
+            DefaultButton = ContentDialogButton.Close,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     private async void OnCreateBackup(object sender, RoutedEventArgs args)
@@ -532,6 +710,9 @@ public sealed partial class SettingsView : UserControl
         await _backup.CreateCheckpointAsync();
         if (!_closed) ShowBackup();
     }
+
+    private static Visibility ToVisibility(bool visible)
+        => visible ? Visibility.Visible : Visibility.Collapsed;
 
     private static void SetPath(TextBlock text, Button open, string? path, bool ready)
     {

@@ -7,8 +7,8 @@ namespace MemeDock.Windows.Services;
 /// <summary>
 /// Backup capabilities the core actually exposes: staging a portable archive inside
 /// the library's own data directory, and writing a checkpoint of the current database.
-/// Restoring, merging and replacing are later batches and are deliberately absent, so
-/// this page cannot claim them.
+/// Restoring reads archives through <see cref="IArchiveWorkspace"/> instead: an archive
+/// the library writes is not the same resource as one it reads.
 /// </summary>
 internal interface IBackupWorkspace
 {

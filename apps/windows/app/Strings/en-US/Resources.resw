@@ -213,6 +213,42 @@
   <data name="desktop_checkpoint_hint" xml:space="preserve"><value>Saves a snapshot of the library database in the library folder. Original files are not included.</value></data>
   <data name="desktop_checkpoint_create" xml:space="preserve"><value>Create checkpoint</value></data>
   <data name="desktop_checkpoint_created" xml:space="preserve"><value>Checkpoint created: {0}</value></data>
+  <data name="desktop_restore" xml:space="preserve"><value>Restore</value></data>
+  <data name="desktop_restore_hint" xml:space="preserve"><value>Choose a backup file. MemeDock checks the file before showing anything about its contents.</value></data>
+  <data name="desktop_restore_choose" xml:space="preserve"><value>Choose a backup file</value></data>
+  <data name="desktop_restore_source" xml:space="preserve"><value>File</value></data>
+  <data name="desktop_restore_file_size" xml:space="preserve"><value>File size</value></data>
+  <data name="desktop_restore_stickers" xml:space="preserve"><value>Stickers</value></data>
+  <data name="desktop_restore_deleted_stickers" xml:space="preserve"><value>Deleted stickers</value></data>
+  <data name="desktop_restore_collections" xml:space="preserve"><value>Collections</value></data>
+  <data name="desktop_restore_tags" xml:space="preserve"><value>Tags</value></data>
+  <data name="desktop_restore_original_bytes" xml:space="preserve"><value>Original files</value></data>
+  <data name="desktop_restore_prediction" xml:space="preserve"><value>If merged into this library</value></data>
+  <data name="desktop_restore_prediction_value" xml:space="preserve"><value>{0} added, {1} already present, {2} relations skipped</value></data>
+  <data name="desktop_restore_mode" xml:space="preserve"><value>How to restore</value></data>
+  <data name="desktop_restore_merge" xml:space="preserve"><value>Merge</value></data>
+  <data name="desktop_restore_merge_hint" xml:space="preserve"><value>Keep the current library and add what the backup contains.</value></data>
+  <data name="desktop_restore_replace" xml:space="preserve"><value>Replace</value></data>
+  <data name="desktop_restore_replace_hint" xml:space="preserve"><value>Delete the current library and use the backup instead. This cannot be undone.</value></data>
+  <data name="desktop_restore_apply" xml:space="preserve"><value>Restore</value></data>
+  <data name="desktop_restore_confirm_title" xml:space="preserve"><value>Replace this library?</value></data>
+  <data name="desktop_restore_confirm_hint" xml:space="preserve"><value>Everything currently in the library will be replaced by {0}. This cannot be undone.</value></data>
+  <data name="desktop_restore_confirm_action" xml:space="preserve"><value>Replace</value></data>
+  <data name="desktop_restore_merge_done" xml:space="preserve"><value>Restored. {0} added, {1} already present, {2} relations skipped.</value></data>
+  <data name="desktop_restore_replace_done" xml:space="preserve"><value>The library was replaced with the backup.</value></data>
+  <data name="desktop_restore_busy" xml:space="preserve"><value>Another operation is using the library. Wait for it to finish and try again.</value></data>
+  <data name="desktop_restore_corrupt" xml:space="preserve"><value>This is not a valid backup, or parts of it are damaged, so nothing was restored.</value></data>
+  <data name="desktop_restore_unsupported" xml:space="preserve"><value>This backup was made by a version or in a format this app cannot restore.</value></data>
+  <data name="desktop_restore_changed" xml:space="preserve"><value>The library changed after the backup was checked, so nothing was restored. Choose the file again.</value></data>
+  <data name="desktop_restore_too_large" xml:space="preserve"><value>The backup is larger than the {0} limit, so it was not restored.</value></data>
+  <data name="desktop_restore_read_failed" xml:space="preserve"><value>The file could not be read. Check that it still exists and can be opened.</value></data>
+  <data name="desktop_restore_reopen_failed" xml:space="preserve"><value>The backup was restored, but the library could not be opened again. Restart the app.</value></data>
+  <data name="desktop_restore_state_reopened" xml:space="preserve"><value>The library was reopened; the current contents are available.</value></data>
+  <data name="desktop_restore_state_unchanged" xml:space="preserve"><value>The library was left as it was.</value></data>
+  <data name="desktop_restore_state_applied" xml:space="preserve"><value>The restore took effect, but the page could not reload. Try reloading it; restart the app if that fails.</value></data>
+  <data name="desktop_restore_state_stopped" xml:space="preserve"><value>The library is closed. Restart the app to use it again.</value></data>
+  <data name="desktop_restore_state_unconfirmed" xml:space="preserve"><value>The backup was applied, but this page still uses the session it had before the restore, so what it shows cannot be confirmed. The library keeps working; reopening the app shows the restored contents.</value></data>
+  <data name="desktop_restore_retry_action" xml:space="preserve"><value>Reload page</value></data>
   <data name="backup_creating" xml:space="preserve"><value>Creating backup…</value></data>
   <data name="backup_saving" xml:space="preserve"><value>Saving backup…</value></data>
 </root>

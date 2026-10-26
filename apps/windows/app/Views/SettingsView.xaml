@@ -173,6 +173,96 @@
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
                 <StackPanel Spacing="12">
                     <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon Glyph="&#xE777;" FontSize="20" VerticalAlignment="Center" />
+                        <TextBlock x:Name="RestoreLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="RestoreHint" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="ChooseArchiveButton" Click="OnChooseArchive" />
+                        <ProgressRing x:Name="InspectProgress" Width="16" Height="16" IsActive="False" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel x:Name="PreviewPanel" Spacing="12" Visibility="Collapsed">
+                        <Grid ColumnSpacing="16" RowSpacing="6">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock x:Name="PreviewSourceLabel" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="PreviewSourceValue" Grid.Column="1" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                            <TextBlock x:Name="PreviewSizeLabel" Grid.Row="1" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="PreviewSizeValue" Grid.Row="1" Grid.Column="1" />
+                        </Grid>
+                        <Grid ColumnSpacing="24" RowSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <StackPanel>
+                                <TextBlock x:Name="PreviewStickersLabel" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="PreviewStickersValue" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock x:Name="PreviewDeletedLabel" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="PreviewDeletedValue" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock x:Name="PreviewCollectionsLabel" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="PreviewCollectionsValue" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1">
+                                <TextBlock x:Name="PreviewTagsLabel" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="PreviewTagsValue" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1">
+                                <TextBlock x:Name="PreviewOriginalsLabel" Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="PreviewOriginalsValue" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel x:Name="PredictionPanel" Spacing="4">
+                            <TextBlock x:Name="PredictionLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <TextBlock x:Name="PredictionValue" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                        <StackPanel Spacing="8">
+                            <TextBlock x:Name="ModeLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                            <RadioButton x:Name="MergeOption" GroupName="RestoreMode" Checked="OnRestoreModeChanged">
+                                <StackPanel Spacing="2">
+                                    <TextBlock x:Name="MergeOptionLabel" />
+                                    <TextBlock x:Name="MergeOptionHint" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="ReplaceOption" GroupName="RestoreMode" Checked="OnRestoreModeChanged">
+                                <StackPanel Spacing="2">
+                                    <TextBlock x:Name="ReplaceOptionLabel" />
+                                    <TextBlock x:Name="ReplaceOptionHint" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </RadioButton>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button x:Name="ApplyRestoreButton" Style="{ThemeResource AccentButtonStyle}" Click="OnApplyRestore" />
+                            <ProgressRing x:Name="RestoreProgress" Width="16" Height="16" IsActive="False" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </StackPanel>
+                    <InfoBar x:Name="RestoreBar" IsClosable="True" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TextBlock x:Name="RestoreState" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                   VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
+                        <Button x:Name="RetryRestoreRefreshButton" Click="OnRetryRestoreRefresh"
+                                Visibility="Collapsed" VerticalAlignment="Center" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Padding="20,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
                         <FontIcon Glyph="&#xE838;" FontSize="20" VerticalAlignment="Center" />
                         <TextBlock x:Name="LocationsLabel" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
                     </StackPanel>

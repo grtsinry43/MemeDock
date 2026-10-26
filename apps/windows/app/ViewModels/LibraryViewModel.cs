@@ -9,7 +9,8 @@ using MemeDock.Windows.Services;
 
 namespace MemeDock.Windows.ViewModels;
 
-public sealed class LibraryViewModel(LocalizationService strings, IOutputDefaults outputDefaults) : ObservableObject, IAsyncDisposable
+public sealed class LibraryViewModel(LocalizationService strings, IOutputDefaults outputDefaults)
+    : ObservableObject, IAsyncDisposable, IRestoreLifecycle
 {
     public ObservableCollection<StickerCard> Cards { get; } = [];
     public ObservableCollection<CollectionMetadata> Collections { get; } = [];
@@ -19,6 +20,12 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
     public string SearchText { get; private set; } = "";
     public bool IsReady { get; private set; }
     public LibraryIdentity? Identity { get; private set; }
+    /// <summary>
+    /// True while a restore owns the library. New conflicting work is refused instead of
+    /// being allowed to race the restore, and the window disables actions that need the
+    /// session a replace is about to close.
+    /// </summary>
+    public bool IsRestoring { get; private set; }
     public bool IsLoading { get; private set; }
     public bool HasMore { get; private set; }
     public string? ErrorKey { get; private set; }
@@ -35,17 +42,28 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
     public event EventHandler? CatalogChanged;
     public event EventHandler<string>? ThumbnailInvalidated;
     public event EventHandler<string?>? ContentChanged;
+    /// <summary>
+    /// Raised after a replace opened a new session and rebound every consumer. The window
+    /// has to wire itself to the new child view models; nothing from the old session is
+    /// reused.
+    /// </summary>
+    public event EventHandler? Rebuilt;
     public StickerDetailViewModel? Details { get; private set; }
     public BatchOrganizeViewModel? Batch { get; private set; }
     public CatalogViewModel? Catalog { get; private set; }
     public TrashGroupsViewModel? TrashGroups { get; private set; }
     public StickerOutputViewModel? Output { get; private set; }
-    public StorageViewModel? Storage { get; private set; }
-    public BackupViewModel? Backup { get; private set; }
+    // The backup and storage view models stay internal with the services they wrap; the window
+    // passes them on inside this assembly, so they are not part of the page's public surface.
+    internal StorageViewModel? Storage { get; private set; }
+    internal BackupViewModel? Backup { get; private set; }
     public SyncCoordinator? Sync { get; private set; }
     internal ThumbnailLoader? Thumbnails { get; private set; }
 
     private LibrarySession? _session;
+    private string? _root;
+    private IBackupDestinationPicker? _backupDestinationPicker;
+    private IArchiveSourcePicker? _archiveSourcePicker;
     private QueryCursorHandle? _cursor;
     private SubscriptionHandle? _subscription;
     private readonly CancellationTokenSource _lifetime = new();
@@ -55,6 +73,8 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
     private Task _observer = Task.CompletedTask;
     private Task _reload = Task.CompletedTask;
     private Task _trashBatch = Task.CompletedTask;
+    private SyncCoordinator? _pausedSync;
+    private bool _syncWasPaused;
     private bool _dirty;
     private bool _stopping;
     private bool _disposed;
@@ -99,33 +119,285 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
             nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText), nameof(IsTrash) }) OnPropertyChanged(property);
     }
 
-    public async Task InitializeAsync(string root, IBackupDestinationPicker backupDestinationPicker)
+    // The pickers are internal contracts, so the entry point that takes them is internal too;
+    // the only caller is MainWindow in this assembly.
+    internal async Task InitializeAsync(string root, IBackupDestinationPicker backupDestinationPicker,
+        IArchiveSourcePicker archiveSourcePicker)
     {
+        _root = root;
+        _backupDestinationPicker = backupDestinationPicker;
+        _archiveSourcePicker = archiveSourcePicker;
         try
         {
             _session ??= await LibrarySession.OpenAsync(root);
             Identity = _session.Identity;
             if (_stopping) return;
-            Thumbnails = new ThumbnailLoader(_session);
-            Details = new StickerDetailViewModel(_session, strings);
-            Batch = new BatchOrganizeViewModel(_session, strings);
-            Catalog = new CatalogViewModel(_session, strings, RefreshCatalogsAsync);
-            TrashGroups ??= new TrashGroupsViewModel(_session, strings, RefreshCatalogsAsync);
-            Output = new StickerOutputViewModel(_session, strings, outputDefaults);
-            Storage ??= new StorageViewModel(_session, strings);
-            Backup ??= new BackupViewModel(_session, backupDestinationPicker, strings);
-            Sync ??= new SyncCoordinator(
-                new LibrarySyncAdapter(_session), new WindowsCredentialTokenStore(), _session.LibraryId);
+            CreateChildren();
             _subscription = _session.Subscribe();
             IsReady = true;
             OnPropertyChanged(nameof(IsReady));
             _observer = ObserveAsync();
-            await Sync.StartAsync();
+            await Sync!.StartAsync();
             await RefreshCatalogsAsync();
             if (TrashGroups is { } trashGroups) await trashGroups.RefreshAsync();
             await RefreshAsync();
         }
         catch (Exception error) { Report(error); }
+    }
+
+    /// <summary>
+    /// Binds every child view model to the current session. A rebuild runs this again
+    /// instead of trying to refresh objects that kept a reference to a closed library.
+    /// </summary>
+    private void CreateChildren()
+    {
+        var session = _session!;
+        Thumbnails = new ThumbnailLoader(session);
+        Details = new StickerDetailViewModel(session, strings);
+        Batch = new BatchOrganizeViewModel(session, strings);
+        Catalog = new CatalogViewModel(session, strings, RefreshCatalogsAsync);
+        TrashGroups ??= new TrashGroupsViewModel(session, strings, RefreshCatalogsAsync);
+        Output = new StickerOutputViewModel(session, strings, outputDefaults);
+        Storage ??= new StorageViewModel(session, strings);
+        Backup ??= new BackupViewModel(session, session, _backupDestinationPicker!, _archiveSourcePicker!,
+            this, strings);
+        Sync ??= new SyncCoordinator(
+            new LibrarySyncAdapter(session), new WindowsCredentialTokenStore(), session.LibraryId);
+    }
+
+    // ---- Restore lifecycle ----
+
+    async Task<bool> IRestoreLifecycle.TryBeginRestoreAsync()
+    {
+        if (_session is null || _stopping || IsRestoring) return false;
+        if (IsImporting || IsTrashing) return false;
+        if (Batch is { IsRunning: true } || Catalog is { IsBusy: true } || TrashGroups is { IsBusy: true }) return false;
+        if (Output is { IsBusy: true } || Details is { IsSaving: true } || Storage is { IsCleaning: true }) return false;
+
+        IsRestoring = true;
+        OnPropertyChanged(nameof(IsRestoring));
+        _requests.Invalidate();
+        _queryCancellation?.Cancel();
+
+        // Remote apply writes to this same library, so it is paused rather than killed:
+        // stopping the coordinator is final and a merge keeps the session, which would
+        // silently leave the user without sync. A replace disposes this coordinator during
+        // the rebuild; replacing it then means there is nothing to resume here.
+        if (Sync is { } sync && sync.State.Loaded)
+        {
+            _pausedSync = sync;
+            _syncWasPaused = sync.State.Status.Paused;
+            if (!_syncWasPaused)
+            {
+                try
+                {
+                    await sync.SetPausedAsync(true);
+                }
+                catch (Exception error)
+                {
+                    // Sync being unable to pause must not turn a local restore into a
+                    // refusal; the restore is still serialized by the core.
+                    Trace.WriteLine($"Pausing sync before a restore failed: {error.GetType().Name}");
+                }
+            }
+        }
+
+        return true;
+    }
+
+    async Task IRestoreLifecycle.EndRestoreAsync()
+    {
+        var paused = _pausedSync;
+        _pausedSync = null;
+        if (paused is not null && !_syncWasPaused && ReferenceEquals(paused, Sync))
+        {
+            try
+            {
+                await paused.SetPausedAsync(false);
+            }
+            catch (Exception error)
+            {
+                // The library is usable even if the remote side stays paused; the sync
+                // page shows the real state instead of hiding it.
+                Trace.WriteLine($"Resuming sync after a restore failed: {error.GetType().Name}");
+            }
+        }
+
+        if (!IsRestoring) return;
+        IsRestoring = false;
+        OnPropertyChanged(nameof(IsRestoring));
+    }
+
+    async Task<bool> IRestoreLifecycle.ReopenAsync(CancellationToken cancellation)
+    {
+        if (_root is null) throw new InvalidOperationException("the library was never opened");
+        LibrarySession fresh;
+        try
+        {
+            fresh = await LibrarySession.OpenAsync(_root);
+        }
+        catch (BridgeException error) when (error is BridgeException.Failure
+            { code: ErrorCode.AlreadyOpen or ErrorCode.Busy })
+        {
+            // The core still owns the previous handle, so nothing closed this library and
+            // the current session remains the live one.
+            return false;
+        }
+        catch
+        {
+            // The core closed the old session during the replace and the new one cannot
+            // be opened. Nothing in this page can work against a closed handle, so it
+            // reports that instead of letting every later action fail on its own.
+            if (IsReady)
+            {
+                IsReady = false;
+                OnPropertyChanged(nameof(IsReady));
+            }
+
+            throw;
+        }
+
+        try
+        {
+            await AdoptAsync(fresh);
+        }
+        catch
+        {
+            // AdoptAsync takes ownership of the session when it assigns it; until then the
+            // fresh handle would be orphaned, so it is closed here.
+            if (!ReferenceEquals(_session, fresh))
+            {
+                try { await fresh.DisposeAsync(); } catch (BridgeException) { }
+            }
+
+            if (IsReady)
+            {
+                IsReady = false;
+                OnPropertyChanged(nameof(IsReady));
+            }
+
+            throw;
+        }
+
+        return true;
+    }
+
+    Task IRestoreLifecycle.RefreshAsync() => RefreshAfterRestoreAsync();
+
+    /// <summary>
+    /// Reloads everything a merge changed. The session survives a merge, so the child
+    /// view models are kept and simply told to re-read the library.
+    /// </summary>
+    private async Task RefreshAfterRestoreAsync()
+    {
+        if (_session is null) return;
+        Identity = _session.Identity;
+        OnPropertyChanged(nameof(Identity));
+        await RefreshCatalogsAsync();
+        if (TrashGroups is { } trashGroups) await trashGroups.RefreshAsync();
+        if (Storage is { } storage) await storage.RefreshAsync();
+        await RefreshAsync();
+        // The catalog labels carry counts, so they are refreshed with the contents.
+        Relocalize();
+    }
+
+    /// <summary>
+    /// Takes over a freshly opened session after a replace closed the previous one. Every
+    /// consumer is stopped, released and rebuilt: the old view models, cursors and
+    /// subscription all point at a handle the core already closed.
+    /// </summary>
+    private async Task AdoptAsync(LibrarySession fresh)
+    {
+        var previous = _session;
+
+        // Invalidate first: a browse or observer continuation that wakes up from here on
+        // belongs to the old session and must not publish into the new page.
+        _requests.Invalidate();
+        _queryCancellation?.Cancel();
+        // Let a running query observe the cancellation before its handle is released. The
+        // wait has to observe shutdown: DisposeAsync holds this same gate while it waits
+        // for this rebuild to finish, so waiting forever here would keep the window open
+        // for good. Cancelling now is safe because nothing was torn down yet.
+        await _queries.WaitAsync(_lifetime.Token);
+        _queries.Release();
+
+        // Until every consumer points at the new session the page must not accept work.
+        if (IsReady)
+        {
+            IsReady = false;
+            OnPropertyChanged(nameof(IsReady));
+        }
+
+        TrashGroups?.RequestStop();
+        Storage?.RequestStop();
+        await ShutdownRun.SequenceAsync(
+            () => Sync is null ? Task.CompletedTask : Sync.DisposeAsync().AsTask(),
+            () => Output is null ? Task.CompletedTask : Output.DisposeAsync().AsTask(),
+            () => Details is null ? Task.CompletedTask : Details.DisposeAsync().AsTask(),
+            () => Batch is null ? Task.CompletedTask : Batch.DisposeAsync().AsTask(),
+            () => Catalog is null ? Task.CompletedTask : Catalog.DisposeAsync().AsTask(),
+            () => TrashGroups is null ? Task.CompletedTask : TrashGroups.DisposeAsync().AsTask(),
+            () => Storage is null ? Task.CompletedTask : Storage.DisposeAsync().AsTask(),
+            () => Thumbnails is null ? Task.CompletedTask : Thumbnails.DisposeAsync().AsTask(),
+            ReleaseHandles,
+            () => _observer);
+
+        Sync = null;
+        Output = null;
+        Details = null;
+        Batch = null;
+        Catalog = null;
+        TrashGroups = null;
+        Storage = null;
+        Thumbnails = null;
+        _session = null;
+        if (previous is not null)
+        {
+            // The core closed this library as part of the replace, so closing it again
+            // only drops the handle; a second close is not an error worth surfacing.
+            try { await previous.DisposeAsync(); } catch (BridgeException) { }
+        }
+
+        _session = fresh;
+        Identity = fresh.Identity;
+        ResetBrowseState();
+        CreateChildren();
+        // The restore itself runs from the backup view model, which is the one consumer
+        // that cannot be rebuilt from under its own call; it keeps its wording and only
+        // gets the new session.
+        Backup?.Adopt(fresh, fresh);
+        _subscription = fresh.Subscribe();
+        IsReady = true;
+        OnPropertyChanged(nameof(IsReady));
+        _observer = ObserveAsync();
+        await Sync!.StartAsync();
+        await RefreshCatalogsAsync();
+        if (TrashGroups is { } trashGroups) await trashGroups.RefreshAsync();
+        if (Storage is { } storage) await storage.RefreshAsync();
+        await RefreshAsync();
+        Relocalize();
+        // The replace already committed; a UI handler that fails while re-binding must not
+        // be reported as a failed restore, so the notification is isolated from the adopt.
+        try { Rebuilt?.Invoke(this, EventArgs.Empty); }
+        catch (Exception error) { Trace.WriteLine($"Rebuilt handler failed: {error}"); }
+    }
+
+    private void ResetBrowseState()
+    {
+        _cursor?.Dispose();
+        _cursor = null;
+        Cards.Clear();
+        Collections.Clear();
+        Tags.Clear();
+        Filter = LibraryFilter.All;
+        SearchText = "";
+        Sort = StickerSort.Recent;
+        HasMore = false;
+        ErrorKey = null;
+        CatalogErrorKey = null;
+        IsLoading = false;
+        _dirty = false;
+        SetSelectedCount(0);
     }
 
     public async Task NavigateAsync(LibraryFilter filter)
@@ -311,7 +583,11 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
                 else
                 {
                     ContentChanged?.Invoke(this, notification is Notification.StickerChanged sticker ? sticker.StickerId : null);
-                    if (notification is Notification.CollectionsChanged or Notification.TagsChanged or Notification.ReloadRequired)
+                    // A restore owns the library until it finishes: queries issued from here
+                    // would read a half-written library (or a session the core just closed).
+                    // Everything is refreshed from the restore's own exit path instead.
+                    if (!IsRestoring
+                        && notification is (Notification.CollectionsChanged or Notification.TagsChanged or Notification.ReloadRequired))
                     {
                         await RefreshCatalogsAsync();
                         if (TrashGroups is { } trashGroups) await trashGroups.RefreshAsync();
@@ -333,7 +609,11 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
             {
                 _dirty = false;
                 await Task.Delay(200, _lifetime.Token);
-                if (IsImporting || IsTrashing || Batch?.IsRunning == true) { _dirty = true; continue; }
+                if (!IsReady || IsRestoring || IsImporting || IsTrashing || Batch?.IsRunning == true)
+                {
+                    _dirty = true;
+                    continue;
+                }
                 await RefreshAsync(preserveLoaded: true);
             }
         }
@@ -342,7 +622,9 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
 
     public async Task ImportAsync(IReadOnlyList<string> paths)
     {
-        if (_session is null || _stopping || IsImporting || paths.Count == 0) return;
+        // IsReady is false while a replace rebuilds the page and after a failed adopt, so an
+        // import cannot slip into a half-bound session even if it bypasses the disabled UI.
+        if (!IsReady || _session is null || _stopping || IsImporting || paths.Count == 0) return;
         if (paths.Count > 200)
         {
             ImportMessageKey = "failure_batch";

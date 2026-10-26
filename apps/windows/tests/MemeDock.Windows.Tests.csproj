@@ -24,6 +24,9 @@
     <Compile Include="..\app\Services\IStorageWorkspace.cs" Link="Services\IStorageWorkspace.cs" />
     <Compile Include="..\app\Services\IBackupWorkspace.cs" Link="Services\IBackupWorkspace.cs" />
     <Compile Include="..\app\Services\IBackupDestinationPicker.cs" Link="Services\IBackupDestinationPicker.cs" />
+    <Compile Include="..\app\Services\IArchiveWorkspace.cs" Link="Services\IArchiveWorkspace.cs" />
+    <Compile Include="..\app\Services\IArchiveSourcePicker.cs" Link="Services\IArchiveSourcePicker.cs" />
+    <Compile Include="..\app\Services\IRestoreLifecycle.cs" Link="Services\IRestoreLifecycle.cs" />
     <Compile Include="..\app\Services\BackupFileWriter.cs" Link="Services\BackupFileWriter.cs" />
     <Compile Include="..\app\Services\AppVersion.cs" Link="Services\AppVersion.cs" />
     <Compile Include="..\app\Services\SyncAdapter.cs" Link="Services\SyncAdapter.cs" />

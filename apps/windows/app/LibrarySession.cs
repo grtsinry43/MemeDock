@@ -4,7 +4,8 @@ using MemeDock.Windows.Services;
 
 namespace MemeDock.Windows;
 
-internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorageWorkspace, IBackupWorkspace
+internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorageWorkspace, IBackupWorkspace,
+    IArchiveWorkspace
 {
     private readonly LibraryHandle _library;
     private readonly ulong _maxInputBytes;
@@ -392,6 +393,79 @@ internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorage
         await request.AwaitResult().ConfigureAwait(false);
     });
 
+    // The core validates the archive itself: format marker and version, the manifest,
+    // every member hash and every original file. This only moves the file the user
+    // picked into the library's staging area first, because the core reads a path it
+    // owns rather than a path the user can change underneath it.
+    public Task<IArchivePreview> InspectArchiveAsync(string sourcePath, CancellationToken cancellation)
+        => Task.Run(async () =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            ArchiveInputHandle staged;
+            using (var request = _library.CreateArchiveInput())
+            using (cancellation.Register(() => request.Cancel()))
+            {
+                staged = await request.AwaitResult().ConfigureAwait(false);
+            }
+
+            try
+            {
+                await CopyArchiveAsync(sourcePath, staged.Path(), cancellation).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Nothing has been inspected yet, so the staging entry is still ours
+                // to drop. A failed discard is left to the next library open's sweep.
+                try { await DiscardInputAsync(staged).ConfigureAwait(false); }
+                catch (BridgeException) { }
+                finally { staged.Dispose(); }
+                throw;
+            }
+
+            try
+            {
+                // Inspecting consumes the input; from here the preview owns the staged
+                // copy, and the core deletes it itself when validation fails.
+                using var inspection = _library.InspectArchive(staged);
+                using var registration = cancellation.Register(() => inspection.Cancel());
+                var prepared = await inspection.AwaitResult().ConfigureAwait(false);
+                return (IArchivePreview)new PreparedArchive(this, prepared);
+            }
+            catch
+            {
+                // A failure before the core accepted the input leaves the staging entry
+                // behind; one after it is already cleaned up, so this is best effort and
+                // must never replace the validation error the caller reports.
+                try { await DiscardInputAsync(staged).ConfigureAwait(false); }
+                catch (Exception) { }
+                throw;
+            }
+            finally
+            {
+                staged.Dispose();
+            }
+        });
+
+    private Task DiscardInputAsync(ArchiveInputHandle input) => Task.Run(async () =>
+    {
+        using var request = _library.DiscardArchiveInput(input);
+        await request.AwaitResult().ConfigureAwait(false);
+    });
+
+    // A plain file copy in both directions: the staged path lives in the library's data
+    // directory, so the bytes never leave the local disk.
+    private static async Task CopyArchiveAsync(string sourcePath, string destinationPath,
+        CancellationToken cancellation)
+    {
+        const int bufferSize = 81920;
+        await using var input = new FileStream(sourcePath, FileMode.Open, FileAccess.Read,
+            FileShare.Read, bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await using var output = new FileStream(destinationPath, FileMode.Create, FileAccess.Write,
+            FileShare.None, bufferSize, FileOptions.Asynchronous);
+        await input.CopyToAsync(output, bufferSize, cancellation).ConfigureAwait(false);
+        await output.FlushAsync(cancellation).ConfigureAwait(false);
+    }
+
     private static async Task ObserveStagesAsync(TaskProgressHandle progress, IProgress<string>? stages)
     {
         if (stages is null) return;
@@ -448,8 +522,88 @@ internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorage
         }
     }
 
+    /// <summary>
+    /// The validated archive the core prepared. Restoring consumes it inside the core,
+    /// so the handle must never be discarded afterwards; discarding only happens when
+    /// the preview is dropped without a restore.
+    /// </summary>
+    private sealed class PreparedArchive : IArchivePreview
+    {
+        private readonly LibrarySession _session;
+        private PreparedArchiveHandle? _prepared;
+
+        public PreparedArchive(LibrarySession session, PreparedArchiveHandle prepared)
+        {
+            _session = session;
+            _prepared = prepared;
+            Summary = prepared.Summary();
+        }
+
+        public ArchiveSummary Summary { get; }
+
+        public Task<ArchiveSummary> RestoreArchiveAsync(ArchiveRestoreMode mode,
+            CancellationToken cancellation) => Task.Run(async () =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var prepared = _prepared;
+            if (prepared is null)
+            {
+                throw new InvalidOperationException("the archive preview was already released");
+            }
+
+            // The restore owns the preview from the moment the core accepts it: it
+            // discards the staged copy whether the restore succeeds, fails or is
+            // cancelled, so this handle must never be discarded afterwards.
+            _prepared = null;
+            ArchiveRestoreTask request;
+            try
+            {
+                request = _session._library.RestoreArchive(prepared, mode);
+            }
+            catch
+            {
+                // The core never took the preview, so the staging entry is still ours.
+                try { await _session.DiscardPreparedAsync(prepared).ConfigureAwait(false); }
+                catch (Exception) { }
+                throw;
+            }
+            finally
+            {
+                prepared.Dispose();
+            }
+
+            using (request)
+            using (cancellation.Register(() => request.Cancel()))
+            {
+                return await request.AwaitResult().ConfigureAwait(false);
+            }
+        });
+
+        public async ValueTask DisposeAsync()
+        {
+            var prepared = _prepared;
+            _prepared = null;
+            if (prepared is null) return;
+            try
+            {
+                await _session.DiscardPreparedAsync(prepared).ConfigureAwait(false);
+            }
+            finally
+            {
+                prepared.Dispose();
+            }
+        }
+    }
+
+    private Task DiscardPreparedAsync(PreparedArchiveHandle prepared) => Task.Run(async () =>
+    {
+        using var request = _library.DiscardPreparedArchive(prepared);
+        await request.AwaitResult().ConfigureAwait(false);
+    });
+
     public Task<SyncStatus> SyncStatusAsync(CancellationToken cancellation)
         => RunSyncAsync(_library.SyncStatus, cancellation);
+
 
     public Task<SyncStatus> ConnectSyncAsync(string origin, string token, CancellationToken cancellation)
         => RunSyncAsync(() => _library.ConnectSync(origin, token), cancellation);
