@@ -6,7 +6,7 @@ using Microsoft.Windows.ApplicationModel.Resources;
 
 namespace MemeDock.Windows.Localization;
 
-public sealed class LocalizationService : INotifyPropertyChanged
+public sealed class LocalizationService : INotifyPropertyChanged, ICatalogStrings
 {
     private readonly ResourceManager _manager = new(Path.ChangeExtension(typeof(LocalizationService).Assembly.Location, ".pri"));
     private readonly ResourceMap _strings;

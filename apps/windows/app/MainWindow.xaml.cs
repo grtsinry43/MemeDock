@@ -128,6 +128,7 @@ public sealed partial class MainWindow : Window
         Details.Relocalize();
         Batch.Relocalize();
         Catalog.Relocalize();
+        TrashGroupsPanel.Relocalize();
         ViewModel.Relocalize();
         UpdateState();
     }
@@ -137,21 +138,25 @@ public sealed partial class MainWindow : Window
 
     private void UpdateState()
     {
-        if (ViewModel.IsReady && !_childrenConfigured && ViewModel.Details is { } details && ViewModel.Batch is { } batch && ViewModel.Catalog is { } catalog && ViewModel.Output is { } output)
+        if (ViewModel.IsReady && !_childrenConfigured && ViewModel.Details is { } details && ViewModel.Batch is { } batch
+            && ViewModel.Catalog is { } catalog && ViewModel.TrashGroups is { } trashGroups && ViewModel.Output is { } output)
         {
             _childrenConfigured = true;
             Details.Configure(details, Strings, ViewModel.Collections, ViewModel.Tags, output);
             Batch.Configure(batch, Strings, ViewModel.Collections, ViewModel.Tags);
             Catalog.Configure(catalog, Strings, ViewModel.Collections, ViewModel.Tags);
+            TrashGroupsPanel.Configure(trashGroups, Strings);
             Settings.ConfigureSync(ViewModel.Sync, Strings);
             details.Deleted += OnStickerDeleted;
             batch.PropertyChanged += OnModelChanged;
             batch.Completed += OnBatchCompleted;
+            trashGroups.PropertyChanged += OnModelChanged;
             output.PropertyChanged += OnModelChanged;
             output.SetForeground(_windowActive);
         }
         var batchRunning = ViewModel.Batch?.IsRunning == true;
         var trash = ViewModel.IsTrash;
+        var trashGroupsVisible = trash && ViewModel.TrashGroups?.HasVisibleContent == true;
         Gallery.IsEnabled = !batchRunning && !ViewModel.IsLoading && !ViewModel.IsTrashing;
         AllNavigation.IsEnabled = StarredNavigation.IsEnabled = RecentNavigation.IsEnabled = !batchRunning;
         TrashNavigation.IsEnabled = !batchRunning;
@@ -168,7 +173,9 @@ public sealed partial class MainWindow : Window
         CatalogErrorBar.Message = ViewModel.CatalogErrorText;
         OutputErrorBar.IsOpen = ViewModel.Output?.ErrorKey is not null;
         OutputErrorBar.Message = ViewModel.Output?.StatusText ?? "";
-        EmptyState.Visibility = ToVisibility(ViewModel.IsReady && !ViewModel.IsLoading && ViewModel.Cards.Count == 0 && ViewModel.ErrorKey is null);
+        TrashGroupsPanel.Visibility = ToVisibility(trashGroupsVisible);
+        EmptyState.Visibility = ToVisibility(ViewModel.IsReady && !ViewModel.IsLoading && ViewModel.Cards.Count == 0
+            && (!trashGroupsVisible || ViewModel.SearchText.Length > 0) && ViewModel.ErrorKey is null);
         EmptyHint.Text = ViewModel.SearchText.Length > 0 ? Strings["library_no_matches_hint"]
             : trash ? Strings["trash_empty_hint"] : "";
         Status.Text = !ViewModel.IsReady || ViewModel.IsLoading ? Strings["import_preparing"]
@@ -206,10 +213,21 @@ public sealed partial class MainWindow : Window
     private async void OnNavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (_updatingNavigation || _stopping || args.SelectedItemContainer is not NavigationViewItem item) return;
-        if (ViewModel.Batch?.IsRunning == true || ViewModel.Details is { } detail && !await detail.CommitAsync())
+        if (ViewModel.Batch?.IsRunning == true)
         {
             OnCatalogChanged(this, EventArgs.Empty);
             return;
+        }
+        if (ViewModel.Details is { } detail)
+        {
+            if (!await detail.CommitAsync())
+            {
+                OnCatalogChanged(this, EventArgs.Empty);
+                return;
+            }
+            // Committing is asynchronous: the window may have started closing
+            // while the editor saved, and a closing window must not navigate.
+            if (_stopping) return;
         }
         _settingsVisible = item == SettingsNavigation;
         _catalogVisible = item == CatalogNavigation;
@@ -220,6 +238,12 @@ public sealed partial class MainWindow : Window
         if (_settingsVisible || _catalogVisible) return;
         _tagMode = item == TagsNavigation;
         TagSelector.Visibility = ToVisibility(_tagMode);
+        if (item == TrashNavigation && ViewModel.TrashGroups is { } trashGroups)
+        {
+            await trashGroups.RefreshAsync();
+            // The read is asynchronous too; after it the panel may be gone.
+            if (_stopping) return;
+        }
         if (item == TrashNavigation)
         {
             // Deleted stickers are read-only here, so the inspector stays closed
@@ -246,11 +270,17 @@ public sealed partial class MainWindow : Window
         if (filter is null) return;
         Gallery.SelectedItems.Clear();
         await ViewModel.NavigateAsync(filter);
+        // Navigating is asynchronous: touching the gallery or its scroll view
+        // after the window closed would reach released controls.
+        if (_stopping) return;
         _scroll?.ChangeView(null, 0, null, disableAnimation: true);
     }
 
     private void OnCatalogChanged(object? sender, EventArgs args)
     {
+        // A catalog event is not a reason to rebuild navigation on a closing
+        // window; the controls are being detached.
+        if (_stopping) return;
         _updatingNavigation = true;
         try
         {
@@ -287,11 +317,14 @@ public sealed partial class MainWindow : Window
         if (_updatingNavigation || !_tagMode || _stopping || TagSelector.SelectedItem is not TagMetadata tag) return;
         if (ViewModel.Details is { } detail && !await detail.CommitAsync())
         {
+            // Do not restore the selector on a window that is closing.
+            if (_stopping) return;
             _updatingNavigation = true;
             try { TagSelector.SelectedValue = ViewModel.Filter.Id; }
             finally { _updatingNavigation = false; }
             return;
         }
+        if (_stopping) return;
         Gallery.SelectedItems.Clear();
         await ViewModel.NavigateAsync(new(LibraryScope.Tag, tag.Id, tag.Name));
     }
@@ -299,7 +332,12 @@ public sealed partial class MainWindow : Window
     private async void OnSort(object sender, RoutedEventArgs args)
     {
         if (_stopping || sender is not RadioMenuFlyoutItem item) return;
-        if (ViewModel.Details is { } detail && !await detail.CommitAsync()) { UpdateState(); return; }
+        if (ViewModel.Details is { } detail && !await detail.CommitAsync())
+        {
+            if (!_stopping) UpdateState();
+            return;
+        }
+        if (_stopping) return;
         Gallery.SelectedItems.Clear();
         await ViewModel.SortAsync(Enum.Parse<StickerSort>((string)item.Tag));
     }
@@ -523,6 +561,7 @@ public sealed partial class MainWindow : Window
         Details.Shutdown();
         Batch.Shutdown();
         Catalog.Shutdown();
+        TrashGroupsPanel.Shutdown();
         Settings.ShutdownSync();
         Root.IsHitTestVisible = false;
         _lifetime.Cancel();
@@ -549,6 +588,7 @@ public sealed partial class MainWindow : Window
             ViewModel.ThumbnailInvalidated -= OnThumbnailInvalidated;
             ViewModel.ContentChanged -= OnContentChanged;
             if (ViewModel.Output is { } output) output.PropertyChanged -= OnModelChanged;
+            if (ViewModel.TrashGroups is { } trashGroups) trashGroups.PropertyChanged -= OnModelChanged;
             Activated -= OnActivated;
             if (ViewModel.Details is { } details) details.Deleted -= OnStickerDeleted;
             if (ViewModel.Batch is { } batch)

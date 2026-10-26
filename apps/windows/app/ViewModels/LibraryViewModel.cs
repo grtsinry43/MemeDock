@@ -37,6 +37,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public StickerDetailViewModel? Details { get; private set; }
     public BatchOrganizeViewModel? Batch { get; private set; }
     public CatalogViewModel? Catalog { get; private set; }
+    public TrashGroupsViewModel? TrashGroups { get; private set; }
     public StickerOutputViewModel? Output { get; private set; }
     public SyncCoordinator? Sync { get; private set; }
     internal ThumbnailLoader? Thumbnails { get; private set; }
@@ -89,6 +90,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
         Details?.Relocalize();
         Batch?.Relocalize();
         Catalog?.Relocalize();
+        TrashGroups?.Relocalize();
         Output?.Relocalize();
         foreach (var property in new[] { nameof(Heading), nameof(EmptyHeading), nameof(CountText), nameof(SelectionText),
             nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText), nameof(IsTrash) }) OnPropertyChanged(property);
@@ -104,6 +106,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             Details = new StickerDetailViewModel(_session, strings);
             Batch = new BatchOrganizeViewModel(_session, strings);
             Catalog = new CatalogViewModel(_session, strings, RefreshCatalogsAsync);
+            TrashGroups ??= new TrashGroupsViewModel(_session, strings, RefreshCatalogsAsync);
             Output = new StickerOutputViewModel(_session, strings);
             Sync ??= new SyncCoordinator(
                 new LibrarySyncAdapter(_session), new WindowsCredentialTokenStore(), _session.LibraryId);
@@ -113,6 +116,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
             _observer = ObserveAsync();
             await Sync.StartAsync();
             await RefreshCatalogsAsync();
+            if (TrashGroups is { } trashGroups) await trashGroups.RefreshAsync();
             await RefreshAsync();
         }
         catch (Exception error) { Report(error); }
@@ -302,7 +306,10 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
                 {
                     ContentChanged?.Invoke(this, notification is Notification.StickerChanged sticker ? sticker.StickerId : null);
                     if (notification is Notification.CollectionsChanged or Notification.TagsChanged or Notification.ReloadRequired)
+                    {
                         await RefreshCatalogsAsync();
+                        if (TrashGroups is { } trashGroups) await trashGroups.RefreshAsync();
+                    }
                     _dirty = true;
                     Sync?.NotifyContentChanged();
                     if (_reload.IsCompleted) _reload = ReloadWhenQuietAsync();
@@ -441,6 +448,10 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
     public void RequestStop()
     {
         _stopping = true;
+        // The deleted catalog owns its own query lifetime, so it has to be
+        // cancelled here: DisposeAsync only reaches it after the other children,
+        // and a closing window must not keep a catalog query alive meanwhile.
+        TrashGroups?.RequestStop();
         _requests.Invalidate();
         _lifetime.Cancel();
         _queryCancellation?.Cancel();
@@ -472,6 +483,7 @@ public sealed class LibraryViewModel(LocalizationService strings) : ObservableOb
                 () => Details is null ? Task.CompletedTask : Details.DisposeAsync().AsTask(),
                 () => Batch is null ? Task.CompletedTask : Batch.DisposeAsync().AsTask(),
                 () => Catalog is null ? Task.CompletedTask : Catalog.DisposeAsync().AsTask(),
+                () => TrashGroups is null ? Task.CompletedTask : TrashGroups.DisposeAsync().AsTask(),
                 () => Thumbnails is null ? Task.CompletedTask : Thumbnails.DisposeAsync().AsTask(),
                 ReleaseHandles,
                 () => _session is null ? Task.CompletedTask : _session.DisposeAsync().AsTask());

@@ -1,0 +1,81 @@
+<UserControl x:Class="MemeDock.Windows.Views.TrashGroupsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:bridge="using:MemeDock.Bridge">
+    <Border x:Name="Panel" Padding="16,12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+        <Expander x:Name="Section" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <Expander.Header>
+                <Grid ColumnSpacing="12" MinHeight="40">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="20" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Glyph="&#xE74D;" FontSize="18" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock x:Name="Heading" Style="{ThemeResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="Hint" Style="{ThemeResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <ProgressRing x:Name="BusyRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" />
+                        <TextBlock x:Name="CountText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Grid>
+            </Expander.Header>
+            <StackPanel Spacing="12" Padding="0,8,0,0">
+                <InfoBar x:Name="ErrorBar" IsClosable="True" IsOpen="False" Severity="Error" Closed="OnErrorClosed" />
+                <InfoBar x:Name="MessageBar" Severity="Success" IsClosable="True" IsOpen="False" Closed="OnMessageClosed" />
+                <StackPanel x:Name="CollectionsSection" Spacing="6">
+                    <TextBlock x:Name="CollectionsHeading" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <ListView x:Name="Collections" MaxHeight="180" SelectionMode="None" IsItemClickEnabled="False">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="bridge:CollectionMetadata">
+                                <Grid ColumnSpacing="12" MinHeight="42">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="20" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon Glyph="&#xE8B7;" FontSize="16"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" />
+                                    <Button Grid.Column="2" Tag="{x:Bind}" Click="OnCollectionMenu" Loaded="OnMenuLoaded"
+                                            Style="{StaticResource SubtleButtonStyle}">
+                                        <FontIcon Glyph="&#xE712;" FontSize="16" />
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+                <StackPanel x:Name="TagsSection" Spacing="6">
+                    <TextBlock x:Name="TagsHeading" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <ListView x:Name="Tags" MaxHeight="180" SelectionMode="None" IsItemClickEnabled="False">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="bridge:TagMetadata">
+                                <Grid ColumnSpacing="12" MinHeight="42">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="20" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon Glyph="&#xE8EC;" FontSize="16"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" />
+                                    <Button Grid.Column="2" Tag="{x:Bind}" Click="OnTagMenu" Loaded="OnMenuLoaded"
+                                            Style="{StaticResource SubtleButtonStyle}">
+                                        <FontIcon Glyph="&#xE712;" FontSize="16" />
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </StackPanel>
+        </Expander>
+    </Border>
+</UserControl>

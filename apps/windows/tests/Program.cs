@@ -6,8 +6,10 @@ using System.Threading.Channels;
 using System.Xml.Linq;
 using MemeDock.Bridge;
 using MemeDock.Windows;
+using MemeDock.Windows.Localization;
 using MemeDock.Windows.Models;
 using MemeDock.Windows.Services;
+using MemeDock.Windows.ViewModels;
 
 internal static class Program
 {
@@ -19,6 +21,9 @@ internal static class Program
             RequestGenerations();
             EditDrafts();
             OutputPolicies();
+            CatalogFeedback();
+            await RefreshMergingAsync();
+            await TrashGroupsModelAsync();
             await ShutdownSequenceAsync();
             ResourceParity(FindRepository());
             await PreferencesAsync();
@@ -33,6 +38,13 @@ internal static class Program
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static async Task<ErrorCode> ExpectFailure(Func<Task> operation)
+    {
+        try { await operation(); }
+        catch (BridgeException.Failure failure) { return failure.code; }
+        throw new InvalidOperationException("Expected a bridge failure.");
     }
 
     private static void QueryScopes()
@@ -135,6 +147,262 @@ internal static class Program
             && ordered.SequenceEqual(["first", "second"]),
             "A clean shutdown did not run its steps in order.");
         Console.WriteLine("PASS: shutdown keeps releasing resources after a failed background task");
+    }
+
+    // The operation the user asked for and the refresh that follows it are two
+    // results. A failed refresh must not read as a failed restore or purge, and
+    // only a completed operation may announce success.
+    private static void CatalogFeedback()
+    {
+        Check(TrashGroupsPresentation.VisibleErrorKey(null, null) is null,
+            "A clean catalog reported an error.");
+        Check(TrashGroupsPresentation.VisibleErrorKey(null, "E_RUNTIME") == TrashGroupsPresentation.RefreshFailureKey,
+            "A failed refresh was not reported as a list failure.");
+        Check(TrashGroupsPresentation.VisibleErrorKey("E_CONFLICT", null) == "E_CONFLICT",
+            "A failed operation lost its own error.");
+        Check(TrashGroupsPresentation.VisibleErrorKey("E_CONFLICT", "E_RUNTIME") == "E_CONFLICT",
+            "A refresh failure replaced the operation failure instead of staying secondary.");
+        Check(TrashGroupsPresentation.ShowsMessage(true, "restored")
+              && !TrashGroupsPresentation.ShowsMessage(false, "restored")
+              && !TrashGroupsPresentation.ShowsMessage(true, null),
+            "Success was announced for a failed operation or without a message.");
+        Check(TrashGroupsPresentation.ExtraPurgeHintKey(true) == "desktop_collection_delete_hint"
+              && TrashGroupsPresentation.ExtraPurgeHintKey(false) is null,
+            "The collection-only purge hint leaked into the tag dialog.");
+        Console.WriteLine("PASS: trash operation/refresh feedback separation and purge copy");
+    }
+
+    // A catalog notification must never be dropped, but a burst must not turn
+    // into a burst of reads either: one operation ends with one refreshed list.
+    private static async Task RefreshMergingAsync()
+    {
+        var heldPasses = 0;
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queue = new RefreshQueue(async () =>
+        {
+            Interlocked.Increment(ref heldPasses);
+            await held.Task;
+            return true;
+        });
+        queue.Suspend();
+        var firstQueued = queue.Request();
+        var secondQueued = queue.Request();
+        Check(firstQueued.IsCompleted && secondQueued.IsCompleted,
+            "A refresh requested during an operation waited for a pass that had not started.");
+        Check(Volatile.Read(ref heldPasses) == 0, "A suspended queue refreshed while the operation was running.");
+        var resumed = queue.Resume();
+        Check(Volatile.Read(ref heldPasses) == 1, "Finishing an operation did not run the refresh it held back.");
+        held.SetResult();
+        await resumed;
+        Check(Volatile.Read(ref heldPasses) == 1,
+            "Two notifications during one operation produced more than one refresh.");
+
+        // A notification during a running pass latches exactly one follow-up,
+        // and the caller settles after that follow-up instead of the stale pass.
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var livePasses = 0;
+        var live = new RefreshQueue(async () =>
+        {
+            var index = Interlocked.Increment(ref livePasses);
+            if (index == 1) started.SetResult();
+            if (index == 1) await release.Task;
+            return true;
+        });
+        var running = live.Request();
+        await started.Task;
+        var mergedOne = live.Request();
+        var mergedTwo = live.Request();
+        Check(!mergedOne.IsCompleted, "A refresh requested during a pass settled before the follow-up ran.");
+        release.SetResult();
+        await running;
+        Check(Volatile.Read(ref livePasses) == 2,
+            "A burst during a running pass did not collapse into exactly one follow-up pass.");
+        Check(mergedOne.IsCompleted && mergedTwo.IsCompleted, "A merged refresh was never completed.");
+
+        // A pass that fails reports through the view model; the queue itself
+        // must survive so a later notification still refreshes the list.
+        var attempts = 0;
+        var recovering = new RefreshQueue(() => Interlocked.Increment(ref attempts) == 1
+            ? Task.FromException<bool>(new InvalidOperationException("pass failed"))
+            : Task.FromResult(true));
+        await recovering.Request();
+        Check(Volatile.Read(ref attempts) == 1, "The failing pass did not run.");
+        await recovering.Request();
+        Check(Volatile.Read(ref attempts) == 2, "A failed pass ended the queue and lost later notifications.");
+
+        // Closing discards what is queued, still waits for the pass in flight,
+        // and accepts nothing afterwards.
+        var closingStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closingRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closingPasses = 0;
+        var closing = new RefreshQueue(async () =>
+        {
+            Interlocked.Increment(ref closingPasses);
+            closingStart.SetResult();
+            await closingRelease.Task;
+            return true;
+        });
+        var inFlight = closing.Request();
+        await closingStart.Task;
+        _ = closing.Request();
+        closing.Stop();
+        Check(!closing.Completion.IsCompleted, "Stopping released a pass that was still querying.");
+        closingRelease.SetResult();
+        await inFlight;
+        await closing.Completion;
+        Check(Volatile.Read(ref closingPasses) == 1, "A queued refresh ran after the panel stopped.");
+        await closing.Resume();
+        await closing.Request();
+        Check(Volatile.Read(ref closingPasses) == 1, "A stopped queue accepted a refresh during shutdown.");
+        Console.WriteLine("PASS: trash refresh coalescing, failure recovery and shutdown discard");
+    }
+
+    // The view model wiring behind those rules: a committed operation keeps its
+    // success even when the follow-up read fails, a new operation does not
+    // inherit the previous banner, and a closing panel publishes nothing.
+    private static async Task TrashGroupsModelAsync()
+    {
+        var catalog = new FakeTrashCatalog();
+        var strings = new FakeCatalogStrings();
+        var collection = new CollectionMetadata(
+            "c-restore", "合集", "a", new EntityLifecycle(1, 0, 0, 0, 100, null));
+
+        // Operation succeeds, refresh fails: success message plus a list error.
+        var reloads = 0;
+        catalog.RestoreCollection = _ => Task.FromResult(collection);
+        catalog.Collections = _ => Task.FromException<CollectionMetadata[]>(new InvalidOperationException("refresh failed"));
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () =>
+        {
+            reloads++;
+            return Task.CompletedTask;
+        }))
+        {
+            Check(await model.RestoreCollectionAsync(collection), "A committed restore was reported as failed.");
+            Check(model.MessageKey == "restored", "A committed restore did not announce success.");
+            Check(model.MessageText.Length > 0, "The success message was not resolved.");
+            Check(model.ErrorKey == TrashGroupsPresentation.RefreshFailureKey,
+                "A refresh failure turned a committed restore into an operation failure.");
+            Check(reloads == 1, "A restore did not reload the library catalogs.");
+        }
+
+        // Both fail: the operation's reason stays the visible one.
+        catalog = new FakeTrashCatalog
+        {
+            RestoreCollection = _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("restore failed")),
+            Collections = _ => Task.FromException<CollectionMetadata[]>(new InvalidOperationException("refresh failed"))
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            Check(!await model.RestoreCollectionAsync(collection), "A failed restore was reported as committed.");
+            Check(model.ErrorKey == "restore failed", "The refresh failure replaced the operation failure.");
+            Check(model.MessageKey is null, "A failed operation announced success.");
+        }
+
+        // Operation fails, refresh works: only the operation error remains.
+        catalog = new FakeTrashCatalog
+        {
+            RestoreCollection = _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("restore failed")),
+            Collections = _ => Task.FromResult(Array.Empty<CollectionMetadata>())
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            Check(!await model.RestoreCollectionAsync(collection), "A failed restore was reported as committed.");
+            Check(model.ErrorKey == "restore failed", "A failed operation lost its error after a clean refresh.");
+            Check(model.MessageKey is null, "A failed operation announced success.");
+        }
+
+        // The previous failure must not survive the next successful action.
+        catalog = new FakeTrashCatalog
+        {
+            RestoreCollection = _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("first failure")),
+            Collections = _ => Task.FromResult(Array.Empty<CollectionMetadata>())
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            Check(!await model.RestoreCollectionAsync(collection), "A failed restore was reported as committed.");
+            Check(model.ErrorKey == "first failure", "The failed operation did not report its own reason.");
+            catalog.RestoreCollection = _ => Task.FromResult(collection);
+            Check(await model.RestoreCollectionAsync(collection), "The retried restore did not commit.");
+            Check(model.ErrorKey is null, "An old operation error stayed visible after the next success.");
+            Check(model.MessageKey == "restored", "The retried restore did not announce success.");
+        }
+
+        // An exception escaping the success notification must not leave the
+        // queue suspended: the pass held back by the operation still runs, and
+        // later requests keep reading the catalog.
+        var escapedReads = 0;
+        catalog = new FakeTrashCatalog { RestoreCollection = _ => Task.FromResult(collection) };
+        catalog.Collections = _ =>
+        {
+            Interlocked.Increment(ref escapedReads);
+            return Task.FromResult(Array.Empty<CollectionMetadata>());
+        };
+        var escaped = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask);
+        var threw = false;
+        escaped.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(TrashGroupsViewModel.MessageText)
+                || escaped.MessageKey is null || threw) return;
+            threw = true;
+            throw new InvalidOperationException("subscriber failed");
+        };
+        try { await escaped.RestoreCollectionAsync(collection); }
+        catch (InvalidOperationException) { }
+        Check(threw, "The failing subscriber was never reached.");
+        Check(Volatile.Read(ref escapedReads) == 1,
+            "An exception after a committed operation skipped the refresh it held back.");
+        await escaped.RefreshAsync();
+        Check(Volatile.Read(ref escapedReads) == 2,
+            "The queue stayed suspended after an exception escaped a committed operation.");
+        // The exception also faults the operation task the caller owns.
+        try { await escaped.DisposeAsync(); }
+        catch (InvalidOperationException) { }
+
+        // A burst of notifications during an operation becomes one read.
+        var gate = new TaskCompletionSource<CollectionMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+        catalog = new FakeTrashCatalog { RestoreCollection = _ => gate.Task };
+        catalog.Collections = _ =>
+        {
+            Interlocked.Increment(ref reads);
+            return Task.FromResult(Array.Empty<CollectionMetadata>());
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            var operation = model.RestoreCollectionAsync(collection);
+            var first = model.RefreshAsync();
+            var second = model.RefreshAsync();
+            Check(first.IsCompleted && second.IsCompleted,
+                "A refresh waited for a pass the running operation held back.");
+            gate.SetResult(collection);
+            Check(await operation, "The gated restore did not commit.");
+            Check(Volatile.Read(ref reads) == 1,
+                "Notifications during one operation produced more than one catalog read.");
+            Check(model.MessageKey == "restored", "The gated restore did not announce success.");
+        }
+
+        // Closing during an operation drops the queued read and reports nothing.
+        var closingGate = new TaskCompletionSource<CollectionMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closingReads = 0;
+        catalog = new FakeTrashCatalog { RestoreCollection = _ => closingGate.Task };
+        catalog.Collections = _ =>
+        {
+            Interlocked.Increment(ref closingReads);
+            return Task.FromResult(Array.Empty<CollectionMetadata>());
+        };
+        var stopping = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask);
+        var stoppedOperation = stopping.RestoreCollectionAsync(collection);
+        _ = stopping.RefreshAsync();
+        stopping.RequestStop();
+        closingGate.SetResult(collection);
+        await stoppedOperation;
+        await stopping.DisposeAsync();
+        Check(Volatile.Read(ref closingReads) == 0, "A stopped panel read the catalog after shutdown.");
+        Check(stopping.MessageKey is null && stopping.ErrorKey is null, "A stopped panel published a banner.");
+        await stopping.RefreshAsync();
+        Check(Volatile.Read(ref closingReads) == 0, "A stopped panel accepted a refresh after disposal.");
+        Console.WriteLine("PASS: trash operation/refresh combinations, stale errors and close discard");
     }
 
     private static void EditDrafts()
@@ -282,6 +550,8 @@ internal static class Program
             {
                 using var page = await reopened.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null, CancellationToken.None);
                 Check(page.Stickers.Length == 2, "Adapter shutdown/reopen lost data or retained the library lock.");
+                await TrashCatalogRestartAsync();
+                await TrashCatalogRelationsAsync(reopened, root);
             }
             Console.WriteLine("PASS: real session import, scoped search, catalogs, cancellation, thumbnail and reopen");
         }
@@ -384,10 +654,10 @@ internal static class Program
                 "A deleted sticker stayed in the normal listing.");
         using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
         {
-            Check(trash.Stickers.Select(item => item.Id).OrderBy(id => id)
-                    .SequenceEqual(new[] { purple.Sticker.Id, cyan.Sticker.Id }.OrderBy(id => id)),
-                "The trash listing did not contain exactly the deleted stickers.");
-            Check(trash.Next is null, "A two-item trash page returned another cursor.");
+            var listed = trash.Stickers.Select(item => item.Id).ToHashSet();
+            Check(listed.Contains(purple.Sticker.Id) && listed.Contains(cyan.Sticker.Id),
+                "The trash listing did not contain the deleted stickers.");
+            Check(trash.Next is null, "Two deleted stickers returned another cursor.");
         }
         using (var search = await session.QueryAsync(new(LibraryScope.Trash), "紫色", StickerSort.Recent, null, token))
             Check(search.Stickers.Length == 1 && search.Stickers[0].Id == purple.Sticker.Id,
@@ -477,18 +747,179 @@ internal static class Program
             is { Succeeded: 0, Failed: 1, ErrorKey: "InvalidInput" }, "A malformed sticker id was not rejected as invalid input.");
 
         using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
-            Check(trash.Stickers.Length == 0 && trash.Next is null, "The emptied trash still listed stickers.");
+            Check(!trash.Stickers.Any(item => item.Id == purple.Sticker.Id || item.Id == cyan.Sticker.Id),
+                "The emptied trash still listed a purged sticker.");
         using (var active = await session.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null, token))
-            Check(active.Stickers.Length == 2, "Trash operations changed the active listing of unrelated stickers.");
+            Check(!active.Stickers.Any(item => item.Id == purple.Sticker.Id || item.Id == cyan.Sticker.Id),
+                "Trash operations changed the active listing of the stickers they touched.");
 
-        await session.DeleteCollectionAsync(new(collection.Id, collection.Lifecycle.Generation), token);
-        await session.DeleteTagAsync(new(tag.Id, tag.Lifecycle.Generation), token);
+        // Only the objects this test created are cleaned up here; the restart and
+        // relation tests build their own fixtures instead of reading these.
+        var deletedCollection = await session.DeleteCollectionAsync(
+            new(collection.Id, collection.Lifecycle.Generation), token);
+        var deletedTag = await session.DeleteTagAsync(new(tag.Id, tag.Lifecycle.Generation), token);
+        await session.PurgeCollectionAsync(
+            new(deletedCollection.Id, deletedCollection.Lifecycle.Generation), deletedCollection.Lifecycle.Revision, token);
+        await session.PurgeTagAsync(
+            new(deletedTag.Id, deletedTag.Lifecycle.Generation), deletedTag.Lifecycle.Revision, token);
         Console.WriteLine("PASS: real trash listing, search, restore, purge, idempotence and failure consistency");
     }
 
     // The trash entry uses the revision observed when the sticker was listed, so
     // a concurrent change fails for that entry only.
     private static TrashEntry Entry(StickerMetadata item) => new(item.Id, item.Lifecycle.Generation, item.Lifecycle.Revision);
+
+    // This test owns its library: it creates the deleted metadata, closes, and
+    // reopens to prove the core persisted it. Nothing here reads fixtures left by
+    // another test, so it can run alone or in any order.
+    private static async Task TrashCatalogRestartAsync()
+    {
+        var token = CancellationToken.None;
+        var parent = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+        var root = Path.Combine(parent, "MemeDock-Windows-restart-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string collectionId;
+            string tagId;
+            await using (var created = await LibrarySession.OpenAsync(root))
+            {
+                var collection = await created.CreateCollectionAsync("重启合集", token);
+                var tag = await created.CreateTagAsync("重启标签", token);
+                collectionId = collection.Id;
+                tagId = tag.Id;
+                await created.DeleteCollectionAsync(new(collection.Id, collection.Lifecycle.Generation), token);
+                await created.DeleteTagAsync(new(tag.Id, tag.Lifecycle.Generation), token);
+                Check(!(await created.CollectionsAsync(token)).Any(item => item.Id == collectionId)
+                      && !(await created.TagsAsync(token)).Any(item => item.Id == tagId),
+                    "Deleting a catalog left it in the active catalog list.");
+            }
+
+            await using var session = await LibrarySession.OpenAsync(root);
+            var deletedCollections = await session.CollectionsAsync(token, deleted: true);
+            var deletedTags = await session.TagsAsync(token, deleted: true);
+            var trashedCollection = deletedCollections.SingleOrDefault(item => item.Id == collectionId);
+            var trashedTag = deletedTags.SingleOrDefault(item => item.Id == tagId);
+            Check(trashedCollection is not null, "A deleted collection did not survive a library reopen.");
+            Check(trashedTag is not null, "A deleted tag did not survive a library reopen.");
+            Check(!(await session.CollectionsAsync(token)).Any(item => item.Id == trashedCollection!.Id),
+                "A deleted collection leaked into the active catalog after reopen.");
+            Check(!(await session.TagsAsync(token)).Any(item => item.Id == trashedTag!.Id),
+                "A deleted tag leaked into the active catalog after reopen.");
+
+            var restoredCollection = await session.RestoreCollectionAsync(
+                new(trashedCollection!.Id, trashedCollection.Lifecycle.Generation),
+                trashedCollection.Lifecycle.Revision, token);
+            Check(restoredCollection.Id == trashedCollection.Id
+                  && restoredCollection.Lifecycle.Generation > trashedCollection.Lifecycle.Generation,
+                "Restoring a collection did not advance its generation.");
+            Check((await session.CollectionsAsync(token)).Any(item => item.Id == restoredCollection.Id),
+                "A restored collection did not return to the active catalog.");
+            Check(!(await session.CollectionsAsync(token, deleted: true)).Any(item => item.Id == restoredCollection.Id),
+                "A restored collection stayed in the deleted catalog.");
+
+            Check(await ExpectFailure(() => session.PurgeCollectionAsync(
+                    new(restoredCollection.Id, restoredCollection.Lifecycle.Generation),
+                    restoredCollection.Lifecycle.Revision, token)) == ErrorCode.Conflict,
+                "An active collection was permanently deleted instead of rejected.");
+            Check(await ExpectFailure(() => session.PurgeCollectionAsync(
+                    new(trashedCollection.Id, trashedCollection.Lifecycle.Generation),
+                    trashedCollection.Lifecycle.Revision, token)) == ErrorCode.Conflict,
+                "A purge with the pre-restore generation was accepted.");
+            Check((await session.CollectionsAsync(token)).Any(item => item.Id == restoredCollection.Id),
+                "A rejected collection purge removed the active entry.");
+
+            var deletedAgain = await session.DeleteCollectionAsync(
+                new(restoredCollection.Id, restoredCollection.Lifecycle.Generation), token);
+            Check(await ExpectFailure(() => session.PurgeCollectionAsync(
+                    new(deletedAgain.Id, deletedAgain.Lifecycle.Generation),
+                    deletedAgain.Lifecycle.Revision + 1, token)) == ErrorCode.Conflict,
+                "A purge with a conflicting revision was accepted.");
+            await session.PurgeCollectionAsync(
+                new(deletedAgain.Id, deletedAgain.Lifecycle.Generation),
+                deletedAgain.Lifecycle.Revision, token);
+            Check(!(await session.CollectionsAsync(token, deleted: true)).Any(item => item.Id == deletedAgain.Id),
+                "A purged collection stayed in the deleted catalog.");
+
+            var restoredTag = await session.RestoreTagAsync(
+                new(trashedTag!.Id, trashedTag.Lifecycle.Generation),
+                trashedTag.Lifecycle.Revision, token);
+            Check(restoredTag.Id == trashedTag.Id
+                  && restoredTag.Lifecycle.Generation > trashedTag.Lifecycle.Generation,
+                "Restoring a tag did not advance its generation.");
+            Check((await session.TagsAsync(token)).Any(item => item.Id == restoredTag.Id),
+                "A restored tag did not return to the active catalog.");
+            Check(await ExpectFailure(() => session.PurgeTagAsync(
+                    new(restoredTag.Id, restoredTag.Lifecycle.Generation),
+                    restoredTag.Lifecycle.Revision, token)) == ErrorCode.Conflict,
+                "An active tag was permanently deleted instead of rejected.");
+
+            var deletedTagAgain = await session.DeleteTagAsync(
+                new(restoredTag.Id, restoredTag.Lifecycle.Generation), token);
+            await session.PurgeTagAsync(
+                new(deletedTagAgain.Id, deletedTagAgain.Lifecycle.Generation),
+                deletedTagAgain.Lifecycle.Revision, token);
+            Check(!(await session.TagsAsync(token, deleted: true)).Any(item => item.Id == deletedTagAgain.Id),
+                "A purged tag stayed in the deleted catalog.");
+            // Repeating a purge on a tombstone is not a failure.
+            await session.PurgeTagAsync(
+                new(deletedTagAgain.Id, deletedTagAgain.Lifecycle.Generation),
+                deletedTagAgain.Lifecycle.Revision, token);
+
+            const string missing = "0190f3a0-0000-7000-8000-000000000000";
+            Check(await ExpectFailure(() => session.PurgeTagAsync(new(missing, 1), 1, token)) == ErrorCode.NotFound,
+                "Purging an unknown tag did not report not-found.");
+            Check(await ExpectFailure(() => session.RestoreCollectionAsync(new(missing, 1), 1, token)) == ErrorCode.NotFound,
+                "Restoring an unknown collection did not report not-found.");
+            Console.WriteLine("PASS: deleted collections/tags survive reopen, restore, conflicts, purge and missing entities");
+        }
+        finally
+        {
+            if (Directory.Exists(root) && string.Equals(Path.GetDirectoryName(root), parent, StringComparison.OrdinalIgnoreCase)
+                && Path.GetFileName(root).StartsWith("MemeDock-Windows-restart-", StringComparison.Ordinal))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task TrashCatalogRelationsAsync(LibrarySession session, string root)
+    {
+        var token = CancellationToken.None;
+        var path = Path.Combine(root, "catalog-relations.png");
+        await File.WriteAllBytesAsync(path, Png(12, 34, 56));
+        var collection = await session.CreateCollectionAsync("关系合集", token);
+        var tag = await session.CreateTagAsync("关系标签", token);
+        var imported = await session.ImportAsync(path, collection.Id, token);
+        var detail = await session.DetailAsync(imported.Sticker.Id, token);
+        await session.OrganizeAsync(
+            new(imported.Sticker.Id, detail.Sticker.Lifecycle.Generation), true,
+            new(collection.Id, collection.Lifecycle.Generation),
+            [new(tag.Id, tag.Lifecycle.Generation)], token);
+        detail = await session.DetailAsync(imported.Sticker.Id, token);
+        Check(detail.Collection?.Id == collection.Id && detail.Tags.Any(item => item.Id == tag.Id),
+            "The catalog relation test did not establish its fixture.");
+
+        var deletedCollection = await session.DeleteCollectionAsync(
+            new(collection.Id, collection.Lifecycle.Generation), token);
+        var deletedTag = await session.DeleteTagAsync(
+            new(tag.Id, tag.Lifecycle.Generation), token);
+        Check(!(await session.CollectionsAsync(token)).Any(item => item.Id == collection.Id)
+              && !(await session.TagsAsync(token)).Any(item => item.Id == tag.Id),
+            "Deleting a catalog left it in the active catalog list.");
+        await session.PurgeCollectionAsync(
+            new(deletedCollection.Id, deletedCollection.Lifecycle.Generation),
+            deletedCollection.Lifecycle.Revision, token);
+        await session.PurgeTagAsync(
+            new(deletedTag.Id, deletedTag.Lifecycle.Generation),
+            deletedTag.Lifecycle.Revision, token);
+
+        var after = await session.DetailAsync(imported.Sticker.Id, token);
+        Check(after.Sticker.Lifecycle.DeletedAt is null && after.Sticker.Lifecycle.PurgedAt is null,
+            "Purging a collection or tag deleted its sticker.");
+        Check(after.OriginalPath is not null && File.Exists(after.OriginalPath),
+            "Purging a collection or tag deleted the sticker original.");
+        Check(after.Collection is null && after.Tags.Length == 0,
+            "Purging a collection or tag left an effective relation on the sticker.");
+        Console.WriteLine("PASS: purging collections/tags keeps stickers and originals and removes effective relations");
+    }
 
     private static async Task OutputContractsAsync(LibrarySession session, string id, string source)
     {
@@ -1061,5 +1492,50 @@ internal static class Program
         }
 
         public void Dispose() => Close();
+    }
+
+    private sealed class FakeTrashCatalog : ITrashCatalog
+    {
+        public Func<CancellationToken, Task<CollectionMetadata[]>> Collections { get; set; } =
+            _ => Task.FromResult(Array.Empty<CollectionMetadata>());
+        public Func<CancellationToken, Task<TagMetadata[]>> Tags { get; set; } =
+            _ => Task.FromResult(Array.Empty<TagMetadata>());
+        public Func<EntityReference, Task<CollectionMetadata>> RestoreCollection { get; set; } =
+            _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("unexpected collection restore"));
+        public Func<EntityReference, Task<TagMetadata>> RestoreTag { get; set; } =
+            _ => Task.FromException<TagMetadata>(new InvalidOperationException("unexpected tag restore"));
+        public Func<EntityReference, Task> PurgeCollection { get; set; } =
+            _ => Task.FromException(new InvalidOperationException("unexpected collection purge"));
+        public Func<EntityReference, Task> PurgeTag { get; set; } =
+            _ => Task.FromException(new InvalidOperationException("unexpected tag purge"));
+
+        public Task<CollectionMetadata[]> CollectionsAsync(CancellationToken cancellation, bool deleted = false)
+            => Collections(cancellation);
+
+        public Task<TagMetadata[]> TagsAsync(CancellationToken cancellation, bool deleted = false)
+            => Tags(cancellation);
+
+        public Task<CollectionMetadata> RestoreCollectionAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => RestoreCollection(target);
+
+        public Task<TagMetadata> RestoreTagAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => RestoreTag(target);
+
+        public Task PurgeCollectionAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => PurgeCollection(target);
+
+        public Task PurgeTagAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => PurgeTag(target);
+    }
+
+    private sealed class FakeCatalogStrings : ICatalogStrings
+    {
+        public string this[string key] => key;
+        public string Format(string key, params object[] arguments) => key;
+        public string ErrorKey(Exception error) => error.Message;
     }
 }

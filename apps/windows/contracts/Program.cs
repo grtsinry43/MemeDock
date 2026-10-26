@@ -52,6 +52,53 @@ internal static class Program
             }
             Console.WriteLine("PASS: real PNG import, deduplication, pagination and thumbnail");
 
+            using (var create = library.CreateCollection("contract trash", null))
+            {
+                var collection = await create.AwaitResult().WaitAsync(Timeout);
+                using var delete = library.DeleteCollection(new EntityReference(collection.Id, collection.Lifecycle.Generation));
+                var deletedCollection = await delete.AwaitResult().WaitAsync(Timeout);
+                using (var deleted = library.Collections(true))
+                {
+                    var values = await deleted.AwaitResult().WaitAsync(Timeout);
+                    Check(values.Any(value => value.Id == collection.Id), "Deleted collection was not queryable.");
+                }
+                using var restore = library.RestoreCollection(
+                    new EntityReference(deletedCollection.Id, deletedCollection.Lifecycle.Generation),
+                    deletedCollection.Lifecycle.Revision);
+                var restored = await restore.AwaitResult().WaitAsync(Timeout);
+                Check(restored.Lifecycle.Generation > deletedCollection.Lifecycle.Generation,
+                    "Restoring a collection did not advance its generation.");
+                using var deleteAgain = library.DeleteCollection(new EntityReference(restored.Id, restored.Lifecycle.Generation));
+                var deletedAgain = await deleteAgain.AwaitResult().WaitAsync(Timeout);
+                using var purge = library.PurgeCollection(
+                    new EntityReference(deletedAgain.Id, deletedAgain.Lifecycle.Generation),
+                    deletedAgain.Lifecycle.Revision);
+                await purge.AwaitResult().WaitAsync(Timeout);
+                using var after = library.Collections(true);
+                Check(!(await after.AwaitResult().WaitAsync(Timeout)).Any(value => value.Id == collection.Id),
+                    "Purged collection remained in the deleted catalog.");
+            }
+
+            using (var create = library.CreateTag("contract-tag"))
+            {
+                var tag = await create.AwaitResult().WaitAsync(Timeout);
+                using var delete = library.DeleteTag(new EntityReference(tag.Id, tag.Lifecycle.Generation));
+                var deletedTag = await delete.AwaitResult().WaitAsync(Timeout);
+                using (var deleted = library.Tags(true))
+                {
+                    var values = await deleted.AwaitResult().WaitAsync(Timeout);
+                    Check(values.Any(value => value.Id == tag.Id), "Deleted tag was not queryable.");
+                }
+                using var purge = library.PurgeTag(
+                    new EntityReference(deletedTag.Id, deletedTag.Lifecycle.Generation),
+                    deletedTag.Lifecycle.Revision);
+                await purge.AwaitResult().WaitAsync(Timeout);
+                using var after = library.Tags(true);
+                Check(!(await after.AwaitResult().WaitAsync(Timeout)).Any(value => value.Id == tag.Id),
+                    "Purged tag remained in the deleted catalog.");
+            }
+            Console.WriteLine("PASS: deleted collection/tag query, restore and purge contracts");
+
             using (var export = library.ExportOriginal(first.Sticker.Id))
             using (var lease = await export.AwaitResult().WaitAsync(Timeout))
             {
