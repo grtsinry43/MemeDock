@@ -1,13 +1,16 @@
 using System.Globalization;
 using System.Buffers.Binary;
+using System.ComponentModel;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using System.Xml.Linq;
 using MemeDock.Bridge;
 using MemeDock.Windows;
+using MemeDock.Windows.Localization;
 using MemeDock.Windows.Models;
 using MemeDock.Windows.Services;
+using MemeDock.Windows.ViewModels;
 
 internal static class Program
 {
@@ -19,9 +22,21 @@ internal static class Program
             RequestGenerations();
             EditDrafts();
             OutputPolicies();
+            OutputPresetTable();
+            StorageFormatting();
+            await StorageModelAsync();
+            await BackupModelAsync();
+            await RestoreModelAsync();
+            await ArchiveRoundTripAsync();
+            VersionMetadata(FindRepository());
+            CatalogFeedback();
+            await RefreshMergingAsync();
+            await TrashGroupsModelAsync();
             await ShutdownSequenceAsync();
             ResourceParity(FindRepository());
+            SyncStatusBrushes(FindRepository());
             await PreferencesAsync();
+            SyncStatusMapping();
             await SyncStateMachineAsync();
             await SessionQueriesAsync();
             Console.WriteLine("PASS: Windows browsing state, localization and preference checks");
@@ -30,9 +45,23 @@ internal static class Program
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
 
+    private static string[] Placeholders(string value)
+        => Regex.Matches(value, @"\{(\d+)\}")
+            .Select(match => match.Groups[1].Value)
+            .Distinct()
+            .OrderBy(index => index, StringComparer.Ordinal)
+            .ToArray();
+
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static async Task<ErrorCode> ExpectFailure(Func<Task> operation)
+    {
+        try { await operation(); }
+        catch (BridgeException.Failure failure) { return failure.code; }
+        throw new InvalidOperationException("Expected a bridge failure.");
     }
 
     private static void QueryScopes()
@@ -85,20 +114,38 @@ internal static class Program
 
     private static void OutputPolicies()
     {
-        var animated = StickerOutputPolicy.Options(true, StickerOutputKind.Image);
+        Check(OutputDefaults.CopyDefault.Still == ExportPreset.BestCompatibility
+              && OutputDefaults.CopyDefault.Animated == ExportPreset.Original,
+            "Copy defaults drifted from best-compatible stills and unchanged animations.");
+        Check(OutputDefaults.DragDefault.Still == ExportPreset.Original
+              && OutputDefaults.DragDefault.Animated == ExportPreset.Original,
+            "Drag defaults must keep handing over the original bytes.");
+
+        var animated = StickerOutputPolicy.Options(true, StickerOutputKind.Image, OutputDefaults.CopyDefault);
         Check(animated.Preset == ExportPreset.Original && animated.Animation == AnimationPolicy.Preserve
             && !animated.StripMetadata && animated.MaxEdge is null, "Default animated copy would flatten or re-encode the original.");
-        var image = StickerOutputPolicy.Options(false, StickerOutputKind.Image);
-        Check(image.Preset == ExportPreset.CompatiblePng && image.MaxEdge == 1024 && image.BackgroundRgba is null
-            && image.StripMetadata, "Static copy lost the approved transparent PNG limits.");
+        var image = StickerOutputPolicy.Options(false, StickerOutputKind.Image, OutputDefaults.CopyDefault);
+        Check(image.Preset == ExportPreset.BestCompatibility && image.MaxEdge is null && image.BackgroundRgba is null
+            && image.StripMetadata, "Static copy lost the approved best-compatibility limits.");
+        // An untouched drag follows the drag defaults, which are the original bytes,
+        // in both content kinds.
         foreach (var isAnimated in new[] { false, true })
         {
-            var original = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.OriginalFile);
-            Check(original.Preset == ExportPreset.Original && original.Animation == AnimationPolicy.Preserve && !original.StripMetadata,
-                "File transfer would modify original bytes.");
-            var frame = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.FirstFrame);
-            Check(frame.Preset == ExportPreset.CompatiblePng && frame.Animation == AnimationPolicy.FirstFrame && frame.MaxEdge == 1024,
-                "First-frame conversion was implicit or lost its bounds.");
+            var dragged = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.Image, OutputDefaults.DragDefault);
+            Check(dragged.Preset == ExportPreset.Original && !dragged.StripMetadata && dragged.Animation == AnimationPolicy.Preserve,
+                "Default drag changed the original bytes.");
+        }
+        foreach (var defaults in new[] { OutputDefaults.CopyDefault, OutputDefaults.DragDefault })
+        {
+            foreach (var isAnimated in new[] { false, true })
+            {
+                var original = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.OriginalFile, defaults);
+                Check(original.Preset == ExportPreset.Original && original.Animation == AnimationPolicy.Preserve && !original.StripMetadata,
+                    "File transfer would modify original bytes.");
+                var frame = StickerOutputPolicy.Options(isAnimated, StickerOutputKind.FirstFrame, defaults);
+                Check(frame.Preset == ExportPreset.CompatiblePng && frame.Animation == AnimationPolicy.FirstFrame && frame.MaxEdge == 1024,
+                    "First-frame conversion was implicit, lost its bounds or followed a preset.");
+            }
         }
         var metadata = new StickerMetadata("sticker", "title", "image.gif", "", false, new(2, 1, 0, 0, null, null));
         var target = new StickerOutputTarget("sticker", 2);
@@ -108,6 +155,1106 @@ internal static class Program
         try { target.Validate(metadata with { Lifecycle = metadata.Lifecycle with { DeletedAt = 1 } }); throw new InvalidOperationException("Deleted target accepted."); }
         catch (BridgeException.Failure failure) { Check(failure.code == ErrorCode.EntityDeleted, "Wrong deleted-target error."); }
         Console.WriteLine("PASS: original/PNG/first-frame output policy and captured-target validation");
+    }
+
+    /// <summary>
+    /// The settings page writes one of these presets, so the full parameter tuple is
+    /// pinned here. <c>crates/domain/src/export.rs::ExportOptions::for_preset</c> is the
+    /// authority; a mismatch means the app would ask for options the domain rejects.
+    /// </summary>
+    private static void OutputPresetTable()
+    {
+        Check(StickerOutputPresets.For(false).SequenceEqual(
+                [ExportPreset.Original, ExportPreset.CompatiblePng, ExportPreset.SmallJpeg, ExportPreset.BestCompatibility]),
+            "The still-image preset list changed.");
+        Check(StickerOutputPresets.For(true).SequenceEqual([ExportPreset.Original, ExportPreset.CompatibleGif]),
+            "The animated preset list must not offer still-only presets.");
+
+        (ExportPreset Preset, uint? MaxEdge, uint? Background, bool Strip)[] stills =
+        [
+            (ExportPreset.Original, null, null, false),
+            (ExportPreset.CompatiblePng, 1024, null, true),
+            (ExportPreset.SmallJpeg, 512, 0xFFFFFFFF, true),
+            (ExportPreset.BestCompatibility, null, null, true),
+        ];
+        foreach (var (preset, maxEdge, background, strip) in stills)
+        {
+            var options = StickerOutputPresets.Options(preset, animated: false);
+            Check(options.Preset == preset && options.MaxEdge == maxEdge && options.BackgroundRgba == background
+                  && options.StripMetadata == strip && options.Animation == AnimationPolicy.Preserve,
+                $"Still preset {preset} does not match ExportOptions::for_preset.");
+        }
+        (ExportPreset Preset, uint? MaxEdge, uint? Background, bool Strip)[] animations =
+        [
+            (ExportPreset.Original, null, null, false),
+            (ExportPreset.CompatibleGif, 512, null, true),
+        ];
+        foreach (var (preset, maxEdge, background, strip) in animations)
+        {
+            var options = StickerOutputPresets.Options(preset, animated: true);
+            Check(options.Preset == preset && options.MaxEdge == maxEdge && options.BackgroundRgba == background
+                  && options.StripMetadata == strip && options.Animation == AnimationPolicy.Preserve,
+                $"Animated preset {preset} does not match ExportOptions::for_preset.");
+        }
+        Check(!StickerOutputPresets.Supports(ExportPreset.CompatibleGif, animated: false)
+              && !StickerOutputPresets.Supports(ExportPreset.SmallJpeg, animated: true)
+              && !StickerOutputPresets.Supports(ExportPreset.CompatiblePng, animated: true),
+            "A content kind accepted a preset the domain would reject.");
+        Check(new OutputDefaults(ExportPreset.CompatibleGif, ExportPreset.SmallJpeg).Sanitized(OutputDefaults.CopyDefault)
+                == OutputDefaults.CopyDefault,
+            "A hand-edited file with swapped presets was not sanitized.");
+        Check(new OutputDefaults(ExportPreset.SmallJpeg, ExportPreset.CompatibleGif).Sanitized(OutputDefaults.CopyDefault)
+                == new OutputDefaults(ExportPreset.SmallJpeg, ExportPreset.CompatibleGif),
+            "Valid presets were replaced during sanitizing.");
+
+        // Every label and hint the settings page can render must exist in both files.
+        var root = FindRepository();
+        var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
+        var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
+        foreach (var animated in new[] { false, true })
+        {
+            foreach (var preset in StickerOutputPresets.For(animated))
+            {
+                var label = StickerOutputPresets.LabelKey(preset);
+                var hint = StickerOutputPresets.HintKey(preset, animated);
+                Check(english.ContainsKey(label) && chinese.ContainsKey(label), $"Missing preset label: {label}");
+                Check(english.ContainsKey(hint) && chinese.ContainsKey(hint), $"Missing preset hint: {hint}");
+            }
+        }
+        Console.WriteLine("PASS: every output preset maps to the domain parameters and to bilingual copy");
+    }
+
+    private static void VersionMetadata(string root)
+    {
+        Check(AppVersion.Display("0.2.0+3f2a1c", new Version(9, 9, 9)) == "0.2.0",
+            "The commit suffix leaked into the displayed version.");
+        Check(AppVersion.Display(" 0.2.0 ", null) == "0.2.0", "The displayed version kept surrounding whitespace.");
+        Check(AppVersion.Display(null, new Version(1, 2, 3, 4)) == "1.2.3", "The assembly version lost its patch number.");
+        Check(AppVersion.Display("", null) == AppVersion.Unknown, "A missing version did not fall back to the placeholder.");
+
+        var workspace = AppVersion.WorkspaceVersion(File.ReadAllText(Path.Combine(root, "Cargo.toml")));
+        Check(workspace is { Length: > 0 }, "The workspace version could not be read from Cargo.toml.");
+        var project = XDocument.Load(Path.Combine(root, "apps/windows/app/MemeDock.Windows.csproj"))
+            .Root!.Elements("PropertyGroup").Elements("Version").Select(element => element.Value).FirstOrDefault();
+        Check(project == workspace, $"Windows app version {project} differs from the workspace version {workspace}.");
+        Check(AppVersion.FromAssembly(typeof(Program).Assembly).Length > 0, "Assembly metadata produced no version.");
+        Console.WriteLine("PASS: version display, workspace alignment and commit-suffix trimming");
+    }
+
+    /// <summary>
+    /// Storage figures are displayed exactly as the core reports them. A negative
+    /// total would mean the bridge contract broke, so it is an error rather than a
+    /// formatted value, and a total that rounds up to the next unit is promoted so
+    /// the page never reads "1024 KB".
+    /// </summary>
+    private static void StorageFormatting()
+    {
+        Check(ByteSize.Format(0) == "0 B", "Zero bytes did not render as 0 B.");
+        Check(ByteSize.Format(1) == "1 B" && ByteSize.Format(1023) == "1023 B",
+            "A byte count below one kilobyte was rescaled.");
+        Check(ByteSize.Format(1024) == "1 KB", "One kilobyte was not promoted.");
+        Check(ByteSize.Format(1536) == "1.5 KB", "A fractional kilobyte lost its one decimal place.");
+        Check(ByteSize.Format(1024L * 1024 - 1) == "1 MB",
+            "A value that rounds up to 1024 KB was displayed as 1024 KB instead of 1 MB.");
+        Check(ByteSize.Format(1024L * 1024) == "1 MB", "One megabyte was not promoted.");
+        Check(ByteSize.Format(1024L * 1024 * 1024) == "1 GB", "One gigabyte was not promoted.");
+        Check(ByteSize.Format(1024L * 1024 * 1024 * 3 / 2) == "1.5 GB", "A fractional gigabyte lost its decimal.");
+        Check(ByteSize.Format(long.MaxValue) == "8192 PB",
+            "The largest reported total escaped the unit table or overflowed.");
+        try
+        {
+            ByteSize.Format(-1);
+            throw new InvalidOperationException("A negative byte total was formatted as storage usage.");
+        }
+        catch (ArgumentOutOfRangeException) { }
+
+        // The snapshot is the only place a figure is accepted, so the contract
+        // checks live here: one read, ready originals only, cache as a safe sum.
+        Check(StorageSnapshot.TryCreate(new SpaceStatistics(2, 4194304, 3145728, 1024, 512), out var snapshot)
+              && snapshot.OriginalCount == 2 && snapshot.OriginalBytes == 3145728 && snapshot.CacheBytes == 1536,
+            "A valid statistics read did not produce the expected snapshot.");
+        Check(!StorageSnapshot.TryCreate(new SpaceStatistics(-1, 0, 0, 0, 0), out _),
+            "A negative asset count was accepted as storage usage.");
+        Check(!StorageSnapshot.TryCreate(new SpaceStatistics(0, 0, -1, 0, 0), out _),
+            "A negative byte total was accepted as storage usage.");
+        Check(!StorageSnapshot.TryCreate(new SpaceStatistics(0, 0, 0, long.MaxValue, 1), out _),
+            "An overflowing cache total was accepted as storage usage.");
+        Console.WriteLine("PASS: byte formatting boundaries and statistics contract rejection");
+    }
+
+    /// <summary>
+    /// The storage section reads one snapshot, reports failures instead of zeroes,
+    /// and runs at most one cleanup that reports entries removed. The fake stands in
+    /// for the library so no real user directory is touched.
+    /// </summary>
+    private static async Task StorageModelAsync()
+    {
+        var workspace = new FakeStorageWorkspace
+        {
+            Statistics = _ => Task.FromResult(new SpaceStatistics(3, 12288, 4096, 100, 200))
+        };
+        var opened = new List<string>();
+        var openResult = DirectoryOpenResult.Opened;
+        await using var storage = new StorageViewModel(workspace, new FakeCatalogStrings(), path =>
+        {
+            opened.Add(path);
+            return openResult;
+        });
+
+        // Nothing read yet: the page must show "unknown", never 0 B.
+        Check(storage.Snapshot is null && storage.StatisticsErrorKey is null,
+            "An unread section started with figures instead of the unknown state.");
+
+        await storage.RefreshAsync();
+        Check(storage.Snapshot is { OriginalCount: 3, OriginalBytes: 4096, CacheBytes: 300 },
+            "The storage read did not publish the reported figures.");
+        Check(storage.StatisticsErrorKey is null && !storage.IsLoading,
+            "A successful read left an error or a spinner behind.");
+
+        // A failed read clears the figures instead of keeping stale ones or
+        // pretending the library holds zero bytes.
+        workspace.Statistics = _ => Task.FromException<SpaceStatistics>(new IOException("statistics unavailable"));
+        await storage.RefreshAsync();
+        Check(storage.Snapshot is null, "A failed read kept stale figures.");
+        Check(storage.StatisticsErrorKey == "statistics unavailable",
+            "A failed read did not surface the bridge error.");
+        Check(!storage.IsLoading, "A failed read left the loading state on.");
+
+        // The next successful read clears the error, and a real empty library is
+        // still a real zero because the read succeeded.
+        workspace.Statistics = _ => Task.FromResult(new SpaceStatistics(0, 0, 0, 0, 0));
+        await storage.RefreshAsync();
+        Check(storage.Snapshot is { OriginalCount: 0, OriginalBytes: 0, CacheBytes: 0 }
+              && storage.StatisticsErrorKey is null,
+            "An empty library was not reported as a real zero after a failure.");
+
+        workspace.Statistics = _ => Task.FromResult(new SpaceStatistics(1, 10, -5, 0, 0));
+        await storage.RefreshAsync();
+        Check(storage.Snapshot is null && storage.StatisticsErrorKey == "failure_unknown",
+            "A contract-breaking negative total was rendered as storage usage.");
+
+        // A read requested during a read is merged into one follow-up pass, and the
+        // older pass can never overwrite the newer figures.
+        var readsBeforeCoalesce = workspace.StatisticsCalls;
+        var blockReads = new int[1];
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        workspace.Statistics = async _ =>
+        {
+            if (Interlocked.Increment(ref blockReads[0]) == 1)
+            {
+                firstStarted.TrySetResult();
+                await releaseFirst.Task;
+                return new SpaceStatistics(1, 100, 100, 0, 0);
+            }
+            return new SpaceStatistics(2, 200, 200, 0, 0);
+        };
+        var stale = storage.RefreshAsync();
+        await firstStarted.Task;
+        Check(storage.IsLoading, "A running read did not expose its loading state.");
+        var newest = storage.RefreshAsync();
+        releaseFirst.SetResult();
+        await Task.WhenAll(stale, newest);
+        Check(workspace.StatisticsCalls == readsBeforeCoalesce + 2,
+            "A read during a read was not merged into a single follow-up pass.");
+        Check(storage.Snapshot is { OriginalCount: 2, OriginalBytes: 200 },
+            "An older read overwrote the newer figures.");
+
+        // Cleanup reports how many entries the core removed. The core never reports
+        // bytes, so neither the model nor the copy may claim released space.
+        workspace.Statistics = _ => Task.FromResult(new SpaceStatistics(2, 200, 200, 0, 0));
+        workspace.Clean = () => Task.FromResult(7UL);
+        var readsBeforeClean = workspace.StatisticsCalls;
+        var cleaned = await storage.CleanAsync();
+        Check(cleaned, "A successful cleanup was reported as a failure.");
+        Check(workspace.CleanCalls == 1, "One cleanup request ran more than once.");
+        Check(storage.CleanedItems == 7UL, "The cleanup result lost the number of removed entries.");
+        Check(storage.CleanupResultKey == "desktop_cleanup_result" && storage.CleanupErrorKey is null,
+            "A successful cleanup did not produce its result key.");
+        Check(workspace.StatisticsCalls == readsBeforeClean + 1,
+            "The figures were not re-read after a cleanup.");
+        Check(!storage.IsCleaning, "A finished cleanup left the progress state on.");
+
+        var root = FindRepository();
+        var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
+        var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
+        Check(english["desktop_cleanup_result"].Contains("{0}", StringComparison.Ordinal),
+            "The cleanup result copy lost its entry count placeholder.");
+        Check(!english["desktop_cleanup_result"].Contains("byte", StringComparison.OrdinalIgnoreCase)
+              && !chinese["desktop_cleanup_result"].Contains("字节", StringComparison.Ordinal),
+            "The cleanup result copy claims released bytes, but the core only counts entries.");
+
+        // A failed cleanup clears the previous success, keeps its own error, and
+        // still re-reads the figures because the deletion is not transactional.
+        workspace.Clean = () => Task.FromException<ulong>(new InvalidOperationException("cleanup failed"));
+        var failed = await storage.CleanAsync();
+        Check(!failed, "A failed cleanup was reported as success.");
+        Check(storage.CleanupErrorKey == "cleanup failed" && storage.CleanupResultKey is null
+              && storage.CleanedItems is null,
+            "A failed cleanup kept a stale success result.");
+        Check(storage.Snapshot is not null, "A failed cleanup skipped the following refresh.");
+
+        // A second click while the first is still running must not start a parallel
+        // deletion; it returns false immediately.
+        var cleaning = new TaskCompletionSource<ulong>(TaskCreationOptions.RunContinuationsAsynchronously);
+        workspace.Clean = () => cleaning.Task;
+        var callsBeforeRunning = workspace.CleanCalls;
+        var running = storage.CleanAsync();
+        var duplicate = storage.CleanAsync();
+        Check(duplicate.IsCompleted && !await duplicate,
+            "A second cleanup during a running cleanup was accepted.");
+        Check(storage.IsCleaning, "The running cleanup did not expose its progress state.");
+        Check(workspace.CleanCalls == callsBeforeRunning + 1,
+            "A duplicate cleanup request reached the core.");
+        cleaning.SetResult(2UL);
+        Check(await running, "The running cleanup did not finish.");
+        Check(storage.CleanedItems == 2UL, "The running cleanup lost its result.");
+
+        // Opening a folder never creates it: missing and unopenable paths are
+        // reported separately from a successful hand-off, with the exact path.
+        opened.Clear();
+        Check(storage.OpenDirectory(storage.ShareDirectory) && storage.DirectoryErrorKey is null
+              && opened.SequenceEqual([storage.ShareDirectory]),
+            "Opening the share folder did not reach the shell handler.");
+        openResult = DirectoryOpenResult.Missing;
+        Check(!storage.OpenDirectory(storage.DataDirectory)
+              && storage.DirectoryErrorKey == "desktop_directory_missing",
+            "A missing folder was not reported as missing.");
+        openResult = DirectoryOpenResult.Failed;
+        Check(!storage.OpenDirectory(storage.CacheDirectory)
+              && storage.DirectoryErrorKey == "desktop_directory_open_failed",
+            "A shell failure was not reported as a failure.");
+
+        // Once the window starts closing the section stops touching the core.
+        storage.RequestStop();
+        var callsAfterStop = workspace.CleanCalls;
+        Check(!await storage.CleanAsync() && workspace.CleanCalls == callsAfterStop,
+            "A stopped section still cleaned the export artifacts.");
+        Check(!storage.OpenDirectory(storage.DataDirectory), "A stopped section opened a folder.");
+        Check(!storage.IsReady, "A stopped section still reported itself as ready.");
+        Console.WriteLine("PASS: storage failures, cleanup semantics and folder reporting");
+    }
+
+    private static async Task BackupModelAsync()
+    {
+        var root = FindRepository();
+        var scratch = Path.Combine(Path.GetTempPath(), "memedock-backup-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+        try
+        {
+            // A backup only becomes the user's file after the core staged it, the user
+            // chose a location and the copy finished. The stage the core reports is
+            // translated, and the staging entry is always released.
+            var stagedPath = Path.Combine(scratch, "staged-archive.zip");
+            await File.WriteAllBytesAsync(stagedPath, Payload(200));
+            var stagedHandle = new FakeStagedBackup(stagedPath, 200);
+            var stageGate = new TaskCompletionSource<IStagedBackup>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var workspace = new FakeBackupWorkspace
+            {
+                Stage = (progress, _) =>
+                {
+                    progress?.Report("copying_backup_originals");
+                    return stageGate.Task;
+                }
+            };
+            var destination = Path.Combine(scratch, "My backup.zip");
+            var picker = new FakeBackupPicker
+            {
+                Choose = (suggested, _) =>
+                {
+                    Check(suggested == "staged-archive.zip",
+                        "The save dialog did not receive the name the core gave the archive.");
+                    return Task.FromResult<BackupDestination?>(new BackupDestination(destination, false));
+                }
+            };
+            var strings = new FakeCatalogStrings();
+            await using (var backup = new BackupViewModel(
+                             workspace, null, picker, new FakeArchiveSourcePicker(), new FakeRestoreLifecycle(), strings))
+            {
+                Check(backup.IsReady && !backup.IsBusy && backup.StageKey is null && backup.BackupSavedPath is null,
+                    "A fresh backup section did not start in the idle state.");
+
+                var run = backup.CreateBackupAsync();
+                Check(backup.IsCreatingBackup && backup.IsBusy,
+                    "A running backup did not expose its progress state.");
+                Check(!await backup.CreateBackupAsync(), "A second backup request was accepted.");
+                Check(workspace.StageCalls == 1, "A duplicate request reached the core.");
+
+                await WaitUntilAsync(() => backup.StageKey is not null);
+                Check(backup.StageKey == "backup_creating",
+                    "A reported core stage was not translated, or an untranslated token leaked.");
+
+                stageGate.SetResult(stagedHandle);
+                Check(await run, "A completed backup was reported as a failure.");
+                Check(!backup.IsCreatingBackup && !backup.IsBusy && backup.StageKey is null,
+                    "A finished backup left its progress state or stage label behind.");
+                Check(backup.BackupErrorKey is null && backup.BackupSavedPath == destination
+                      && backup.BackupSavedBytes == 200,
+                    "A saved backup did not report its real location and size.");
+                Check((await File.ReadAllBytesAsync(destination)).Length == 200,
+                    "The saved backup does not hold the archive the core staged.");
+                Check(picker.Calls == 1, "The save dialog was opened more than once for one backup.");
+                Check(stagedHandle.Disposed == 1 && !File.Exists(stagedPath),
+                    "The staged archive was not released after the backup was saved.");
+            }
+
+            // Dismissing the dialog is a cancel: no file, no error, and the staging
+            // entry is still released.
+            var cancelledStagedPath = Path.Combine(scratch, "staged-cancelled.zip");
+            await File.WriteAllBytesAsync(cancelledStagedPath, Payload(32));
+            var cancelledHandle = new FakeStagedBackup(cancelledStagedPath, 32);
+            var dismissed = await RunBackupAsync(workspace, picker, strings, cancelledHandle,
+                (_, _) => Task.FromResult<BackupDestination?>(null));
+            Check(!dismissed.Saved, "A dismissed dialog was reported as a saved backup.");
+            Check(dismissed.ErrorKey is null && dismissed.SavedPath is null,
+                "Dismissing the dialog produced an error or a saved location.");
+            Check(cancelledHandle.Disposed == 1 && !File.Exists(cancelledStagedPath),
+                "The staged archive survived a cancelled save.");
+
+            // A failed copy keeps the staging entry released, reports a readable error
+            // and never registers the destination as a saved backup.
+            var failingStagedPath = Path.Combine(scratch, "staged-failing.zip");
+            await File.WriteAllBytesAsync(failingStagedPath, Payload(48));
+            var failingHandle = new FakeStagedBackup(failingStagedPath, 48);
+            var unwritable = Path.Combine(scratch, "missing-directory", "backup.zip");
+            var failed = await RunBackupAsync(workspace, picker, strings, failingHandle,
+                (_, _) => Task.FromResult<BackupDestination?>(new BackupDestination(unwritable, false)));
+            Check(!failed.Saved, "A failed copy was reported as a saved backup.");
+            Check(failed.SavedPath is null && failed.SavedBytes is null,
+                "A failed copy registered a saved location.");
+            Check(failed.ErrorKey is { Length: > 0 }, "A failed copy did not report an error.");
+            Check(failed.ErrorKey != "desktop_backup_exists",
+                "A missing folder was reported as an existing-file conflict.");
+            Check(failingHandle.Disposed == 1 && !File.Exists(failingStagedPath),
+                "The staged archive survived a failed save.");
+            Check(!File.Exists(unwritable), "A failed copy left a file under the backup name.");
+
+            // An unconfirmed overwrite is refused by the writer itself, so a file that
+            // the user did not agree to replace keeps its bytes.
+            var existing = Path.Combine(scratch, "existing.zip");
+            await File.WriteAllBytesAsync(existing, Payload(5));
+            var replacementSource = Path.Combine(scratch, "replacement.zip");
+            await File.WriteAllBytesAsync(replacementSource, Payload(64));
+
+            var conflict = await RunBackupAsync(workspace, picker, strings,
+                new FakeStagedBackup(replacementSource, 64, deleteOnDispose: false),
+                (_, _) => Task.FromResult<BackupDestination?>(new BackupDestination(existing, false)));
+            Check(!conflict.Saved && conflict.ErrorKey == "desktop_backup_exists",
+                "An unconfirmed replacement was not reported as an existing-file conflict.");
+            Check((await File.ReadAllBytesAsync(existing)).Length == 5,
+                "An unconfirmed save replaced the file on disk.");
+            Check(Directory.GetFiles(scratch, "*.partial", SearchOption.AllDirectories).Length == 0,
+                "A refused save left a partial file behind.");
+
+            // A confirmed replacement is written aside and moved into place, so the
+            // destination never holds a half-written archive.
+            await BackupFileWriter.WriteAsync(replacementSource, existing, 64, replaceExisting: true, CancellationToken.None);
+            Check((await File.ReadAllBytesAsync(existing)).Length == 64,
+                "A confirmed replacement did not write the archive.");
+            Check(Directory.GetFiles(scratch, "*.partial", SearchOption.AllDirectories).Length == 0,
+                "A completed save left its temporary file behind.");
+
+            // A short copy must never be presented as a finished backup.
+            var shortSource = Path.Combine(scratch, "short.zip");
+            await File.WriteAllBytesAsync(shortSource, Payload(8));
+            var shortTarget = Path.Combine(scratch, "short-target.zip");
+            var truncated = false;
+            try
+            {
+                await BackupFileWriter.WriteAsync(shortSource, shortTarget, 9, replaceExisting: false, CancellationToken.None);
+            }
+            catch (IOException error) when (error is not BackupTargetExistsException)
+            {
+                truncated = true;
+            }
+
+            Check(truncated && !File.Exists(shortTarget),
+                "A copy shorter than the core's size was left under the backup name.");
+
+            // The core enforces the archive ceiling. Only that refusal is named as a
+            // size limit, and it quotes the limit the core was actually given.
+            var tooLarge = new FakeBackupWorkspace
+            {
+                MaxArchiveBytes = 2048,
+                Stage = (_, _) => Task.FromException<IStagedBackup>(
+                    new BridgeException.Failure(ErrorCode.CorruptData, "archive exceeds byte limit"))
+            };
+            var oversized = await RunBackupAsync(tooLarge, picker, strings, null,
+                (_, _) => Task.FromResult<BackupDestination?>(new BackupDestination(destination, false)));
+            Check(!oversized.Saved && oversized.ErrorKey == "desktop_backup_too_large",
+                "The core's archive limit refusal was not reported as a size limit.");
+            Check(oversized.ErrorPlaceholder == "2 KB",
+                "The size limit error did not quote the configured limit.");
+
+            var corrupt = new FakeBackupWorkspace
+            {
+                Stage = (_, _) => Task.FromException<IStagedBackup>(
+                    new BridgeException.Failure(ErrorCode.CorruptData, "database is corrupt"))
+            };
+            var damaged = await RunBackupAsync(corrupt, picker, strings, null,
+                (_, _) => Task.FromResult<BackupDestination?>(new BackupDestination(destination, false)));
+            Check(!damaged.Saved && damaged.ErrorKey != "desktop_backup_too_large"
+                  && damaged.ErrorKey != "desktop_backup_exists",
+                "An unrelated corrupt-data failure was reported as a size limit.");
+
+            // Stopping the section cancels the running backup, reports no failure, and
+            // refuses new work.
+            var stoppingWorkspace = new FakeBackupWorkspace
+            {
+                Stage = (_, token) =>
+                {
+                    var gate = new TaskCompletionSource<IStagedBackup>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    token.Register(() => gate.TrySetCanceled(token));
+                    return gate.Task;
+                }
+            };
+            var stoppingPicker = new FakeBackupPicker();
+            var stopping = new BackupViewModel(
+                stoppingWorkspace, null, stoppingPicker, new FakeArchiveSourcePicker(), new FakeRestoreLifecycle(), strings);
+            var stoppingRun = stopping.CreateBackupAsync();
+            stopping.RequestStop();
+            Check(!await stoppingRun, "A cancelled backup was reported as saved.");
+            Check(stopping.BackupErrorKey is null && stopping.BackupSavedPath is null,
+                "A cancelled backup reported an error or a saved location.");
+            Check(stoppingPicker.Calls == 0, "A cancelled backup still opened the save dialog.");
+            var stageCallsBeforeStop = stoppingWorkspace.StageCalls;
+            Check(!await stopping.CreateBackupAsync() && stoppingWorkspace.StageCalls == stageCallsBeforeStop,
+                "A stopped section still staged a backup.");
+            Check(!stopping.IsReady, "A stopped section still reported itself as ready.");
+            await stopping.DisposeAsync();
+
+            // A checkpoint is a database snapshot the core keeps, so only its own name
+            // is reported. A backup cannot start while one is running, and the reverse.
+            var checkpointPath = Path.Combine(scratch, "checkpoints", "0f1e2d3c.sqlite");
+            var checkpointGate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var checkpointWorkspace = new FakeBackupWorkspace { Checkpoint = _ => checkpointGate.Task };
+            await using (var checkpointing = new BackupViewModel(
+                             checkpointWorkspace, null, picker, new FakeArchiveSourcePicker(), new FakeRestoreLifecycle(), strings))
+            {
+                var checkpointRun = checkpointing.CreateCheckpointAsync();
+                Check(checkpointing.IsCreatingCheckpoint && checkpointing.IsBusy,
+                    "A running checkpoint did not expose its progress state.");
+                Check(!await checkpointing.CreateCheckpointAsync(),
+                    "A second checkpoint request was accepted.");
+                Check(!await checkpointing.CreateBackupAsync() && checkpointWorkspace.StageCalls == 0,
+                    "A backup started while a checkpoint was running.");
+                Check(checkpointWorkspace.CheckpointCalls == 1, "A duplicate checkpoint reached the core.");
+                checkpointGate.SetResult(checkpointPath);
+                Check(await checkpointRun, "A completed checkpoint was reported as a failure.");
+                Check(checkpointing.CheckpointName == "0f1e2d3c.sqlite"
+                      && checkpointing.CheckpointErrorKey is null && !checkpointing.IsCreatingCheckpoint,
+                    "A checkpoint did not report the name the core returned.");
+
+                checkpointWorkspace.Checkpoint = _ => Task.FromException<string>(new IOException("checkpoint failed"));
+                Check(!await checkpointing.CreateCheckpointAsync(),
+                    "A failed checkpoint was reported as a success.");
+                Check(checkpointing.CheckpointErrorKey == "checkpoint failed"
+                      && checkpointing.CheckpointName is null,
+                    "A failed checkpoint kept a stale name or lost its error.");
+            }
+
+            // Closing the window must wait for the running backup before the session is
+            // released, and a backup cancelled at that moment is not a failure.
+            var closingWorkspace = new FakeBackupWorkspace
+            {
+                Stage = (_, token) =>
+                {
+                    var gate = new TaskCompletionSource<IStagedBackup>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    token.Register(() => gate.TrySetCanceled(token));
+                    return gate.Task;
+                }
+            };
+            var closing = new BackupViewModel(
+                closingWorkspace, null, picker, new FakeArchiveSourcePicker(), new FakeRestoreLifecycle(), strings);
+            var closingRun = closing.CreateBackupAsync();
+            var disposal = closing.DisposeAsync().AsTask();
+            Check(!disposal.IsCompleted, "The session was released while a backup was still running.");
+            Check(!await closingRun, "A backup cancelled at shutdown was reported as saved.");
+            await disposal;
+            Check(closing.BackupErrorKey is null, "A backup cancelled at shutdown reported an error.");
+
+            // Both language files must carry the new keys, and the copy that names a
+            // value keeps that placeholder.
+            var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
+            var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
+            foreach (var key in new[]
+                     {
+                         "desktop_backup", "desktop_backup_hint", "desktop_backup_create",
+                         "desktop_backup_file_type", "desktop_backup_saved", "desktop_backup_saved_to",
+                         "desktop_backup_exists", "desktop_backup_too_large", "desktop_checkpoint",
+                         "desktop_checkpoint_hint", "desktop_checkpoint_create", "desktop_checkpoint_created",
+                         "backup_creating", "backup_saving"
+                     })
+            {
+                Check(english.ContainsKey(key) && chinese.ContainsKey(key),
+                    $"The backup section references a resource that is missing from one language: {key}");
+            }
+
+            Check(english["desktop_backup_too_large"].Contains("{0}", StringComparison.Ordinal)
+                  && english["desktop_checkpoint_created"].Contains("{0}", StringComparison.Ordinal),
+                "The backup size limit or the checkpoint result lost its value placeholder.");
+
+            foreach (var key in new[]
+                     {
+                         "desktop_restore", "desktop_restore_hint", "desktop_restore_choose",
+                         "desktop_restore_source", "desktop_restore_file_size", "desktop_restore_stickers",
+                         "desktop_restore_deleted_stickers", "desktop_restore_collections", "desktop_restore_tags",
+                         "desktop_restore_original_bytes", "desktop_restore_prediction",
+                         "desktop_restore_prediction_value", "desktop_restore_mode", "desktop_restore_merge",
+                         "desktop_restore_merge_hint", "desktop_restore_replace", "desktop_restore_replace_hint",
+                         "desktop_restore_apply", "desktop_restore_confirm_title", "desktop_restore_confirm_hint",
+                         "desktop_restore_confirm_action", "desktop_restore_merge_done",
+                         "desktop_restore_replace_done", "desktop_restore_busy", "desktop_restore_corrupt",
+                         "desktop_restore_unsupported", "desktop_restore_changed", "desktop_restore_too_large",
+                         "desktop_restore_read_failed", "desktop_restore_reopen_failed",
+                         "desktop_restore_state_reopened", "desktop_restore_state_unchanged",
+                         "desktop_restore_state_applied", "desktop_restore_state_stopped",
+                         "desktop_restore_state_unconfirmed", "desktop_restore_retry_action"
+                     })
+            {
+                Check(english.ContainsKey(key) && chinese.ContainsKey(key),
+                    $"The restore section references a resource that is missing from one language: {key}");
+            }
+
+            Check(english["desktop_restore_too_large"].Contains("{0}", StringComparison.Ordinal)
+                  && english["desktop_restore_confirm_hint"].Contains("{0}", StringComparison.Ordinal)
+                  && english["desktop_restore_prediction_value"].Contains("{0}", StringComparison.Ordinal)
+                  && english["desktop_restore_merge_done"].Contains("{0}", StringComparison.Ordinal),
+                "A restore message lost a value placeholder.");
+            Check(Placeholders(english["desktop_restore_prediction_value"])
+                      .SequenceEqual(Placeholders(english["desktop_restore_merge_done"]))
+                  && Placeholders(english["desktop_restore_prediction_value"])
+                      .SequenceEqual(Placeholders(chinese["desktop_restore_prediction_value"]))
+                  && Placeholders(english["desktop_restore_merge_done"])
+                      .SequenceEqual(Placeholders(chinese["desktop_restore_merge_done"])),
+                "The merge prediction or result used different placeholders across languages.");
+            Console.WriteLine("PASS: backup staging, save safety, checkpoints and shutdown ordering");
+        }
+        finally
+        {
+            TryDeleteDirectory(scratch);
+        }
+    }
+
+    /// <summary>
+    /// The restore section is a state machine over a core-checked archive: nothing shown
+    /// before the check, only the summary the core returned, and a replace that rebuilds
+    /// the session instead of pretending the old one still works.
+    /// </summary>
+    private static async Task RestoreModelAsync()
+    {
+        var scratch = Path.Combine(Path.GetTempPath(), "memedock-restore-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+        try
+        {
+            var archivePath = Path.Combine(scratch, "My backup.zip");
+            await File.WriteAllBytesAsync(archivePath, Payload(1234));
+            var inspected = Summary();
+            var applied = Summary(stickers: 40, deleted: 4, collections: 20, tags: 30, originalBytes: 40960,
+                added: 9, preserved: 10, skippedRelations: 11);
+
+            // Dismissing the file dialog is a cancel: no preview, no error, no core call.
+            await using (var dismissed = new RestoreFixture(archivePath, inspected,
+                             choose: _ => Task.FromResult<string?>(null)))
+            {
+                Check(!await dismissed.Backup.ChooseArchiveAsync(), "A dismissed dialog was reported as inspected.");
+                Check(!dismissed.Backup.HasPreview && dismissed.Backup.PreviewErrorKey is null
+                      && dismissed.Backup.PreviewSourceName is null,
+                    "A dismissed dialog produced a preview or an error.");
+                Check(dismissed.Archives.InspectCalls == 0, "A dismissed dialog still asked the core to inspect a file.");
+            }
+
+            // The preview carries the core's summary verbatim; only the file name and the
+            // file's own size come from the disk, and they are labelled as such.
+            await using (var merged = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromResult(applied)))
+            {
+                var backup = merged.Backup;
+                Check(await backup.ChooseArchiveAsync(), "A valid archive was not previewed.");
+                Check(backup.PreviewSourceName == "My backup.zip",
+                    "The preview did not name the file the user chose.");
+                Check(backup.PreviewArchiveBytes == 1234,
+                    "The preview did not report the chosen file's own size.");
+                Check(backup.PreviewStickers == (long)inspected.Stickers
+                      && backup.PreviewDeletedStickers == (long)inspected.DeletedStickers
+                      && backup.PreviewCollections == (long)inspected.Collections
+                      && backup.PreviewTags == (long)inspected.Tags
+                      && backup.PreviewOriginalBytes == (long)inspected.OriginalBytes,
+                    "The preview invented or dropped a count the core reported.");
+                Check(backup.PreviewAdded == (long)inspected.Added
+                      && backup.PreviewPreserved == (long)inspected.Preserved
+                      && backup.PreviewSkippedRelations == (long)inspected.SkippedRelations,
+                    "The merge prediction did not match the core's inspection.");
+                Check(!backup.ReplaceSelected, "Replace was selected without the user asking for it.");
+                Check(!backup.IsInspecting && !backup.IsBusy && backup.PreviewErrorKey is null
+                      && backup.RestoreErrorKey is null,
+                    "A finished inspection left its busy state or an error behind.");
+                Check(merged.Preview!.Disposed == 0 && merged.Preview.RestoreCalls == 0,
+                    "The preview was released before the user decided to restore.");
+
+                Check(await backup.RestoreAsync(), "A completed merge was reported as a failure.");
+                Check(backup.RestoreDoneKey == "desktop_restore_merge_done" && backup.RestoreErrorKey is null
+                      && backup.RestoreStateKey is null,
+                    "A completed merge reported the wrong outcome.");
+                Check(backup.RestoredAdded == (long)applied.Added
+                      && backup.RestoredPreserved == (long)applied.Preserved
+                      && backup.RestoredSkippedRelations == (long)applied.SkippedRelations,
+                    "A merge did not report what it actually added and kept.");
+                Check(!backup.HasPreview && !backup.IsRestoring && !backup.IsBusy,
+                    "A finished restore left its preview or busy state on.");
+                Check(merged.Steps.SequenceEqual(["begin", "restore:Merge", "refresh", "end"]),
+                    $"A merge ran in the wrong order: {string.Join(",", merged.Steps)}");
+                Check(merged.Preview.LastMode == ArchiveRestoreMode.Merge && merged.Preview.Disposed == 1,
+                    "The merge did not hand the staged archive to the core exactly once.");
+                Check(merged.Lifecycle.ReopenCalls == 0,
+                    "A merge reopened the library even though the session survived it.");
+            }
+
+            // Replace is chosen explicitly, closes the old session and asks the owner to
+            // reopen before the page says it finished. It is not a merge plus a refresh.
+            await using (var replaced = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromResult(applied)))
+            {
+                var backup = replaced.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                backup.SelectMode(true);
+                Check(backup.ReplaceSelected, "Selecting replace did not change the mode.");
+                Check(await backup.RestoreAsync(), "A completed replace was reported as a failure.");
+                Check(backup.RestoreDoneKey == "desktop_restore_replace_done" && backup.RestoreErrorKey is null,
+                    "A completed replace reported the wrong outcome.");
+                Check(replaced.Steps.SequenceEqual(["begin", "restore:Replace", "reopen", "end"]),
+                    $"A replace ran in the wrong order: {string.Join(",", replaced.Steps)}");
+                Check(replaced.Lifecycle.ReopenCalls == 1 && replaced.Lifecycle.RefreshCalls == 0,
+                    "A replace refreshed the dead session instead of reopening the library.");
+                Check(backup.RestoredAdded == 0, "A replace reported merge figures.");
+            }
+
+            // A refused start touches nothing: no restore call, no end call, and the
+            // checked preview is still there for the next attempt.
+            await using (var refused = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromResult(applied)))
+            {
+                var backup = refused.Backup;
+                refused.Lifecycle.AllowBegin = false;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                Check(!await backup.RestoreAsync(), "A refused restore was reported as applied.");
+                Check(backup.RestoreErrorKey == "desktop_restore_busy" && backup.RestoreStateKey is null,
+                    "A refused start did not explain that the library was busy.");
+                Check(backup.HasPreview && refused.Preview!.RestoreCalls == 0 && refused.Preview.Disposed == 0,
+                    "A refused start consumed or dropped the preview.");
+                Check(refused.Lifecycle.EndCalls == 0, "A refused start still ended a lifecycle it never began.");
+            }
+
+            // A second click during the pause step must not start a second restore.
+            await using (var doubleClick = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromResult(applied)))
+            {
+                var backup = doubleClick.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                doubleClick.Lifecycle.Begin = () => gate.Task;
+                var first = backup.RestoreAsync();
+                Check(backup.IsRestoring && backup.IsBusy, "A running restore did not expose its state.");
+                Check(!await backup.RestoreAsync(), "A second restore started while the first was running.");
+                gate.SetResult(true);
+                Check(await first, "The first restore lost its result.");
+                Check(doubleClick.Lifecycle.BeginCalls == 1 && doubleClick.Preview!.RestoreCalls == 1,
+                    "A second click reached the core.");
+            }
+
+            // A merge failure rolls back and keeps the session, so no reopen is attempted
+            // and the lifecycle is always ended.
+            await using (var mergeFailure = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromException<ArchiveSummary>(
+                                 new BridgeException.Failure(ErrorCode.CorruptData, "database is corrupt"))))
+            {
+                var backup = mergeFailure.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                Check(!await backup.RestoreAsync(), "A failed merge was reported as applied.");
+                Check(backup.RestoreErrorKey == "desktop_restore_corrupt" && backup.RestoreDoneKey is null,
+                    "A corrupt archive was not reported as damaged data.");
+                Check(mergeFailure.Lifecycle.ReopenCalls == 0,
+                    "A failed merge reopened a library it never closed.");
+                Check(mergeFailure.Lifecycle.EndCalls == 1 && mergeFailure.Preview!.Disposed == 1,
+                    "A failed merge leaked the lifecycle or the staged archive.");
+            }
+
+            // A failed replace can leave the session dead, so the owner is asked for a new
+            // one and the state line says which of the two outcomes happened.
+            var conflict = new BridgeException.Failure(ErrorCode.Conflict, "library changed");
+            await using (var reopened = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromException<ArchiveSummary>(conflict)))
+            {
+                var backup = reopened.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                backup.SelectMode(true);
+                Check(!await backup.RestoreAsync(), "A failed replace was reported as applied.");
+                Check(backup.RestoreErrorKey == "desktop_restore_changed"
+                      && backup.RestoreStateKey == "desktop_restore_state_reopened",
+                    "A replace that lost a conflict did not report the reopened library.");
+                Check(reopened.Lifecycle.ReopenCalls == 1 && reopened.Lifecycle.EndCalls == 1,
+                    "A failed replace skipped reopening or ending the lifecycle.");
+            }
+
+            await using (var unchanged = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromException<ArchiveSummary>(conflict)))
+            {
+                unchanged.Lifecycle.Reopen = _ => Task.FromResult(false);
+                var backup = unchanged.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                backup.SelectMode(true);
+                Check(!await backup.RestoreAsync(), "A failed replace was reported as applied.");
+                Check(backup.RestoreErrorKey == "desktop_restore_changed"
+                      && backup.RestoreStateKey == "desktop_restore_state_unchanged",
+                    "A replace that left the library open did not say so.");
+            }
+
+            // A replace can succeed and still leave the page on the session it had before:
+            // the open is refused because that session still owns the library. The library
+            // is usable, so this is neither a failure nor "the library is closed", and the
+            // page must not send the user to a restart; it says only that it cannot confirm
+            // what it now shows.
+            await using (var stillOpen = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromResult(applied)))
+            {
+                stillOpen.Lifecycle.Reopen = _ => Task.FromResult(false);
+                var backup = stillOpen.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                backup.SelectMode(true);
+                Check(await backup.RestoreAsync(),
+                    "A committed replace that kept a usable session was reported as failed.");
+                Check(backup.RestoreErrorKey is null
+                      && backup.RestoreStateKey == "desktop_restore_state_unconfirmed"
+                      && backup.RestoreDoneKey == "desktop_restore_replace_done",
+                    "A replace that kept its session claimed the library was closed.");
+                Check(stillOpen.Lifecycle.IsReady && stillOpen.Lifecycle.EndCalls == 1,
+                    "A replace that kept its session left the page unusable or the lifecycle open.");
+            }
+
+            // The same false with an unusable page is the opposite case: there is nothing
+            // left to operate on, so it is reported as closed and asks for a restart.
+            await using (var noSession = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromResult(applied)))
+            {
+                noSession.Lifecycle.Reopen = _ =>
+                {
+                    noSession.Lifecycle.IsReady = false;
+                    return Task.FromResult(false);
+                };
+                var backup = noSession.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                backup.SelectMode(true);
+                Check(!await backup.RestoreAsync(), "A replace without a usable session reported success.");
+                Check(backup.RestoreErrorKey == "desktop_restore_reopen_failed"
+                      && backup.RestoreStateKey == "desktop_restore_state_stopped"
+                      && backup.RestoreDoneKey is null,
+                    "A replace without a usable session was reported as a finished restore.");
+            }
+
+            // A merge that commits but cannot reload is still committed; the state line
+            // says the reload failed instead of pretending the restore did nothing.
+            await using (var refreshFailure = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromResult(applied)))
+            {
+                refreshFailure.Lifecycle.Refresh = () => Task.FromException(new IOException("reload failed"));
+                var backup = refreshFailure.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                Check(!await backup.RestoreAsync(), "A restore whose reload failed was reported as complete.");
+                Check(backup.RestoreErrorKey == "reload failed"
+                      && backup.RestoreStateKey == "desktop_restore_state_applied"
+                      && backup.RestoreDoneKey is null,
+                    "A committed merge with a failed reload was not explained.");
+                Check(backup.RestoredAdded == (long)applied.Added, "The committed merge lost its own figures.");
+            }
+
+            // Cancelling a restore is not a failure, but the lifecycle still ends and the
+            // staged archive is still released by the core wrapper's contract.
+            await using (var cancelled = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromException<ArchiveSummary>(new OperationCanceledException())))
+            {
+                var backup = cancelled.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                Check(!await backup.RestoreAsync(), "A cancelled restore was reported as applied.");
+                Check(backup.RestoreErrorKey is null && backup.RestoreDoneKey is null && backup.RestoreStateKey is null,
+                    "Cancelling a restore produced a user-visible error.");
+                Check(cancelled.Lifecycle.EndCalls == 1 && cancelled.Preview!.Disposed == 1,
+                    "Cancelling a restore leaked the lifecycle or the staged archive.");
+            }
+
+            // Inspection failures are told apart: a size refusal names the limit, a
+            // missing file is a read failure, and an unreadable format is unsupported.
+            await using (var tooLarge = new RestoreFixture(archivePath, inspected, maxArchiveBytes: 2048))
+            {
+                tooLarge.Archives.Inspect = (_, _) => Task.FromException<IArchivePreview>(
+                    new BridgeException.Failure(ErrorCode.CorruptData, "archive exceeds byte limit"));
+                Check(!await tooLarge.Backup.ChooseArchiveAsync(), "An oversized archive was previewed.");
+                Check(tooLarge.Backup.PreviewErrorKey == "desktop_restore_too_large"
+                      && tooLarge.Backup.PreviewErrorPlaceholder == "2 KB",
+                    "The archive ceiling was not named with the limit the core was given.");
+                Check(!tooLarge.Backup.HasPreview, "A refused archive produced a preview.");
+            }
+
+            await using (var unsupported = new RestoreFixture(archivePath, inspected))
+            {
+                unsupported.Archives.Inspect = (_, _) => Task.FromException<IArchivePreview>(
+                    new BridgeException.Failure(ErrorCode.UnsupportedFormat, "unknown format"));
+                Check(!await unsupported.Backup.ChooseArchiveAsync(), "An unsupported archive was previewed.");
+                Check(unsupported.Backup.PreviewErrorKey == "desktop_restore_unsupported",
+                    "An unsupported archive was not reported as unsupported.");
+            }
+
+            await using (var missing = new RestoreFixture(archivePath, inspected))
+            {
+                missing.Archives.Inspect = (_, _) => Task.FromException<IArchivePreview>(
+                    new FileNotFoundException("gone"));
+                Check(!await missing.Backup.ChooseArchiveAsync(), "A missing file was previewed.");
+                Check(missing.Backup.PreviewErrorKey == "desktop_restore_read_failed",
+                    "An unreadable file was not reported as a read failure.");
+            }
+
+            await using (var changed = new RestoreFixture(archivePath, inspected))
+            {
+                changed.Archives.Inspect = (_, _) => Task.FromException<IArchivePreview>(
+                    new BridgeException.Failure(ErrorCode.Conflict, "library changed"));
+                Check(!await changed.Backup.ChooseArchiveAsync(), "A changed library was previewed.");
+                Check(changed.Backup.PreviewErrorKey == "desktop_restore_changed",
+                    "A library that changed during inspection was not reported.");
+            }
+
+            // Choosing again releases the previous staged copy exactly once, and closing
+            // the section releases a preview the user never restored.
+            var firstPreview = new FakePreview(inspected);
+            var secondPreview = new FakePreview(inspected);
+            await using (var again = new RestoreFixture(archivePath, inspected))
+            {
+                var count = 0;
+                again.Archives.Inspect = (_, _) => Task.FromResult<IArchivePreview>(
+                    Interlocked.Increment(ref count) == 1 ? firstPreview : secondPreview);
+                Check(await again.Backup.ChooseArchiveAsync(), "The first archive was not previewed.");
+                Check(await again.Backup.ChooseArchiveAsync(), "The second archive was not previewed.");
+                Check(firstPreview.Disposed == 1 && secondPreview.Disposed == 0,
+                    "Choosing again kept the previous staged archive or dropped the new one.");
+                Check(again.Backup.HasPreview, "The second choice did not become the preview.");
+            }
+
+            Check(secondPreview.Disposed == 1,
+                "Closing the section did not release an unrestored staged archive.");
+
+            // Stopping the section cancels an inspection in progress without an error.
+            var gateInspect = new TaskCompletionSource<IArchivePreview>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var stopped = new RestoreFixture(archivePath, inspected);
+            stopped.Archives.Inspect = (_, token) =>
+            {
+                token.Register(() => gateInspect.TrySetCanceled(token));
+                return gateInspect.Task;
+            };
+            var choosing = stopped.Backup.ChooseArchiveAsync();
+            await WaitUntilAsync(() => stopped.Archives.InspectCalls == 1);
+            stopped.Backup.RequestStop();
+            Check(!await choosing, "A cancelled inspection was reported as previewed.");
+            await stopped.DisposeAsync();
+            Check(stopped.Backup.PreviewErrorKey is null && !stopped.Backup.HasPreview,
+                "Stopping the section reported the cancelled inspection as a failure.");
+
+            // A replace that closed the library but could not rebuild the page must not be
+            // described as "unchanged": the old session is gone and nothing is usable.
+            await using (var closed = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromException<ArchiveSummary>(conflict)))
+            {
+                closed.Lifecycle.Reopen = _ =>
+                {
+                    closed.Lifecycle.IsReady = false;
+                    return Task.FromResult(false);
+                };
+                var backup = closed.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                backup.SelectMode(true);
+                Check(!await backup.RestoreAsync(), "A replace that killed the session reported success.");
+                Check(backup.RestoreErrorKey == "desktop_restore_changed"
+                      && backup.RestoreStateKey == "desktop_restore_state_stopped",
+                    "A library that could not be rebuilt was reported as unchanged.");
+            }
+
+            // A reopen that throws after a committed replace must be reported, not thrown:
+            // the click handler is async void, so an escaping exception would end the app
+            // instead of showing that this window can no longer use the library.
+            await using (var thrown = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromResult(applied)))
+            {
+                thrown.Lifecycle.Reopen = _ =>
+                {
+                    thrown.Lifecycle.IsReady = false;
+                    return Task.FromException<bool>(new InvalidOperationException("open failed"));
+                };
+                var backup = thrown.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                backup.SelectMode(true);
+                Check(!await backup.RestoreAsync(), "A reopen that threw reported success.");
+                Check(backup.RestoreErrorKey == "desktop_restore_reopen_failed"
+                      && backup.RestoreStateKey == "desktop_restore_state_stopped",
+                    "A reopen that threw was not reported as an unusable library.");
+                Check(thrown.Preview!.RestoreCalls == 1,
+                    "A reopen that threw applied the archive a wrong number of times.");
+                Check(thrown.Lifecycle.EndCalls == 1,
+                    "A reopen that threw left the restore lifecycle open.");
+            }
+
+            // The same throw while the page never lost its session is not proof that the
+            // library is gone: only IsReady decides, so the library stays usable and the
+            // state says what cannot be confirmed.
+            await using (var threwLive = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromResult(applied)))
+            {
+                threwLive.Lifecycle.Reopen =
+                    _ => Task.FromException<bool>(new InvalidOperationException("the library was never opened"));
+                var backup = threwLive.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                backup.SelectMode(true);
+                Check(await backup.RestoreAsync(), "A reopen that threw on a live session reported failure.");
+                Check(backup.RestoreErrorKey is null
+                      && backup.RestoreStateKey == "desktop_restore_state_unconfirmed"
+                      && backup.RestoreDoneKey == "desktop_restore_replace_done",
+                    "A reopen that threw on a live session was reported as a closed library.");
+                Check(threwLive.Lifecycle.IsReady,
+                    "A reopen that threw on a live session left the page unusable.");
+            }
+
+            // A failed replace whose reopen throws is still not a closed library when the
+            // session survived: nothing was replaced, and the page says it was untouched.
+            await using (var failedLive = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromException<ArchiveSummary>(
+                                 new BridgeException.Failure(ErrorCode.Conflict, "library changed"))))
+            {
+                failedLive.Lifecycle.Reopen =
+                    _ => Task.FromException<bool>(new InvalidOperationException("the library was never opened"));
+                var backup = failedLive.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                backup.SelectMode(true);
+                Check(!await backup.RestoreAsync(), "A failed replace was reported as applied.");
+                Check(backup.RestoreErrorKey == "desktop_restore_changed"
+                      && backup.RestoreStateKey == "desktop_restore_state_unchanged",
+                    "A failed replace whose reopen threw claimed the library was closed.");
+                Check(failedLive.Lifecycle.EndCalls == 1,
+                    "A failed replace whose reopen threw left the lifecycle open.");
+            }
+
+            // Reloading a committed merge is only a reload: it never applies the archive a
+            // second time, and it clears the "applied but not reloaded" state on success.
+            await using (var appliedRefresh = new RestoreFixture(archivePath, inspected,
+                             (_, _) => Task.FromResult(applied)))
+            {
+                var reloads = 0;
+                appliedRefresh.Lifecycle.Refresh = () => Interlocked.Increment(ref reloads) == 1
+                    ? Task.FromException(new IOException("reload failed"))
+                    : Task.CompletedTask;
+                var backup = appliedRefresh.Backup;
+                Check(await backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+                Check(!await backup.RestoreAsync(), "A commit whose reload failed reported success.");
+                Check(backup.CanRetryRefresh, "The applied-but-not-reloaded state offered no reload.");
+                Check(await backup.RetryRefreshAsync(), "Reloading a committed merge failed.");
+                Check(backup.RestoreStateKey is null && backup.RestoreErrorKey is null
+                      && backup.RestoreDoneKey == "desktop_restore_merge_done",
+                    "A successful reload did not finish the reported state.");
+                Check(!backup.CanRetryRefresh, "The reload action survived a successful reload.");
+                Check(appliedRefresh.Preview!.RestoreCalls == 1,
+                    "Reloading the page applied the archive a second time.");
+                Check(reloads == 2, "Reloading the page did not ask the library to reload.");
+            }
+
+            // Closing the section while the core is restoring must wait for that restore,
+            // not abandon it, and must not end the lifecycle twice.
+            var gateRestore = new TaskCompletionSource<ArchiveSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var inflight = new RestoreFixture(archivePath, inspected, (_, _) => gateRestore.Task);
+            Check(await inflight.Backup.ChooseArchiveAsync(), "The chosen archive was not previewed.");
+            var restoring = inflight.Backup.RestoreAsync();
+            await WaitUntilAsync(() => inflight.Preview?.RestoreCalls == 1);
+            var closing = inflight.Backup.DisposeAsync().AsTask();
+            await Task.Delay(100);
+            Check(!closing.IsCompleted, "Closing the section abandoned a restore that was still running.");
+            gateRestore.SetResult(inspected);
+            Check(await restoring.WaitAsync(TimeSpan.FromSeconds(5)), "The running restore lost its result.");
+            await closing.WaitAsync(TimeSpan.FromSeconds(5));
+            Check(inflight.Preview!.Disposed == 1,
+                "Closing the section released the staged archive twice or not at all.");
+            Check(inflight.Lifecycle.EndCalls == 1,
+                "Closing the section ended the restore lifecycle more than once.");
+
+            // A replace rebinds the backup section to the new session; the previous handle
+            // must not stay behind the panel.
+            await using (var rebound = new RestoreFixture(archivePath, inspected))
+            {
+                var adoptedPreview = new FakePreview(inspected);
+                var adoptedArchives = new FakeArchiveWorkspace { Inspect = (_, _) => Task.FromResult<IArchivePreview>(adoptedPreview) };
+                rebound.Backup.Adopt(rebound.Workspace, adoptedArchives);
+                Check(rebound.Backup.IsReady, "Rebinding the section made it unusable.");
+                Check(await rebound.Backup.ChooseArchiveAsync(), "The section did not inspect through the adopted session.");
+                Check(adoptedArchives.InspectCalls == 1 && rebound.Archives.InspectCalls == 0,
+                    "Rebinding left the previous library behind the backup section.");
+            }
+
+            Console.WriteLine("PASS: archive inspection, merge/replace lifecycle and restore failure mapping");
+        }
+        finally
+        {
+            TryDeleteDirectory(scratch);
+        }
+    }
+
+    private static ArchiveSummary Summary(ulong stickers = 4, ulong deleted = 1, ulong collections = 2, ulong tags = 3,
+        ulong originalBytes = 4096, ulong added = 5, ulong preserved = 6, ulong skippedRelations = 7)
+        => new(stickers, deleted, collections, tags, originalBytes, added, preserved, skippedRelations);
+
+    /// <summary>What the section settled on after one backup ran to an end.</summary>
+    private sealed record BackupOutcome(
+        bool Saved,
+        string? ErrorKey,
+        string? ErrorPlaceholder,
+        string? SavedPath,
+        long? SavedBytes);
+
+    private static async Task<BackupOutcome> RunBackupAsync(
+        FakeBackupWorkspace workspace,
+        FakeBackupPicker picker,
+        ICatalogStrings strings,
+        FakeStagedBackup? staged,
+        Func<string, CancellationToken, Task<BackupDestination?>> choose)
+    {
+        if (staged is not null) workspace.Stage = (_, _) => Task.FromResult<IStagedBackup>(staged);
+        picker.Choose = choose;
+        await using var backup = new BackupViewModel(
+            workspace, null, picker, new FakeArchiveSourcePicker(), new FakeRestoreLifecycle(), strings);
+        var saved = await backup.CreateBackupAsync();
+        Check(!backup.IsBusy, "A finished backup left its busy state on.");
+        return new BackupOutcome(saved, backup.BackupErrorKey, backup.BackupErrorPlaceholder,
+            backup.BackupSavedPath, backup.BackupSavedBytes);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 400; attempt++)
+        {
+            if (condition()) return;
+            await Task.Delay(5);
+        }
+
+        throw new InvalidOperationException("The expected state never arrived.");
+    }
+
+    private static byte[] Payload(int length)
+    {
+        var bytes = new byte[length];
+        for (var index = 0; index < length; index++) bytes[index] = (byte)(index % 251);
+        return bytes;
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     // Shutdown is the last chance to release the library, so a failing step must
@@ -135,6 +1282,282 @@ internal static class Program
             && ordered.SequenceEqual(["first", "second"]),
             "A clean shutdown did not run its steps in order.");
         Console.WriteLine("PASS: shutdown keeps releasing resources after a failed background task");
+    }
+
+    // The operation the user asked for and the refresh that follows it are two
+    // results. A failed refresh must not read as a failed restore or purge, and
+    // only a completed operation may announce success.
+    private static void CatalogFeedback()
+    {
+        Check(TrashGroupsPresentation.VisibleErrorKey(null, null) is null,
+            "A clean catalog reported an error.");
+        Check(TrashGroupsPresentation.VisibleErrorKey(null, "E_RUNTIME") == TrashGroupsPresentation.RefreshFailureKey,
+            "A failed refresh was not reported as a list failure.");
+        Check(TrashGroupsPresentation.VisibleErrorKey("E_CONFLICT", null) == "E_CONFLICT",
+            "A failed operation lost its own error.");
+        Check(TrashGroupsPresentation.VisibleErrorKey("E_CONFLICT", "E_RUNTIME") == "E_CONFLICT",
+            "A refresh failure replaced the operation failure instead of staying secondary.");
+        Check(TrashGroupsPresentation.ShowsMessage(true, "restored")
+              && !TrashGroupsPresentation.ShowsMessage(false, "restored")
+              && !TrashGroupsPresentation.ShowsMessage(true, null),
+            "Success was announced for a failed operation or without a message.");
+        Check(TrashGroupsPresentation.ExtraPurgeHintKey(true) == "desktop_collection_delete_hint"
+              && TrashGroupsPresentation.ExtraPurgeHintKey(false) is null,
+            "The collection-only purge hint leaked into the tag dialog.");
+        Console.WriteLine("PASS: trash operation/refresh feedback separation and purge copy");
+    }
+
+    // A catalog notification must never be dropped, but a burst must not turn
+    // into a burst of reads either: one operation ends with one refreshed list.
+    private static async Task RefreshMergingAsync()
+    {
+        var heldPasses = 0;
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queue = new RefreshQueue(async () =>
+        {
+            Interlocked.Increment(ref heldPasses);
+            await held.Task;
+            return true;
+        });
+        queue.Suspend();
+        var firstQueued = queue.Request();
+        var secondQueued = queue.Request();
+        Check(firstQueued.IsCompleted && secondQueued.IsCompleted,
+            "A refresh requested during an operation waited for a pass that had not started.");
+        Check(Volatile.Read(ref heldPasses) == 0, "A suspended queue refreshed while the operation was running.");
+        var resumed = queue.Resume();
+        Check(Volatile.Read(ref heldPasses) == 1, "Finishing an operation did not run the refresh it held back.");
+        held.SetResult();
+        await resumed;
+        Check(Volatile.Read(ref heldPasses) == 1,
+            "Two notifications during one operation produced more than one refresh.");
+
+        // A notification during a running pass latches exactly one follow-up,
+        // and the caller settles after that follow-up instead of the stale pass.
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var livePasses = 0;
+        var live = new RefreshQueue(async () =>
+        {
+            var index = Interlocked.Increment(ref livePasses);
+            if (index == 1) started.SetResult();
+            if (index == 1) await release.Task;
+            return true;
+        });
+        var running = live.Request();
+        await started.Task;
+        var mergedOne = live.Request();
+        var mergedTwo = live.Request();
+        Check(!mergedOne.IsCompleted, "A refresh requested during a pass settled before the follow-up ran.");
+        release.SetResult();
+        await running;
+        Check(Volatile.Read(ref livePasses) == 2,
+            "A burst during a running pass did not collapse into exactly one follow-up pass.");
+        Check(mergedOne.IsCompleted && mergedTwo.IsCompleted, "A merged refresh was never completed.");
+
+        // A pass that fails reports through the view model; the queue itself
+        // must survive so a later notification still refreshes the list.
+        var attempts = 0;
+        var recovering = new RefreshQueue(() => Interlocked.Increment(ref attempts) == 1
+            ? Task.FromException<bool>(new InvalidOperationException("pass failed"))
+            : Task.FromResult(true));
+        await recovering.Request();
+        Check(Volatile.Read(ref attempts) == 1, "The failing pass did not run.");
+        await recovering.Request();
+        Check(Volatile.Read(ref attempts) == 2, "A failed pass ended the queue and lost later notifications.");
+
+        // Closing discards what is queued, still waits for the pass in flight,
+        // and accepts nothing afterwards.
+        var closingStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closingRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closingPasses = 0;
+        var closing = new RefreshQueue(async () =>
+        {
+            Interlocked.Increment(ref closingPasses);
+            closingStart.SetResult();
+            await closingRelease.Task;
+            return true;
+        });
+        var inFlight = closing.Request();
+        await closingStart.Task;
+        _ = closing.Request();
+        closing.Stop();
+        Check(!closing.Completion.IsCompleted, "Stopping released a pass that was still querying.");
+        closingRelease.SetResult();
+        await inFlight;
+        await closing.Completion;
+        Check(Volatile.Read(ref closingPasses) == 1, "A queued refresh ran after the panel stopped.");
+        await closing.Resume();
+        await closing.Request();
+        Check(Volatile.Read(ref closingPasses) == 1, "A stopped queue accepted a refresh during shutdown.");
+        Console.WriteLine("PASS: trash refresh coalescing, failure recovery and shutdown discard");
+    }
+
+    // The view model wiring behind those rules: a committed operation keeps its
+    // success even when the follow-up read fails, a new operation does not
+    // inherit the previous banner, and a closing panel publishes nothing.
+    private static async Task TrashGroupsModelAsync()
+    {
+        var catalog = new FakeTrashCatalog();
+        var strings = new FakeCatalogStrings();
+        var collection = new CollectionMetadata(
+            "c-restore", "合集", "a", new EntityLifecycle(1, 0, 0, 0, 100, null));
+
+        // Operation succeeds, refresh fails: success message plus a list error.
+        var reloads = 0;
+        catalog.RestoreCollection = _ => Task.FromResult(collection);
+        catalog.Collections = _ => Task.FromException<CollectionMetadata[]>(new InvalidOperationException("refresh failed"));
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () =>
+        {
+            reloads++;
+            return Task.CompletedTask;
+        }))
+        {
+            Check(await model.RestoreCollectionAsync(collection), "A committed restore was reported as failed.");
+            Check(model.MessageKey == "restored", "A committed restore did not announce success.");
+            Check(model.MessageText.Length > 0, "The success message was not resolved.");
+            Check(model.ErrorKey == TrashGroupsPresentation.RefreshFailureKey,
+                "A refresh failure turned a committed restore into an operation failure.");
+            Check(reloads == 1, "A restore did not reload the library catalogs.");
+        }
+
+        // Both fail: the operation's reason stays the visible one.
+        catalog = new FakeTrashCatalog
+        {
+            RestoreCollection = _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("restore failed")),
+            Collections = _ => Task.FromException<CollectionMetadata[]>(new InvalidOperationException("refresh failed"))
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            Check(!await model.RestoreCollectionAsync(collection), "A failed restore was reported as committed.");
+            Check(model.ErrorKey == "restore failed", "The refresh failure replaced the operation failure.");
+            Check(model.MessageKey is null, "A failed operation announced success.");
+        }
+
+        // Operation fails, refresh works: only the operation error remains.
+        catalog = new FakeTrashCatalog
+        {
+            RestoreCollection = _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("restore failed")),
+            Collections = _ => Task.FromResult(Array.Empty<CollectionMetadata>())
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            Check(!await model.RestoreCollectionAsync(collection), "A failed restore was reported as committed.");
+            Check(model.ErrorKey == "restore failed", "A failed operation lost its error after a clean refresh.");
+            Check(model.MessageKey is null, "A failed operation announced success.");
+        }
+
+        // The previous failure must not survive the next successful action.
+        catalog = new FakeTrashCatalog
+        {
+            RestoreCollection = _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("first failure")),
+            Collections = _ => Task.FromResult(Array.Empty<CollectionMetadata>())
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            Check(!await model.RestoreCollectionAsync(collection), "A failed restore was reported as committed.");
+            Check(model.ErrorKey == "first failure", "The failed operation did not report its own reason.");
+            catalog.RestoreCollection = _ => Task.FromResult(collection);
+            Check(await model.RestoreCollectionAsync(collection), "The retried restore did not commit.");
+            Check(model.ErrorKey is null, "An old operation error stayed visible after the next success.");
+            Check(model.MessageKey == "restored", "The retried restore did not announce success.");
+        }
+
+        // A notification subscriber that throws is isolated: the committed
+        // result stands, the subscribers after it still receive the
+        // notification, and the operation's lifecycle (busy flag, held-back
+        // refresh, disposal) is untouched.
+        var escapedReads = 0;
+        catalog = new FakeTrashCatalog { RestoreCollection = _ => Task.FromResult(collection) };
+        catalog.Collections = _ =>
+        {
+            Interlocked.Increment(ref escapedReads);
+            return Task.FromResult(Array.Empty<CollectionMetadata>());
+        };
+        var escaped = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask);
+        var failed = false;
+        PropertyChangedEventArgs? aborted = null;
+        escaped.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(TrashGroupsViewModel.MessageText)
+                || escaped.MessageKey is null || failed) return;
+            failed = true;
+            aborted = args;
+            throw new InvalidOperationException("subscriber failed");
+        };
+        // Registered after the failing subscriber. It counts only the very
+        // notification the previous subscriber aborted, so the longer dispatch
+        // cannot be mistaken for a later notification.
+        var deliveredSame = false;
+        escaped.PropertyChanged += (_, args) => deliveredSame |= ReferenceEquals(args, aborted);
+        // Interface-typed subscribers (the XAML binding engine) have to reach
+        // the same event, not the one inherited from ObservableObject.
+        var seenThroughInterface = 0;
+        ((INotifyPropertyChanged)escaped).PropertyChanged += (_, _) => seenThroughInterface++;
+        Check(await escaped.RestoreCollectionAsync(collection),
+            "A notification failure turned a committed restore into an operation failure.");
+        Check(failed, "The failing subscriber was never reached.");
+        Check(deliveredSame, "A failing subscriber hid the notification from the subscribers after it.");
+        Check(seenThroughInterface > 0,
+            "A subscriber bound through INotifyPropertyChanged received no notification.");
+        Check(escaped.MessageKey == "restored", "A notification failure discarded the success message.");
+        Check(!escaped.IsBusy, "A notification failure left the panel busy.");
+        Check(Volatile.Read(ref escapedReads) == 1,
+            "A notification failure skipped the refresh the committed operation held back.");
+        await escaped.RefreshAsync();
+        Check(Volatile.Read(ref escapedReads) == 2,
+            "The queue stayed suspended after a notification failure.");
+        // Nor may it resurface at close: a faulted operation task would be
+        // rethrown by DisposeAsync long after the subscriber failed.
+        Exception? disposal = null;
+        try { await escaped.DisposeAsync(); }
+        catch (Exception error) { disposal = error; }
+        Check(disposal is null, $"A notification failure faulted disposal: {disposal?.Message}");
+
+        // A burst of notifications during an operation becomes one read.
+        var gate = new TaskCompletionSource<CollectionMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+        catalog = new FakeTrashCatalog { RestoreCollection = _ => gate.Task };
+        catalog.Collections = _ =>
+        {
+            Interlocked.Increment(ref reads);
+            return Task.FromResult(Array.Empty<CollectionMetadata>());
+        };
+        await using (var model = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask))
+        {
+            var operation = model.RestoreCollectionAsync(collection);
+            var first = model.RefreshAsync();
+            var second = model.RefreshAsync();
+            Check(first.IsCompleted && second.IsCompleted,
+                "A refresh waited for a pass the running operation held back.");
+            gate.SetResult(collection);
+            Check(await operation, "The gated restore did not commit.");
+            Check(Volatile.Read(ref reads) == 1,
+                "Notifications during one operation produced more than one catalog read.");
+            Check(model.MessageKey == "restored", "The gated restore did not announce success.");
+        }
+
+        // Closing during an operation drops the queued read and reports nothing.
+        var closingGate = new TaskCompletionSource<CollectionMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closingReads = 0;
+        catalog = new FakeTrashCatalog { RestoreCollection = _ => closingGate.Task };
+        catalog.Collections = _ =>
+        {
+            Interlocked.Increment(ref closingReads);
+            return Task.FromResult(Array.Empty<CollectionMetadata>());
+        };
+        var stopping = new TrashGroupsViewModel(catalog, strings, () => Task.CompletedTask);
+        var stoppedOperation = stopping.RestoreCollectionAsync(collection);
+        _ = stopping.RefreshAsync();
+        stopping.RequestStop();
+        closingGate.SetResult(collection);
+        await stoppedOperation;
+        await stopping.DisposeAsync();
+        Check(Volatile.Read(ref closingReads) == 0, "A stopped panel read the catalog after shutdown.");
+        Check(stopping.MessageKey is null && stopping.ErrorKey is null, "A stopped panel published a banner.");
+        await stopping.RefreshAsync();
+        Check(Volatile.Read(ref closingReads) == 0, "A stopped panel accepted a refresh after disposal.");
+        Console.WriteLine("PASS: trash operation/refresh combinations, stale errors and close discard");
     }
 
     private static void EditDrafts()
@@ -166,6 +1589,30 @@ internal static class Program
         Console.WriteLine("PASS: draft ownership, in-flight typing, generation/revision rejection and discard");
     }
 
+    /// <summary>
+    /// The status line picks one of three brushes from this window's resource
+    /// dictionary. ResourceDictionary's C#/WinRT projection exposes only the
+    /// IDictionary members (indexer, ContainsKey, TryGetValue); the ABI names
+    /// Lookup/HasKey are not callable from C# (CS1061), which is invisible to
+    /// this test project because it never compiles the WinUI sources.
+    /// </summary>
+    private static void SyncStatusBrushes(string root)
+    {
+        var xaml = File.ReadAllText(Path.Combine(root, "apps/windows/app/MainWindow.xaml"));
+        var code = File.ReadAllText(Path.Combine(root, "apps/windows/app/MainWindow.xaml.cs"));
+        foreach (var key in new[] { "SyncIdleBrush", "SyncAttentionBrush", "SyncFailureBrush" })
+        {
+            Check(xaml.Contains($"x:Key=\"{key}\"", StringComparison.Ordinal),
+                $"MainWindow.xaml no longer declares the {key} resource.");
+            Check(code.Contains($"\"{key}\"", StringComparison.Ordinal),
+                $"MainWindow.xaml.cs no longer reads the {key} resource.");
+        }
+        Check(!code.Contains(".HasKey(", StringComparison.Ordinal)
+              && !code.Contains(".Lookup(", StringComparison.Ordinal),
+            "ResourceDictionary has no C# HasKey/Lookup; read the indexer instead.");
+        Console.WriteLine("PASS: sync status brushes stay declared in XAML and read through the indexer");
+    }
+
     private static Dictionary<string, string> ReadResw(string path)
     {
         var entries = XDocument.Load(path).Root!.Elements("data").ToArray();
@@ -178,6 +1625,10 @@ internal static class Program
         var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
         var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
         Check(chinese.Keys.Order().SequenceEqual(english.Keys.Order()), "Chinese and English resource keys differ.");
+        // The shared key promises a background loop that survives the window,
+        // which Windows does not have; it must stay replaced by the lifecycle hint.
+        Check(!chinese.ContainsKey("sync_background_hint"),
+            "Windows must not claim background sync; use sync_lifecycle_hint.");
         foreach (var file in Directory.EnumerateFiles(Path.Combine(root, "apps/windows/app"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
             foreach (Match match in Regex.Matches(File.ReadAllText(file), "(?:Strings|_strings)\\[\"([^\"]+)\"\\]"))
@@ -194,7 +1645,28 @@ internal static class Program
             ["desktop_settings"] = "settings", ["desktop_sort"] = "sortHint", ["desktop_sort_recent"] = "sortRecent",
             ["desktop_sort_collection"] = "sortCollectionOrder", ["desktop_select_all"] = "selectAll",
             ["desktop_clear_selection"] = "clearSelection", ["desktop_selection_loaded_only"] = "selectionLoadedOnly",
-            ["desktop_details"] = "details", ["desktop_selection_over_limit"] = "selectionOverLimit"
+            ["desktop_details"] = "details", ["desktop_selection_over_limit"] = "selectionOverLimit",
+            ["desktop_space"] = "space", ["desktop_cleanup"] = "cleanUp", ["desktop_clean"] = "clean",
+            ["desktop_cleanup_hint"] = "cleanExportsHint", ["desktop_locations"] = "locations",
+            ["desktop_data_directory"] = "dataDirectory", ["desktop_cache_directory"] = "cacheDirectory",
+            ["desktop_export_directory"] = "exportDirectory", ["desktop_open"] = "open",
+            ["desktop_backup"] = "backup", ["desktop_backup_create"] = "createBackup",
+            ["desktop_backup_hint"] = "backupHint", ["desktop_backup_saved"] = "backupSaved",
+            ["desktop_backup_saved_to"] = "backupSavedTo", ["desktop_checkpoint_create"] = "createCheckpoint",
+            ["desktop_checkpoint_hint"] = "checkpointHint"
+        };
+        // Windows-only copy for the desktop settings page. Mobile has no drag
+        // hand-off, a GIF preset, or a device identity panel, so these keys have no
+        // Android source; they must not be invented there either.
+        var windowsOnly = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "output_copy_group", "output_drag_group", "output_still", "output_animated",
+            "export_gif", "export_gif_hint", "settings_library_id", "settings_device_id",
+            "settings_license_text", "about_copy", "about_copy_failed",
+            "desktop_refresh", "desktop_cleanup_result", "desktop_storage_not_ready",
+            "desktop_directory_missing", "desktop_directory_open_failed",
+            "desktop_backup_file_type", "desktop_backup_exists", "desktop_backup_too_large",
+            "desktop_checkpoint", "desktop_checkpoint_created"
         };
         var macos = File.ReadAllText(Path.Combine(root, "apps/macos/Sources/MemeDock/Support/Localization.swift"));
         var split = macos.IndexOf("private static let chinese:", StringComparison.Ordinal);
@@ -220,6 +1692,31 @@ internal static class Program
                     Check(android["organize_collections_footer"].EndsWith(value, StringComparison.Ordinal), "Collection deletion hint differs from Android.");
                     continue;
                 }
+                // Windows has no tray process: MainWindow.OnClosing stops the sync
+                // loop, so Android's "runs in the background" copy would promise a
+                // behaviour this platform does not have. The key stays Windows-only
+                // and must name both halves of the lifecycle: syncing while the app
+                // runs, stopped once it is paused or closed.
+                if (key == "sync_lifecycle_hint")
+                {
+                    Check(!android.ContainsKey(key), "The Windows-only sync lifecycle hint leaked into Android.");
+                    Check(value.Contains(locale == "values" ? "运行" : "running", StringComparison.OrdinalIgnoreCase)
+                          && value.Contains(locale == "values" ? "关闭" : "close", StringComparison.OrdinalIgnoreCase),
+                        $"Sync lifecycle hint does not describe the Windows lifecycle: {key}/{locale}");
+                    continue;
+                }
+                // The whole restore section is Windows-only: the other clients have no
+                // archive inspection or replace flow to source copy from.
+                if (key.StartsWith("desktop_restore", StringComparison.Ordinal))
+                {
+                    Check(!android.ContainsKey(key), $"Windows-only restore resource leaked into Android: {key}");
+                    continue;
+                }
+                if (windowsOnly.Contains(key))
+                {
+                    Check(!android.ContainsKey(key), $"Windows-only resource leaked into Android: {key}");
+                    continue;
+                }
                 Check(android.TryGetValue(key, out var source), $"Resource has no approved Android/desktop source: {key}");
                 var expected = Regex.Replace(source!, @"%(\d+)\$[ds]", match =>
                     "{" + (int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) - 1) + "}");
@@ -227,6 +1724,111 @@ internal static class Program
             }
         }
         Console.WriteLine($"PASS: {chinese.Count} bilingual resource keys, placeholders and source-copy parity");
+    }
+
+    /// <summary>
+    /// The restore chain against the real core: stage a backup the way the page does, save
+    /// it through the same writer, inspect it, merge it into the library it came from, then
+    /// replace a changed library with it and open the result. The view model is covered with
+    /// fakes elsewhere; this proves the adapter and the core agree on the archive, on the
+    /// closed session a replace leaves behind, and on a rejected file.
+    /// </summary>
+    private static async Task ArchiveRoundTripAsync()
+    {
+        var parent = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+        var root = Path.Combine(parent, "MemeDock-Windows-archive-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var chosen = Path.Combine(root, "chosen");
+            Directory.CreateDirectory(chosen);
+            var redPath = Path.Combine(root, "red.png");
+            await File.WriteAllBytesAsync(redPath, Png(255, 0, 0));
+            var greenPath = Path.Combine(root, "green.png");
+            await File.WriteAllBytesAsync(greenPath, Png(0, 255, 0));
+
+            var session = await LibrarySession.OpenAsync(root);
+            try
+            {
+                await session.ImportAsync(redPath, null, CancellationToken.None);
+
+                // Exactly the page's path: the core stages the archive, the writer moves it
+                // to the location the user chose, and the staged entry is then released.
+                var staged = await session.StageBackupAsync(null, CancellationToken.None);
+                var savedBackup = Path.Combine(chosen, staged.FileName);
+                var reportedBytes = staged.ByteSize;
+                await BackupFileWriter.WriteAsync(staged.Path, savedBackup, reportedBytes, false,
+                    CancellationToken.None);
+                await staged.DisposeAsync();
+                Check(File.Exists(savedBackup) && new FileInfo(savedBackup).Length == reportedBytes,
+                    "The saved backup does not match the size the core reported.");
+
+                await using (var preview = await session.InspectArchiveAsync(savedBackup, CancellationToken.None))
+                {
+                    var summary = preview.Summary;
+                    Check(summary.Stickers == 1 && summary.DeletedStickers == 0 && summary.Collections == 0,
+                        "Inspecting the archive did not report the library it was made from.");
+                    Check(summary.OriginalBytes > 0, "The archive reported no original bytes for an imported sticker.");
+
+                    var merged = await preview.RestoreArchiveAsync(ArchiveRestoreMode.Merge,
+                        CancellationToken.None);
+                    Check(merged.Added == 0 && merged.Preserved >= 1,
+                        "Merging a library into itself added or skipped stickers.");
+                }
+
+                using (var page = await session.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null,
+                           CancellationToken.None))
+                {
+                    Check(page.Stickers.Length == 1, "Merging a library into itself changed the sticker count.");
+                }
+
+                // A file that is not an archive is refused without leaving the staged copy
+                // behind and without wedging the open library.
+                var notAnArchive = Path.Combine(chosen, "notes.txt");
+                await File.WriteAllTextAsync(notAnArchive, "this is not a backup");
+                var rejected = await ExpectFailure(() => session.InspectArchiveAsync(notAnArchive, CancellationToken.None));
+                Check(rejected is ErrorCode.CorruptData or ErrorCode.UnsupportedFormat or ErrorCode.InvalidInput,
+                    $"A file that is not a backup was rejected as {rejected}.");
+
+                // A second sticker makes the replace observable: after it the library must hold
+                // only what the archive had.
+                await session.ImportAsync(greenPath, null, CancellationToken.None);
+                using (var page = await session.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null,
+                           CancellationToken.None))
+                {
+                    Check(page.Stickers.Length == 2, "The second import was not written before the replace.");
+                }
+
+                await using (var preview = await session.InspectArchiveAsync(savedBackup, CancellationToken.None))
+                {
+                    // Replace closes this library inside the core; the page learns that from
+                    // the failed reopen, so this handle is dead from here on.
+                    var replaced = await preview.RestoreArchiveAsync(ArchiveRestoreMode.Replace,
+                        CancellationToken.None);
+                    Check(replaced.Stickers == 1, "The replace did not report the archive's contents.");
+                }
+            }
+            finally
+            {
+                try { await session.DisposeAsync(); }
+                catch (BridgeException) { }
+            }
+
+            await using (var reopened = await LibrarySession.OpenAsync(root))
+            {
+                using var page = await reopened.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null,
+                    CancellationToken.None);
+                Check(page.Stickers.Length == 1, "Reopening after a replace did not show the archive's library.");
+            }
+
+            Console.WriteLine("PASS: real backup stage, archive inspection, merge and replace round trip");
+        }
+        finally
+        {
+            if (Directory.Exists(root)
+                && string.Equals(Path.GetDirectoryName(root), parent, StringComparison.OrdinalIgnoreCase)
+                && Path.GetFileName(root).StartsWith("MemeDock-Windows-archive-", StringComparison.Ordinal))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     private static async Task SessionQueriesAsync()
@@ -253,6 +1855,13 @@ internal static class Program
             await File.WriteAllBytesAsync(greenPath, Png(0, 255, 0));
             await using (var session = await LibrarySession.OpenAsync(root))
             {
+                // The storage page shows these three folders but never creates or
+                // moves them: they are exactly the directories the core was opened
+                // with, and they must stay distinct.
+                Check(session.DataDirectory == Path.Combine(root, "data")
+                      && session.CacheDirectory == Path.Combine(root, "cache")
+                      && session.ShareDirectory == Path.Combine(root, "share"),
+                    "The reported folders do not match the directories the library was opened with.");
                 var first = await session.ImportAsync(redPath, collectionId, CancellationToken.None);
                 await session.ImportAsync(greenPath, null, CancellationToken.None);
                 Check((await session.CollectionsAsync(CancellationToken.None)).Single().Name == "中文合集", "Collection catalog did not cross the adapter.");
@@ -282,6 +1891,9 @@ internal static class Program
             {
                 using var page = await reopened.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null, CancellationToken.None);
                 Check(page.Stickers.Length == 2, "Adapter shutdown/reopen lost data or retained the library lock.");
+                await TrashCatalogRestartAsync();
+                await TrashCatalogRelationsAsync(reopened, root);
+                await LargeExportAsync(reopened, root);
             }
             Console.WriteLine("PASS: real session import, scoped search, catalogs, cancellation, thumbnail and reopen");
         }
@@ -384,10 +1996,10 @@ internal static class Program
                 "A deleted sticker stayed in the normal listing.");
         using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
         {
-            Check(trash.Stickers.Select(item => item.Id).OrderBy(id => id)
-                    .SequenceEqual(new[] { purple.Sticker.Id, cyan.Sticker.Id }.OrderBy(id => id)),
-                "The trash listing did not contain exactly the deleted stickers.");
-            Check(trash.Next is null, "A two-item trash page returned another cursor.");
+            var listed = trash.Stickers.Select(item => item.Id).ToHashSet();
+            Check(listed.Contains(purple.Sticker.Id) && listed.Contains(cyan.Sticker.Id),
+                "The trash listing did not contain the deleted stickers.");
+            Check(trash.Next is null, "Two deleted stickers returned another cursor.");
         }
         using (var search = await session.QueryAsync(new(LibraryScope.Trash), "紫色", StickerSort.Recent, null, token))
             Check(search.Stickers.Length == 1 && search.Stickers[0].Id == purple.Sticker.Id,
@@ -477,12 +2089,21 @@ internal static class Program
             is { Succeeded: 0, Failed: 1, ErrorKey: "InvalidInput" }, "A malformed sticker id was not rejected as invalid input.");
 
         using (var trash = await session.QueryAsync(new(LibraryScope.Trash), "", StickerSort.Recent, null, token))
-            Check(trash.Stickers.Length == 0 && trash.Next is null, "The emptied trash still listed stickers.");
+            Check(!trash.Stickers.Any(item => item.Id == purple.Sticker.Id || item.Id == cyan.Sticker.Id),
+                "The emptied trash still listed a purged sticker.");
         using (var active = await session.QueryAsync(LibraryFilter.All, "", StickerSort.Recent, null, token))
-            Check(active.Stickers.Length == 2, "Trash operations changed the active listing of unrelated stickers.");
+            Check(!active.Stickers.Any(item => item.Id == purple.Sticker.Id || item.Id == cyan.Sticker.Id),
+                "Trash operations changed the active listing of the stickers they touched.");
 
-        await session.DeleteCollectionAsync(new(collection.Id, collection.Lifecycle.Generation), token);
-        await session.DeleteTagAsync(new(tag.Id, tag.Lifecycle.Generation), token);
+        // Only the objects this test created are cleaned up here; the restart and
+        // relation tests build their own fixtures instead of reading these.
+        var deletedCollection = await session.DeleteCollectionAsync(
+            new(collection.Id, collection.Lifecycle.Generation), token);
+        var deletedTag = await session.DeleteTagAsync(new(tag.Id, tag.Lifecycle.Generation), token);
+        await session.PurgeCollectionAsync(
+            new(deletedCollection.Id, deletedCollection.Lifecycle.Generation), deletedCollection.Lifecycle.Revision, token);
+        await session.PurgeTagAsync(
+            new(deletedTag.Id, deletedTag.Lifecycle.Generation), deletedTag.Lifecycle.Revision, token);
         Console.WriteLine("PASS: real trash listing, search, restore, purge, idempotence and failure consistency");
     }
 
@@ -490,13 +2111,166 @@ internal static class Program
     // a concurrent change fails for that entry only.
     private static TrashEntry Entry(StickerMetadata item) => new(item.Id, item.Lifecycle.Generation, item.Lifecycle.Revision);
 
+    // This test owns its library: it creates the deleted metadata, closes, and
+    // reopens to prove the core persisted it. Nothing here reads fixtures left by
+    // another test, so it can run alone or in any order.
+    private static async Task TrashCatalogRestartAsync()
+    {
+        var token = CancellationToken.None;
+        var parent = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+        var root = Path.Combine(parent, "MemeDock-Windows-restart-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string collectionId;
+            string tagId;
+            await using (var created = await LibrarySession.OpenAsync(root))
+            {
+                var collection = await created.CreateCollectionAsync("重启合集", token);
+                var tag = await created.CreateTagAsync("重启标签", token);
+                collectionId = collection.Id;
+                tagId = tag.Id;
+                await created.DeleteCollectionAsync(new(collection.Id, collection.Lifecycle.Generation), token);
+                await created.DeleteTagAsync(new(tag.Id, tag.Lifecycle.Generation), token);
+                Check(!(await created.CollectionsAsync(token)).Any(item => item.Id == collectionId)
+                      && !(await created.TagsAsync(token)).Any(item => item.Id == tagId),
+                    "Deleting a catalog left it in the active catalog list.");
+            }
+
+            await using var session = await LibrarySession.OpenAsync(root);
+            var deletedCollections = await session.CollectionsAsync(token, deleted: true);
+            var deletedTags = await session.TagsAsync(token, deleted: true);
+            var trashedCollection = deletedCollections.SingleOrDefault(item => item.Id == collectionId);
+            var trashedTag = deletedTags.SingleOrDefault(item => item.Id == tagId);
+            Check(trashedCollection is not null, "A deleted collection did not survive a library reopen.");
+            Check(trashedTag is not null, "A deleted tag did not survive a library reopen.");
+            Check(!(await session.CollectionsAsync(token)).Any(item => item.Id == trashedCollection!.Id),
+                "A deleted collection leaked into the active catalog after reopen.");
+            Check(!(await session.TagsAsync(token)).Any(item => item.Id == trashedTag!.Id),
+                "A deleted tag leaked into the active catalog after reopen.");
+
+            var restoredCollection = await session.RestoreCollectionAsync(
+                new(trashedCollection!.Id, trashedCollection.Lifecycle.Generation),
+                trashedCollection.Lifecycle.Revision, token);
+            Check(restoredCollection.Id == trashedCollection.Id
+                  && restoredCollection.Lifecycle.Generation > trashedCollection.Lifecycle.Generation,
+                "Restoring a collection did not advance its generation.");
+            Check((await session.CollectionsAsync(token)).Any(item => item.Id == restoredCollection.Id),
+                "A restored collection did not return to the active catalog.");
+            Check(!(await session.CollectionsAsync(token, deleted: true)).Any(item => item.Id == restoredCollection.Id),
+                "A restored collection stayed in the deleted catalog.");
+
+            Check(await ExpectFailure(() => session.PurgeCollectionAsync(
+                    new(restoredCollection.Id, restoredCollection.Lifecycle.Generation),
+                    restoredCollection.Lifecycle.Revision, token)) == ErrorCode.Conflict,
+                "An active collection was permanently deleted instead of rejected.");
+            Check(await ExpectFailure(() => session.PurgeCollectionAsync(
+                    new(trashedCollection.Id, trashedCollection.Lifecycle.Generation),
+                    trashedCollection.Lifecycle.Revision, token)) == ErrorCode.Conflict,
+                "A purge with the pre-restore generation was accepted.");
+            Check((await session.CollectionsAsync(token)).Any(item => item.Id == restoredCollection.Id),
+                "A rejected collection purge removed the active entry.");
+
+            var deletedAgain = await session.DeleteCollectionAsync(
+                new(restoredCollection.Id, restoredCollection.Lifecycle.Generation), token);
+            Check(await ExpectFailure(() => session.PurgeCollectionAsync(
+                    new(deletedAgain.Id, deletedAgain.Lifecycle.Generation),
+                    deletedAgain.Lifecycle.Revision + 1, token)) == ErrorCode.Conflict,
+                "A purge with a conflicting revision was accepted.");
+            await session.PurgeCollectionAsync(
+                new(deletedAgain.Id, deletedAgain.Lifecycle.Generation),
+                deletedAgain.Lifecycle.Revision, token);
+            Check(!(await session.CollectionsAsync(token, deleted: true)).Any(item => item.Id == deletedAgain.Id),
+                "A purged collection stayed in the deleted catalog.");
+
+            var restoredTag = await session.RestoreTagAsync(
+                new(trashedTag!.Id, trashedTag.Lifecycle.Generation),
+                trashedTag.Lifecycle.Revision, token);
+            Check(restoredTag.Id == trashedTag.Id
+                  && restoredTag.Lifecycle.Generation > trashedTag.Lifecycle.Generation,
+                "Restoring a tag did not advance its generation.");
+            Check((await session.TagsAsync(token)).Any(item => item.Id == restoredTag.Id),
+                "A restored tag did not return to the active catalog.");
+            Check(await ExpectFailure(() => session.PurgeTagAsync(
+                    new(restoredTag.Id, restoredTag.Lifecycle.Generation),
+                    restoredTag.Lifecycle.Revision, token)) == ErrorCode.Conflict,
+                "An active tag was permanently deleted instead of rejected.");
+
+            var deletedTagAgain = await session.DeleteTagAsync(
+                new(restoredTag.Id, restoredTag.Lifecycle.Generation), token);
+            await session.PurgeTagAsync(
+                new(deletedTagAgain.Id, deletedTagAgain.Lifecycle.Generation),
+                deletedTagAgain.Lifecycle.Revision, token);
+            Check(!(await session.TagsAsync(token, deleted: true)).Any(item => item.Id == deletedTagAgain.Id),
+                "A purged tag stayed in the deleted catalog.");
+            // Repeating a purge on a tombstone is not a failure.
+            await session.PurgeTagAsync(
+                new(deletedTagAgain.Id, deletedTagAgain.Lifecycle.Generation),
+                deletedTagAgain.Lifecycle.Revision, token);
+
+            const string missing = "0190f3a0-0000-7000-8000-000000000000";
+            Check(await ExpectFailure(() => session.PurgeTagAsync(new(missing, 1), 1, token)) == ErrorCode.NotFound,
+                "Purging an unknown tag did not report not-found.");
+            Check(await ExpectFailure(() => session.RestoreCollectionAsync(new(missing, 1), 1, token)) == ErrorCode.NotFound,
+                "Restoring an unknown collection did not report not-found.");
+            Console.WriteLine("PASS: deleted collections/tags survive reopen, restore, conflicts, purge and missing entities");
+        }
+        finally
+        {
+            if (Directory.Exists(root) && string.Equals(Path.GetDirectoryName(root), parent, StringComparison.OrdinalIgnoreCase)
+                && Path.GetFileName(root).StartsWith("MemeDock-Windows-restart-", StringComparison.Ordinal))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task TrashCatalogRelationsAsync(LibrarySession session, string root)
+    {
+        var token = CancellationToken.None;
+        var path = Path.Combine(root, "catalog-relations.png");
+        await File.WriteAllBytesAsync(path, Png(12, 34, 56));
+        var collection = await session.CreateCollectionAsync("关系合集", token);
+        var tag = await session.CreateTagAsync("关系标签", token);
+        var imported = await session.ImportAsync(path, collection.Id, token);
+        var detail = await session.DetailAsync(imported.Sticker.Id, token);
+        await session.OrganizeAsync(
+            new(imported.Sticker.Id, detail.Sticker.Lifecycle.Generation), true,
+            new(collection.Id, collection.Lifecycle.Generation),
+            [new(tag.Id, tag.Lifecycle.Generation)], token);
+        detail = await session.DetailAsync(imported.Sticker.Id, token);
+        Check(detail.Collection?.Id == collection.Id && detail.Tags.Any(item => item.Id == tag.Id),
+            "The catalog relation test did not establish its fixture.");
+
+        var deletedCollection = await session.DeleteCollectionAsync(
+            new(collection.Id, collection.Lifecycle.Generation), token);
+        var deletedTag = await session.DeleteTagAsync(
+            new(tag.Id, tag.Lifecycle.Generation), token);
+        Check(!(await session.CollectionsAsync(token)).Any(item => item.Id == collection.Id)
+              && !(await session.TagsAsync(token)).Any(item => item.Id == tag.Id),
+            "Deleting a catalog left it in the active catalog list.");
+        await session.PurgeCollectionAsync(
+            new(deletedCollection.Id, deletedCollection.Lifecycle.Generation),
+            deletedCollection.Lifecycle.Revision, token);
+        await session.PurgeTagAsync(
+            new(deletedTag.Id, deletedTag.Lifecycle.Generation),
+            deletedTag.Lifecycle.Revision, token);
+
+        var after = await session.DetailAsync(imported.Sticker.Id, token);
+        Check(after.Sticker.Lifecycle.DeletedAt is null && after.Sticker.Lifecycle.PurgedAt is null,
+            "Purging a collection or tag deleted its sticker.");
+        Check(after.OriginalPath is not null && File.Exists(after.OriginalPath),
+            "Purging a collection or tag deleted the sticker original.");
+        Check(after.Collection is null && after.Tags.Length == 0,
+            "Purging a collection or tag left an effective relation on the sticker.");
+        Console.WriteLine("PASS: purging collections/tags keeps stickers and originals and removes effective relations");
+    }
+
     private static async Task OutputContractsAsync(LibrarySession session, string id, string source)
     {
         var token = CancellationToken.None;
         var detail = await session.DetailAsync(id, token);
         var target = new StickerOutputTarget(id, detail.Sticker.Lifecycle.Generation);
         target.Validate(detail.Sticker);
-        using var original = await session.ExportAsync(id, StickerOutputPolicy.Options(false, StickerOutputKind.OriginalFile), token);
+        using var original = await session.ExportAsync(id,
+            StickerOutputPolicy.Options(false, StickerOutputKind.OriginalFile, OutputDefaults.CopyDefault), token);
         var artifact = await session.PrepareHandoffAsync(original, token);
         Check((await File.ReadAllBytesAsync(artifact.Path)).SequenceEqual(await File.ReadAllBytesAsync(source)), "Original handoff changed bytes.");
         Check(artifact.RetainedUntil > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), "Handoff did not durably retain its file.");
@@ -505,9 +2279,18 @@ internal static class Program
         var failedPublication = await session.ProtectClipboardAsync(original, token);
         await session.AbortClipboardAsync(failedPublication);
         await session.ReconcileClipboardAsync(pin);
-        using var png = await session.ExportAsync(id, StickerOutputPolicy.Options(false, StickerOutputKind.Image), token);
+        using var png = await session.ExportAsync(id,
+            StickerOutputPolicy.Options(false, StickerOutputKind.Image, OutputDefaults.CopyDefault), token);
         var converted = await session.PrepareHandoffAsync(png, token);
         Check(converted.Mime == "image/png" && !converted.Animated && File.Exists(converted.Path), "PNG export did not publish a verified static file.");
+        // Dragging used to bypass preferences through StickerOutputKind.OriginalFile; the
+        // default drag preset must still hand over the very same bytes without a re-encode.
+        using var dragged = await session.ExportAsync(id,
+            StickerOutputPolicy.Options(false, StickerOutputKind.Image, OutputDefaults.DragDefault), token);
+        var draggedArtifact = await session.PrepareHandoffAsync(dragged, token);
+        Check(!draggedArtifact.Animated
+              && (await File.ReadAllBytesAsync(draggedArtifact.Path)).SequenceEqual(await File.ReadAllBytesAsync(source)),
+            "Default drag changed the original still bytes.");
         var replacement = await session.ProtectClipboardAsync(png, token);
         await session.ReconcileClipboardAsync(replacement);
         await session.ReconcileClipboardAsync(null);
@@ -520,12 +2303,18 @@ internal static class Program
         var moving = await session.DetailAsync(imported.Sticker.Id, token);
         Check(moving.Asset.Animated, "Two-frame fixture was not recognized as animated.");
         using var movingOriginal = await session.ExportAsync(imported.Sticker.Id,
-            StickerOutputPolicy.Options(moving.Asset.Animated, StickerOutputKind.Image), token);
+            StickerOutputPolicy.Options(moving.Asset.Animated, StickerOutputKind.Image, OutputDefaults.CopyDefault), token);
         var movingArtifact = await session.PrepareHandoffAsync(movingOriginal, token);
         Check(movingArtifact.Animated && (await File.ReadAllBytesAsync(movingArtifact.Path)).SequenceEqual(gif),
             "Default animated copy changed the original GIF or lost animation.");
+        using var draggedMoving = await session.ExportAsync(imported.Sticker.Id,
+            StickerOutputPolicy.Options(true, StickerOutputKind.Image, OutputDefaults.DragDefault), token);
+        var draggedMovingArtifact = await session.PrepareHandoffAsync(draggedMoving, token);
+        Check(draggedMovingArtifact.Animated
+              && (await File.ReadAllBytesAsync(draggedMovingArtifact.Path)).SequenceEqual(gif),
+            "Default animated drag changed the original GIF or lost animation.");
         using var firstFrame = await session.ExportAsync(imported.Sticker.Id,
-            StickerOutputPolicy.Options(true, StickerOutputKind.FirstFrame), token);
+            StickerOutputPolicy.Options(true, StickerOutputKind.FirstFrame, OutputDefaults.CopyDefault), token);
         var frameArtifact = await session.PrepareHandoffAsync(firstFrame, token);
         var frameBytes = await File.ReadAllBytesAsync(frameArtifact.Path);
         Check(!frameArtifact.Animated && frameArtifact.Mime == "image/png"
@@ -535,6 +2324,34 @@ internal static class Program
         await session.DeleteStickerAsync(new(imported.Sticker.Id, imported.Sticker.Lifecycle.Generation), token);
         Console.WriteLine("PASS: real export, durable handoff, clipboard replacement/abort, usage recording and immutable originals");
         Console.WriteLine("PASS: real animated GIF preservation and explicit first-frame PNG conversion");
+    }
+
+    /// <summary>
+    /// The still default must stay a transparent PNG capped at 1024px through the real
+    /// encoder, not only in the preset table.
+    /// </summary>
+    private static async Task LargeExportAsync(LibrarySession session, string root)
+    {
+        var token = CancellationToken.None;
+        var source = Path.Combine(root, "large-output.png");
+        await File.WriteAllBytesAsync(source, Png(1600, 900, 10, 20, 30, 128));
+        try
+        {
+            var imported = await session.ImportAsync(source, null, token);
+            using var exported = await session.ExportAsync(imported.Sticker.Id,
+                StickerOutputPolicy.Options(false, StickerOutputKind.Image, OutputDefaults.CopyDefault), token);
+            var artifact = await session.PrepareHandoffAsync(exported, token);
+            var header = PngHeader(await File.ReadAllBytesAsync(artifact.Path));
+            Check(artifact.Mime == "image/png" && !artifact.Animated, "The large still default was not a static PNG.");
+            Check(header is { } size && Math.Max(size.Width, size.Height) == 1024 && size.ColorType == 6,
+                $"The still default was not a transparent PNG capped at 1024px (got {header?.Width}x{header?.Height}, color type {header?.ColorType}).");
+            await session.DeleteStickerAsync(new(imported.Sticker.Id, imported.Sticker.Lifecycle.Generation), token);
+            Console.WriteLine("PASS: still default keeps an alpha PNG capped at 1024px through the real encoder");
+        }
+        finally
+        {
+            File.Delete(source);
+        }
     }
 
     // GIF89a: 1px red/green frames, a two-color global palette and 100ms delays.
@@ -554,23 +2371,46 @@ internal static class Program
         return output.ToArray();
     }
 
-    // A valid 1px RGBA PNG, using the same fixture construction as NativeContracts.
-    private static byte[] Png(byte red, byte green, byte blue)
+    private static byte[] Png(byte red, byte green, byte blue) => Png(1, 1, red, green, blue, 255);
+
+    // A valid RGBA PNG of any size, using the same fixture construction as NativeContracts.
+    private static byte[] Png(int width, int height, byte red, byte green, byte blue, byte alpha)
     {
         using var output = new MemoryStream();
         output.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
         var header = new byte[13];
-        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(0, 4), 1);
-        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4, 4), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(0, 4), (uint)width);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4, 4), (uint)height);
         header[8] = 8;
         header[9] = 6;
         Chunk(output, "IHDR"u8, header);
+        var row = new byte[1 + width * 4];
+        for (var x = 0; x < width; x++)
+        {
+            row[1 + x * 4] = red;
+            row[2 + x * 4] = green;
+            row[3 + x * 4] = blue;
+            row[4 + x * 4] = alpha;
+        }
         using var compressed = new MemoryStream();
         using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
-            zlib.Write(new byte[] { 0, red, green, blue, 255 });
+        {
+            for (var y = 0; y < height; y++) zlib.Write(row);
+        }
         Chunk(output, "IDAT"u8, compressed.ToArray());
         Chunk(output, "IEND"u8, []);
         return output.ToArray();
+    }
+
+    private static (int Width, int Height, byte ColorType)? PngHeader(byte[] bytes)
+    {
+        if (bytes.Length < 26
+            || !bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })
+            || !bytes.AsSpan(12, 4).SequenceEqual("IHDR"u8))
+            return null;
+        return ((int)BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(16, 4)),
+            (int)BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(20, 4)),
+            bytes[25]);
     }
 
     private static void Chunk(Stream output, ReadOnlySpan<byte> type, ReadOnlySpan<byte> bytes)
@@ -596,21 +2436,99 @@ internal static class Program
         var root = Path.Combine(parent, "MemeDock-Windows-preferences-" + Guid.NewGuid().ToString("N"));
         try
         {
+            Directory.CreateDirectory(root);
+            var path = Path.Combine(root, "preferences.json");
+            // The appearance selector picks its row from the enum value, so the enum
+            // order is part of the settings contract, not an incidental detail.
+            Check((int)AppearanceMode.System == 0 && (int)AppearanceMode.Light == 1 && (int)AppearanceMode.Dark == 2,
+                "The appearance selector order no longer matches the AppearanceMode values.");
             var preferences = new AppPreferences(root);
             await preferences.LoadAsync();
-            Check(preferences.Language == LanguageMode.System, "A fresh install did not follow the system language.");
+            Check(preferences.Language == LanguageMode.System && preferences.Appearance == AppearanceMode.System
+                  && preferences.CopyOutput == OutputDefaults.CopyDefault && preferences.DragOutput == OutputDefaults.DragDefault,
+                "A fresh install did not start from the approved defaults.");
+
             await preferences.SaveLanguageAsync(LanguageMode.Chinese);
+            await preferences.SaveAppearanceAsync(AppearanceMode.Dark);
+            await preferences.SaveOutputPresetAsync(OutputAction.Copy, animated: false, ExportPreset.SmallJpeg);
+            await preferences.SaveOutputPresetAsync(OutputAction.Drag, animated: true, ExportPreset.CompatibleGif);
             var reopened = new AppPreferences(root);
             await reopened.LoadAsync();
-            Check(reopened.Language == LanguageMode.Chinese, "Language did not survive a process restart.");
-            await Task.WhenAll(preferences.SaveLanguageAsync(LanguageMode.English), preferences.SaveLanguageAsync(LanguageMode.System));
-            await reopened.LoadAsync();
-            Check(reopened.Language == LanguageMode.System, "Concurrent preference writes lost the final selection.");
-            await File.WriteAllTextAsync(Path.Combine(root, "preferences.json"), "broken json");
+            Check(reopened.Language == LanguageMode.Chinese && reopened.Appearance == AppearanceMode.Dark,
+                "Language or appearance did not survive a process restart.");
+            Check(reopened.CopyOutput == new OutputDefaults(ExportPreset.SmallJpeg, ExportPreset.Original)
+                  && reopened.DragOutput == new OutputDefaults(ExportPreset.Original, ExportPreset.CompatibleGif),
+                "An output preset did not survive a process restart.");
+
+            // Enum names keep the file readable and immune to ordinal changes.
+            var json = await File.ReadAllTextAsync(path);
+            Check(json.Contains("\"Dark\"", StringComparison.Ordinal) && json.Contains("\"SmallJpeg\"", StringComparison.Ordinal),
+                "Preferences were written as ordinals instead of enum names.");
+
+            // Writes to different fields must compose, not overwrite each other.
+            await Task.WhenAll(
+                preferences.SaveLanguageAsync(LanguageMode.English),
+                preferences.SaveAppearanceAsync(AppearanceMode.Light),
+                preferences.SaveOutputPresetAsync(OutputAction.Copy, animated: false, ExportPreset.SmallJpeg));
+            var merged = new AppPreferences(root);
+            await merged.LoadAsync();
+            Check(merged.Language == LanguageMode.English && merged.Appearance == AppearanceMode.Light
+                  && merged.CopyOutput == new OutputDefaults(ExportPreset.SmallJpeg, ExportPreset.Original)
+                  && merged.DragOutput == new OutputDefaults(ExportPreset.Original, ExportPreset.CompatibleGif),
+                "Concurrent preference writes lost a field.");
+
+            // A file written before this batch only has Language; the rest defaults.
+            await File.WriteAllTextAsync(path, "{\"Language\":\"Chinese\"}");
+            var legacy = new AppPreferences(root);
+            await legacy.LoadAsync();
+            Check(legacy.Language == LanguageMode.Chinese && legacy.Appearance == AppearanceMode.System
+                  && legacy.CopyOutput == OutputDefaults.CopyDefault && legacy.DragOutput == OutputDefaults.DragDefault,
+                "A language-only file did not migrate to the other defaults.");
+
+            // Unknown enums, presets that do not fit their field and wrong value
+            // kinds all fall back per field instead of failing the whole load.
+            await File.WriteAllTextAsync(path,
+                "{\"Language\":\"Klingon\",\"Appearance\":42,\"Output\":{\"Copy\":{\"Still\":\"CompatibleGif\",\"Animated\":\"SmallJpeg\"},\"Drag\":5}}");
+            var sanitized = new AppPreferences(root);
+            await sanitized.LoadAsync();
+            Check(sanitized.Language == LanguageMode.System && sanitized.Appearance == AppearanceMode.System
+                  && sanitized.CopyOutput == OutputDefaults.CopyDefault && sanitized.DragOutput == OutputDefaults.DragDefault,
+                "Invalid persisted values did not fall back to their own defaults.");
+
+            await File.WriteAllTextAsync(path, "{\"Appearance\":\"Dark\",\"Output\":{\"Copy\":{\"Animated\":\"Original\"}}}");
+            var partial = new AppPreferences(root);
+            await partial.LoadAsync();
+            Check(partial.Appearance == AppearanceMode.Dark && partial.CopyOutput == OutputDefaults.CopyDefault,
+                "A partial file changed fields it did not mention.");
+
+            await File.WriteAllTextAsync(path, "broken json");
             var damaged = new AppPreferences(root);
             await damaged.LoadAsync();
-            Check(damaged.Language == LanguageMode.System, "Damaged preferences prevented system-language fallback.");
-            Console.WriteLine("PASS: preference persistence, serialized writes and damaged-file recovery");
+            Check(damaged.Language == LanguageMode.System && damaged.CopyOutput == OutputDefaults.CopyDefault,
+                "Damaged preferences prevented defaults from applying.");
+
+            // A failed write must leave both the file and the instance on the old value.
+            await File.WriteAllTextAsync(path, "{\"Appearance\":\"Dark\"}");
+            var stable = new AppPreferences(root);
+            await stable.LoadAsync();
+            var temporary = path + ".tmp";
+            Directory.CreateDirectory(temporary);
+            try
+            {
+                await stable.SaveAppearanceAsync(AppearanceMode.Light);
+                throw new InvalidOperationException("A directory blocking the temporary file did not fail the write.");
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or NotSupportedException) { }
+            finally
+            {
+                if (Directory.Exists(temporary)) Directory.Delete(temporary);
+            }
+            Check(stable.Appearance == AppearanceMode.Dark, "A failed write changed the in-memory appearance.");
+            var intact = new AppPreferences(root);
+            await intact.LoadAsync();
+            Check(intact.Appearance == AppearanceMode.Dark, "A failed write damaged the preference file.");
+
+            Console.WriteLine("PASS: preference defaults, restart round-trips, fault-tolerant migration, concurrent writes and failed writes");
         }
         finally
         {
@@ -618,6 +2536,208 @@ internal static class Program
                 && Path.GetFileName(root).StartsWith("MemeDock-Windows-preferences-", StringComparison.Ordinal))
                 Directory.Delete(root, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// One table for every sync status the windows render: the phase, the text
+    /// key and the count are the only inputs the status-bar entry and the
+    /// settings page use, so they cannot disagree.
+    /// </summary>
+    private static void SyncStatusMapping()
+    {
+        static SyncState State(SyncStatus status, bool loaded = true, bool running = false,
+            bool hasCredential = true, Exception? error = null)
+            => new(status, loaded, running, hasCredential, Changing: false, error);
+
+        // Idle, nothing queued, and a round has completed.
+        var ready = State(SyncSnapshot(lastSuccess: 1_700_000_000_000));
+        Check(SyncPresentation.Phase(ready) == SyncPhase.UpToDate
+              && SyncPresentation.StatusKey(ready) == "sync_ready"
+              && SyncPresentation.HintKey(ready) is null
+              && SyncPresentation.IsVisible(ready),
+            "An idle, successfully synced binding did not report the ready state.");
+
+        // Connected, nothing queued, but no round has finished: not "up to date".
+        var unsynced = State(SyncSnapshot());
+        Check(SyncPresentation.Phase(unsynced) == SyncPhase.Unsynced
+              && SyncPresentation.StatusKey(unsynced) == "sync_never"
+              && SyncPresentation.StatusKey(unsynced) != "sync_ready",
+            "A binding without a completed round claimed to be up to date.");
+
+        // Local changes are still queued.
+        var pending = State(SyncSnapshot(pending: 3, lastSuccess: 1_700_000_000_000));
+        Check(SyncPresentation.Phase(pending) == SyncPhase.Pending
+              && SyncPresentation.StatusKey(pending) == "sync_pending"
+              && SyncPresentation.HintKey(pending) is null,
+            "Queued changes were reported as up to date.");
+
+        // Changes the server rejects have their own state and their own hint.
+        var blocked = State(SyncSnapshot(pending: 4, blocked: 2));
+        Check(SyncPresentation.Phase(blocked) == SyncPhase.Blocked
+              && SyncPresentation.StatusKey(blocked) == "sync_blocked"
+              && SyncPresentation.HintKey(blocked) == "sync_blocked_hint",
+            "Blocked changes were not reported as blocked.");
+
+        // A user pause is never a network error, and a retryable error recorded
+        // before pausing is history rather than a live failure.
+        var paused = State(SyncSnapshot(paused: true, pending: 6, error: "network"));
+        Check(SyncPresentation.Phase(paused) == SyncPhase.Paused
+              && SyncPresentation.StatusKey(paused) == "sync_paused"
+              && SyncPresentation.ErrorKey(paused) is null,
+            "A user pause was reported as a network failure.");
+
+        // Pairs that can co-occur, pinned here so the precedence in Phase stays a
+        // contract instead of something a future edit can reorder silently.
+        // Pausing outranks blocked changes: the pause is why nothing moves, and
+        // the settings page still reports the blocked count and its hint.
+        var pausedWithBlocked = State(SyncSnapshot(paused: true, pending: 4, blocked: 2));
+        Check(SyncPresentation.Phase(pausedWithBlocked) == SyncPhase.Paused
+              && SyncPresentation.StatusKey(pausedWithBlocked) == "sync_paused"
+              && SyncPresentation.HintKey(pausedWithBlocked) is null,
+            "A pause with blocked changes reported something other than the pause.");
+
+        // A rejected token is actionable whatever the pause says, so it wins over
+        // the pause instead of waiting for a resume that cannot succeed.
+        var pausedWithExpiredToken = State(SyncSnapshot(paused: true, error: "unauthorized"));
+        Check(SyncPresentation.Phase(pausedWithExpiredToken) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(pausedWithExpiredToken) == "sync_reauthorize"
+              && SyncPresentation.HintKey(pausedWithExpiredToken) == "sync_failure_unauthorized",
+            "A paused binding with a rejected token did not ask for a new token.");
+
+        // Any other terminal status error is history while paused and only
+        // becomes a failure once syncing resumes.
+        var pausedWithCorruptData = State(SyncSnapshot(paused: true, error: "corrupt_data"));
+        Check(SyncPresentation.Phase(pausedWithCorruptData) == SyncPhase.Paused
+              && SyncPresentation.ErrorKey(pausedWithCorruptData) is null,
+            "A paused binding with a terminal status error did not defer to the pause.");
+        var resumedCorruptData = State(SyncSnapshot(error: "corrupt_data"));
+        Check(SyncPresentation.Phase(resumedCorruptData) == SyncPhase.Failed
+              && !SyncPresentation.CanSynchronize(resumedCorruptData),
+            "Resuming did not surface the terminal status error recorded while paused.");
+
+        // A request in flight only claims that a request was sent, even when the
+        // failure is already known; the failure is shown once the request ends.
+        var runningWithExpiredToken = State(SyncSnapshot(error: "unauthorized"), running: true);
+        Check(SyncPresentation.Phase(runningWithExpiredToken) == SyncPhase.Running
+              && SyncPresentation.StatusKey(runningWithExpiredToken) == "sync_running",
+            "A running request was reported as something other than running.");
+        var runningWithCredentialFailure = State(SyncSnapshot(), running: true,
+            error: new SyncCredentialException("keychain"));
+        Check(SyncPresentation.Phase(runningWithCredentialFailure) == SyncPhase.Running
+              && SyncPresentation.StatusKey(runningWithCredentialFailure) == "sync_running",
+            "A running request reported a credential failure before it finished.");
+        var settledExpiredToken = State(SyncSnapshot(error: "unauthorized"));
+        Check(SyncPresentation.StatusKey(settledExpiredToken) == "sync_reauthorize",
+            "A finished request did not surface the rejected token.");
+
+        // Changes can be queued before the first round ever completes: the queue
+        // is the stronger fact, so the entry cannot claim it never synced.
+        var pendingBeforeFirstRound = State(SyncSnapshot(pending: 1));
+        Check(SyncPresentation.Phase(pendingBeforeFirstRound) == SyncPhase.Pending
+              && SyncPresentation.StatusKey(pendingBeforeFirstRound) == "sync_pending",
+            "Queued changes on a never-synced binding were not reported as pending.");
+
+        // Blocked changes outlive a retryable error, so they own the status; the
+        // retry detail stays available to the settings page's error line.
+        var blockedWithNetwork = State(SyncSnapshot(pending: 3, blocked: 1, error: "network"));
+        Check(SyncPresentation.Phase(blockedWithNetwork) == SyncPhase.Blocked
+              && SyncPresentation.StatusKey(blockedWithNetwork) == "sync_blocked"
+              && SyncPresentation.HintKey(blockedWithNetwork) == "sync_blocked_hint"
+              && SyncPresentation.ErrorKey(blockedWithNetwork) == "sync_failure_network",
+            "Blocked changes were replaced by the retryable error.");
+
+        // A failure carried by the snapshot is not reported while the user has
+        // paused: the pause is the reason nothing is moving.
+        var pausedWithBridgeFailure = State(SyncSnapshot(paused: true, error: "network"),
+            error: new BridgeException.Failure(ErrorCode.Network, "offline"));
+        Check(SyncPresentation.Phase(pausedWithBridgeFailure) == SyncPhase.Paused
+              && SyncPresentation.HintKey(pausedWithBridgeFailure) is null,
+            "A paused binding reported a network failure.");
+
+        // A request that was sent is not a finished round.
+        var running = State(SyncSnapshot(lastSuccess: 1_700_000_000_000), running: true);
+        Check(SyncPresentation.Phase(running) == SyncPhase.Running
+              && SyncPresentation.StatusKey(running) == "sync_running",
+            "A sent sync request did not report that it is running.");
+
+        // A failed round stays visible, with the retry explanation as its hint.
+        var failed = State(SyncSnapshot(pending: 2, error: "network"));
+        Check(SyncPresentation.Phase(failed) == SyncPhase.Failed
+              && SyncPresentation.StatusKey(failed) == "sync_failed"
+              && SyncPresentation.HintKey(failed) == "sync_failure_network",
+            "A failed round did not report the failure.");
+
+        // A library that was never connected stays out of the status bar.
+        var unconfigured = State(SyncSnapshot(origin: null, connected: false), hasCredential: false);
+        Check(SyncPresentation.Phase(unconfigured) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(unconfigured) == "sync_authorize"
+              && !SyncPresentation.IsVisible(unconfigured),
+            "An unconfigured library claimed a sync status.");
+
+        // A stored token that the server rejected needs its own instruction.
+        var expired = State(SyncSnapshot(error: "unauthorized"));
+        Check(SyncPresentation.Phase(expired) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(expired) == "sync_reauthorize"
+              && SyncPresentation.HintKey(expired) == "sync_failure_unauthorized"
+              && SyncPresentation.IsVisible(expired),
+            "An expired token was not distinguished from a disconnected library.");
+
+        // A credential store failure also asks for the token again.
+        var credential = State(SyncSnapshot(), error: new SyncCredentialException("keychain"));
+        Check(SyncPresentation.Phase(credential) == SyncPhase.Authorization
+              && SyncPresentation.StatusKey(credential) == "sync_reauthorize"
+              && SyncPresentation.ErrorKey(credential) == "sync_failure_credential",
+            "A credential lookup failure did not ask for a new token.");
+
+        // Recovery: the same binding, once the failure clears and a round lands.
+        var recovered = State(SyncSnapshot(lastSuccess: 1_700_000_200_000));
+        Check(SyncPresentation.Phase(recovered) == SyncPhase.UpToDate
+              && SyncPresentation.ErrorKey(recovered) is null,
+            "Clearing the failure did not return to the ready state.");
+
+        // Before the native status is read nothing is claimed.
+        var unavailable = State(SyncSnapshot(), loaded: false);
+        Check(SyncPresentation.Phase(unavailable) == SyncPhase.Unavailable
+              && !SyncPresentation.IsVisible(unavailable),
+            "Sync status was shown before the native status was read.");
+
+        // A status error this build does not know has no detail text but still
+        // shows the failure state, and a terminal one stops automatic retries.
+        var unknown = State(SyncSnapshot(error: "unsupported_schema"));
+        Check(SyncPresentation.Phase(unknown) == SyncPhase.Failed
+              && SyncPresentation.StatusKey(unknown) == "sync_failed"
+              && SyncPresentation.ErrorKey(unknown) is null
+              && SyncPresentation.HintKey(unknown) == "sync_failed"
+              && SyncPresentation.IsTerminal(unknown)
+              && !SyncPresentation.CanSynchronize(unknown),
+            "An unknown terminal status error failed silently.");
+
+        // Every key the table can return must exist in both resource files: the
+        // renderer looks these up by table, so the literal-usage scan in
+        // ResourceParity cannot see them.
+        var root = FindRepository();
+        var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
+        var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
+        string?[] keys =
+        [
+            SyncPresentation.StatusKey(ready), SyncPresentation.StatusKey(unsynced),
+            SyncPresentation.StatusKey(pending), SyncPresentation.StatusKey(blocked),
+            SyncPresentation.StatusKey(paused), SyncPresentation.StatusKey(running),
+            SyncPresentation.StatusKey(failed), SyncPresentation.StatusKey(unconfigured),
+            SyncPresentation.StatusKey(expired), SyncPresentation.StatusKey(credential),
+            SyncPresentation.StatusKey(recovered), SyncPresentation.StatusKey(unavailable),
+            SyncPresentation.StatusKey(unknown), SyncPresentation.HintKey(blocked),
+            SyncPresentation.HintKey(expired), SyncPresentation.HintKey(failed),
+            SyncPresentation.HintKey(pausedWithExpiredToken), SyncPresentation.HintKey(blockedWithNetwork),
+            SyncPresentation.StatusKey(pausedWithBlocked), SyncPresentation.StatusKey(pendingBeforeFirstRound),
+            SyncPresentation.StatusKey(runningWithCredentialFailure), SyncPresentation.ErrorKey(credential),
+            SyncPresentation.ErrorKey(blockedWithNetwork), SyncPresentation.ErrorKey(pausedWithBridgeFailure),
+        ];
+        foreach (var key in keys.Distinct())
+            Check(key is not null && english.ContainsKey(key) && chinese.ContainsKey(key),
+                $"Sync status text is missing from the resources: {key}");
+
+        Console.WriteLine("PASS: sync status mapping (ready, pending, blocked, paused, running, failed, authorization, recovery, precedence combinations)");
     }
 
     private static async Task SyncStateMachineAsync()
@@ -630,7 +2750,8 @@ internal static class Program
         await sync.StartAsync(runLoop: false);
         Check(sync.State.Loaded && !sync.State.HasCredential && !sync.State.Status.Connected
               && SyncPresentation.StatusKey(sync.State) == "sync_authorize"
-              && SyncPresentation.NeedsAuthorization(sync.State),
+              && SyncPresentation.NeedsAuthorization(sync.State)
+              && !SyncPresentation.IsVisible(sync.State),
             "A fresh library did not report the disconnected sync state.");
         Check(adapter.Subscriptions.Count == 1, "Sync status was not observed exactly once.");
 
@@ -640,9 +2761,11 @@ internal static class Program
               && adapter.LastToken == "mdk_first", "Connecting did not trim or forward the server address.");
         Check(tokens.Saved.TryGetValue(library + "|https://sync.example.com/", out var stored) && stored == "mdk_first",
             "Connecting did not persist the device token.");
+        // The adapter's connect snapshot has no completed round, so a connected
+        // binding must not claim it is up to date yet.
         Check(sync.State.HasCredential && sync.State.Status.Connected
-              && SyncPresentation.StatusKey(sync.State) == "sync_ready",
-            "A successful connection did not produce the ready state.");
+              && SyncPresentation.StatusKey(sync.State) == "sync_never",
+            "A successful connection claimed a status no round has proven yet.");
 
         adapter.ConnectGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var second = sync.ConnectAsync("https://sync.example.com/", "mdk_second");
@@ -660,7 +2783,7 @@ internal static class Program
         await sync.SetPausedAsync(true);
         Check(sync.State.Status.Paused && SyncPresentation.StatusKey(sync.State) == "sync_paused",
             "Pausing was not reflected in the sync state.");
-        adapter.Status = SyncSnapshot(connected: true);
+        adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_699_999_000_000);
         await sync.SetPausedAsync(false);
         Check(!sync.State.Status.Paused && SyncPresentation.StatusKey(sync.State) == "sync_ready",
             "Resuming was not reflected in the sync state.");
@@ -668,7 +2791,9 @@ internal static class Program
         adapter.Status = SyncSnapshot(connected: true, pending: 5);
         adapter.Push(adapter.Status);
         await WaitForAsync(() => sync.State.Status.Pending == 5, "native status updates");
-        Check(sync.State.Status.Pending == 5, "A pushed native status did not reach the state.");
+        Check(sync.State.Status.Pending == 5
+              && SyncPresentation.StatusKey(sync.State) == "sync_pending",
+            "A pushed native status did not reach the state.");
 
         adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_700_000_000_000);
         await sync.SynchronizeNowAsync();
@@ -687,7 +2812,8 @@ internal static class Program
         adapter.SynchronizeFailure = null;
         adapter.Status = SyncSnapshot(connected: true, lastSuccess: 1_700_000_100_000);
         await sync.SynchronizeNowAsync();
-        Check(sync.State.Status.LastSuccessMs == 1_700_000_100_000 && SyncPresentation.ErrorKey(sync.State) is null,
+        Check(sync.State.Status.LastSuccessMs == 1_700_000_100_000 && SyncPresentation.ErrorKey(sync.State) is null
+              && SyncPresentation.StatusKey(sync.State) == "sync_ready",
             "Retrying after a network failure did not clear the error.");
 
         var callsBeforeTerminal = adapter.SynchronizeCalls;
@@ -707,20 +2833,24 @@ internal static class Program
         var unauthorized = new SyncState(
             SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: true, Changing: false,
             Error: new BridgeException.Failure(ErrorCode.Unauthorized, "expired"));
+        // The stored token is still there, so the entry asks to replace it
+        // rather than to connect from scratch.
         Check(SyncPresentation.NeedsAuthorization(unauthorized)
               && SyncPresentation.IsTerminal(unauthorized)
               && !SyncPresentation.CanSynchronize(unauthorized)
-              && SyncPresentation.StatusKey(unauthorized) == "sync_authorize"
+              && SyncPresentation.StatusKey(unauthorized) == "sync_reauthorize"
               && SyncPresentation.ErrorKey(unauthorized) == "sync_failure_unauthorized",
             "A bridge authorization failure was not presented as a re-authorization request.");
 
+        // Every coordinator path that hits a credential-store failure drops
+        // HasCredential first, so the entry falls back to the connect prompt.
         var credentialFailure = new SyncState(
-            SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: true, Changing: false,
+            SyncSnapshot(connected: true), Loaded: true, Running: false, HasCredential: false, Changing: false,
             Error: new SyncCredentialException("credential store unavailable"));
         Check(SyncPresentation.ErrorKey(credentialFailure) == "sync_failure_credential"
               && SyncPresentation.StatusKey(credentialFailure) == "sync_authorize"
               && !SyncPresentation.CanSynchronize(credentialFailure),
-            "A credential store failure was not presented as a re-authorization request.");
+            "A credential store failure was not presented as a connect request.");
 
         adapter.Push(SyncSnapshot(connected: true));
         await WaitForAsync(() => sync.State.Status.Error is null, "the cleared sync error");
@@ -1023,7 +3153,10 @@ internal static class Program
         public Task<SyncStatus> SetPausedAsync(bool paused, CancellationToken cancellation)
         {
             LastPaused = paused;
-            Status = SyncSnapshot(origin: Status.Origin, paused: paused);
+            // The native call only flips the pause flag and returns the rest of
+            // the binding unchanged, so the fake keeps its cursor, queue and
+            // last successful round instead of rebuilding a fresh snapshot.
+            Status = Status with { Paused = paused };
             return Task.FromResult(Status);
         }
 
@@ -1061,5 +3194,362 @@ internal static class Program
         }
 
         public void Dispose() => Close();
+    }
+
+    private sealed class FakeTrashCatalog : ITrashCatalog
+    {
+        public Func<CancellationToken, Task<CollectionMetadata[]>> Collections { get; set; } =
+            _ => Task.FromResult(Array.Empty<CollectionMetadata>());
+        public Func<CancellationToken, Task<TagMetadata[]>> Tags { get; set; } =
+            _ => Task.FromResult(Array.Empty<TagMetadata>());
+        public Func<EntityReference, Task<CollectionMetadata>> RestoreCollection { get; set; } =
+            _ => Task.FromException<CollectionMetadata>(new InvalidOperationException("unexpected collection restore"));
+        public Func<EntityReference, Task<TagMetadata>> RestoreTag { get; set; } =
+            _ => Task.FromException<TagMetadata>(new InvalidOperationException("unexpected tag restore"));
+        public Func<EntityReference, Task> PurgeCollection { get; set; } =
+            _ => Task.FromException(new InvalidOperationException("unexpected collection purge"));
+        public Func<EntityReference, Task> PurgeTag { get; set; } =
+            _ => Task.FromException(new InvalidOperationException("unexpected tag purge"));
+
+        public Task<CollectionMetadata[]> CollectionsAsync(CancellationToken cancellation, bool deleted = false)
+            => Collections(cancellation);
+
+        public Task<TagMetadata[]> TagsAsync(CancellationToken cancellation, bool deleted = false)
+            => Tags(cancellation);
+
+        public Task<CollectionMetadata> RestoreCollectionAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => RestoreCollection(target);
+
+        public Task<TagMetadata> RestoreTagAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => RestoreTag(target);
+
+        public Task PurgeCollectionAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => PurgeCollection(target);
+
+        public Task PurgeTagAsync(
+            EntityReference target, long deletedRevision, CancellationToken cancellation)
+            => PurgeTag(target);
+    }
+
+    /// <summary>
+    /// Stands in for <see cref="LibrarySession"/> so the storage section's failure,
+    /// concurrency and folder rules can be exercised without touching real data.
+    /// </summary>
+    private sealed class FakeStorageWorkspace : IStorageWorkspace
+    {
+        private int _statisticsCalls;
+        private int _cleanCalls;
+
+        public string DataDirectory { get; init; } = @"C:\MemeDock\data";
+
+        public string CacheDirectory { get; init; } = @"C:\MemeDock\cache";
+
+        public string ShareDirectory { get; init; } = @"C:\MemeDock\share";
+
+        public Func<int, Task<SpaceStatistics>> Statistics { get; set; } =
+            _ => Task.FromResult(new SpaceStatistics(0, 0, 0, 0, 0));
+
+        public Func<Task<ulong>> Clean { get; set; } = () => Task.FromResult(0UL);
+
+        public int StatisticsCalls => Volatile.Read(ref _statisticsCalls);
+
+        public int CleanCalls => Volatile.Read(ref _cleanCalls);
+
+        public Task<SpaceStatistics> StatisticsAsync(CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            return Statistics(Interlocked.Increment(ref _statisticsCalls));
+        }
+
+        public Task<ulong> CleanExportArtifactsAsync(CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _cleanCalls);
+            return Clean();
+        }
+    }
+
+    /// <summary>
+    /// Stands in for <see cref="LibrarySession"/> so the backup section's staging,
+    /// cancellation, size-limit and checkpoint rules can be exercised without a
+    /// real library.
+    /// </summary>
+    private sealed class FakeBackupWorkspace : IBackupWorkspace
+    {
+        private int _stageCalls;
+        private int _checkpointCalls;
+
+        public long MaxArchiveBytes { get; set; } = 1L << 30;
+
+        public Func<IProgress<string>?, CancellationToken, Task<IStagedBackup>> Stage { get; set; } =
+            (_, _) => Task.FromException<IStagedBackup>(new InvalidOperationException("No staging was arranged."));
+
+        public Func<CancellationToken, Task<string>> Checkpoint { get; set; } =
+            _ => Task.FromException<string>(new InvalidOperationException("No checkpoint was arranged."));
+
+        public int StageCalls => Volatile.Read(ref _stageCalls);
+
+        public int CheckpointCalls => Volatile.Read(ref _checkpointCalls);
+
+        public Task<IStagedBackup> StageBackupAsync(IProgress<string>? stages, CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _stageCalls);
+            return Stage(stages, cancellation);
+        }
+
+        public Task<string> CreateCheckpointAsync(CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _checkpointCalls);
+            return Checkpoint(cancellation);
+        }
+    }
+
+    /// <summary>
+    /// An archive the core staged. Disposing removes the staged file and is counted, so
+    /// the tests can tell a released staging entry from a leaked one.
+    /// </summary>
+    private sealed class FakeStagedBackup : IStagedBackup
+    {
+        private readonly bool _deleteOnDispose;
+        private int _disposed;
+
+        public FakeStagedBackup(string path, long byteSize, bool deleteOnDispose = true)
+        {
+            Path = path;
+            FileName = System.IO.Path.GetFileName(path);
+            ByteSize = byteSize;
+            _deleteOnDispose = deleteOnDispose;
+        }
+
+        public string Path { get; }
+
+        public string FileName { get; }
+
+        public long ByteSize { get; }
+
+        public int Disposed => Volatile.Read(ref _disposed);
+
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0 && _deleteOnDispose && File.Exists(Path))
+            {
+                File.Delete(Path);
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FakeBackupPicker : IBackupDestinationPicker
+    {
+        private int _calls;
+
+        public Func<string, CancellationToken, Task<BackupDestination?>> Choose { get; set; } =
+            (_, _) => Task.FromResult<BackupDestination?>(null);
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public Task<BackupDestination?> PickSavePathAsync(string suggestedFileName, CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _calls);
+            return Choose(suggestedFileName, cancellation);
+        }
+    }
+
+    /// <summary>
+    /// One restore section and the seams behind it. The shared step list makes the
+    /// ordering of pause, apply, refresh, reopen and resume observable.
+    /// </summary>
+    private sealed class RestoreFixture : IAsyncDisposable
+    {
+        public RestoreFixture(string archivePath, ArchiveSummary inspected,
+            Func<ArchiveRestoreMode, CancellationToken, Task<ArchiveSummary>>? restore = null,
+            Func<CancellationToken, Task<string?>>? choose = null,
+            long maxArchiveBytes = 1L << 30)
+        {
+            Lifecycle = new FakeRestoreLifecycle(Steps);
+            Archives.MaxArchiveBytes = maxArchiveBytes;
+            Sources.Choose = choose ?? (_ => Task.FromResult<string?>(archivePath));
+            var summary = inspected;
+            var apply = restore;
+            Archives.Inspect = (_, _) =>
+            {
+                Preview = new FakePreview(summary, apply is null ? null : (mode, token) =>
+                {
+                    Steps.Add("restore:" + mode);
+                    return apply(mode, token);
+                });
+                return Task.FromResult<IArchivePreview>(Preview);
+            };
+            Backup = new BackupViewModel(Workspace, Archives, new FakeBackupPicker(), Sources, Lifecycle,
+                new FakeCatalogStrings());
+        }
+
+        public List<string> Steps { get; } = [];
+
+        public FakeBackupWorkspace Workspace { get; } = new();
+
+        public FakeArchiveWorkspace Archives { get; } = new();
+
+        public FakeArchiveSourcePicker Sources { get; } = new();
+
+        public FakeRestoreLifecycle Lifecycle { get; }
+
+        public FakePreview? Preview { get; private set; }
+
+        public BackupViewModel Backup { get; }
+
+        public ValueTask DisposeAsync() => Backup.DisposeAsync();
+    }
+
+    private sealed class FakeArchiveWorkspace : IArchiveWorkspace
+    {
+        private int _inspectCalls;
+
+        public long MaxArchiveBytes { get; set; } = 1L << 30;
+
+        public Func<string, CancellationToken, Task<IArchivePreview>> Inspect { get; set; } =
+            (_, _) => Task.FromException<IArchivePreview>(new InvalidOperationException("No inspection was arranged."));
+
+        public int InspectCalls => Volatile.Read(ref _inspectCalls);
+
+        public Task<IArchivePreview> InspectArchiveAsync(string sourcePath, CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _inspectCalls);
+            return Inspect(sourcePath, cancellation);
+        }
+    }
+
+    private sealed class FakeArchiveSourcePicker : IArchiveSourcePicker
+    {
+        private int _calls;
+
+        public Func<CancellationToken, Task<string?>> Choose { get; set; } = _ => Task.FromResult<string?>(null);
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public Task<string?> PickArchivePathAsync(CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _calls);
+            return Choose(cancellation);
+        }
+    }
+
+    /// <summary>
+    /// A checked archive. Like the real wrapper it releases the staged copy in a finally,
+    /// so a restore consumes it whether the core accepts or rejects the archive.
+    /// </summary>
+    private sealed class FakePreview : IArchivePreview
+    {
+        private readonly Func<ArchiveRestoreMode, CancellationToken, Task<ArchiveSummary>> _restore;
+        private int _disposed;
+        private int _restoreCalls;
+
+        public FakePreview(ArchiveSummary summary,
+            Func<ArchiveRestoreMode, CancellationToken, Task<ArchiveSummary>>? restore = null)
+        {
+            Summary = summary;
+            _restore = restore ?? ((_, _) => Task.FromResult(summary));
+        }
+
+        public ArchiveSummary Summary { get; }
+
+        public int Disposed => Volatile.Read(ref _disposed);
+
+        public int RestoreCalls => Volatile.Read(ref _restoreCalls);
+
+        public ArchiveRestoreMode? LastMode { get; private set; }
+
+        public async Task<ArchiveSummary> RestoreArchiveAsync(ArchiveRestoreMode mode, CancellationToken cancellation)
+        {
+            Interlocked.Increment(ref _restoreCalls);
+            LastMode = mode;
+            try
+            {
+                return await _restore(mode, cancellation);
+            }
+            finally
+            {
+                await DisposeAsync();
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Interlocked.Exchange(ref _disposed, 1);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FakeRestoreLifecycle : IRestoreLifecycle
+    {
+        private readonly List<string> _steps;
+        private int _beginCalls;
+        private int _endCalls;
+        private int _reopenCalls;
+        private int _refreshCalls;
+
+        public FakeRestoreLifecycle(List<string>? steps = null) => _steps = steps ?? [];
+
+        public bool IsReady { get; set; } = true;
+
+        public bool AllowBegin { get; set; } = true;
+
+        public Func<Task<bool>>? Begin { get; set; }
+
+        public Func<CancellationToken, Task<bool>> Reopen { get; set; } = _ => Task.FromResult(true);
+
+        public Func<Task> Refresh { get; set; } = () => Task.CompletedTask;
+
+        public int BeginCalls => Volatile.Read(ref _beginCalls);
+
+        public int EndCalls => Volatile.Read(ref _endCalls);
+
+        public int ReopenCalls => Volatile.Read(ref _reopenCalls);
+
+        public int RefreshCalls => Volatile.Read(ref _refreshCalls);
+
+        public async Task<bool> TryBeginRestoreAsync()
+        {
+            Interlocked.Increment(ref _beginCalls);
+            _steps.Add("begin");
+            return Begin is null ? AllowBegin : await Begin();
+        }
+
+        public Task EndRestoreAsync()
+        {
+            Interlocked.Increment(ref _endCalls);
+            _steps.Add("end");
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> ReopenAsync(CancellationToken cancellation)
+        {
+            Interlocked.Increment(ref _reopenCalls);
+            _steps.Add("reopen");
+            return Reopen(cancellation);
+        }
+
+        public Task RefreshAsync()
+        {
+            Interlocked.Increment(ref _refreshCalls);
+            _steps.Add("refresh");
+            return Refresh();
+        }
+    }
+
+    private sealed class FakeCatalogStrings : ICatalogStrings
+    {
+        public string this[string key] => key;
+        public string Format(string key, params object[] arguments) => key;
+        public string ErrorKey(Exception error) => error.Message;
     }
 }

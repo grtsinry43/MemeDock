@@ -34,6 +34,33 @@
   <data name="language_english" xml:space="preserve"><value>English</value></data>
   <data name="settings_language_save_failed" xml:space="preserve"><value>语言设置保存失败，请重试</value></data>
   <data name="settings_general" xml:space="preserve"><value>通用</value></data>
+  <data name="settings_appearance" xml:space="preserve"><value>外观</value></data>
+  <data name="theme_system" xml:space="preserve"><value>跟随系统</value></data>
+  <data name="theme_light" xml:space="preserve"><value>浅色</value></data>
+  <data name="theme_dark" xml:space="preserve"><value>深色</value></data>
+  <data name="settings_save_failed" xml:space="preserve"><value>外观设置保存失败，请重试</value></data>
+  <data name="settings_output" xml:space="preserve"><value>输出默认设置</value></data>
+  <data name="settings_output_failed" xml:space="preserve"><value>输出设置读写失败，请重试</value></data>
+  <data name="output_copy_group" xml:space="preserve"><value>复制</value></data>
+  <data name="output_drag_group" xml:space="preserve"><value>拖放</value></data>
+  <data name="output_still" xml:space="preserve"><value>静态图片</value></data>
+  <data name="output_animated" xml:space="preserve"><value>动画图片</value></data>
+  <data name="export_small" xml:space="preserve"><value>小图</value></data>
+  <data name="export_best" xml:space="preserve"><value>最佳兼容</value></data>
+  <data name="export_gif" xml:space="preserve"><value>GIF</value></data>
+  <data name="export_original_hint" xml:space="preserve"><value>保持原始文件，保留透明通道与动效</value></data>
+  <data name="export_png_hint" xml:space="preserve"><value>保留透明通道，最长边限制 1024px</value></data>
+  <data name="export_small_hint" xml:space="preserve"><value>缩放至最长边 512px，填充白色背景</value></data>
+  <data name="export_best_hint" xml:space="preserve"><value>静态图输出透明 PNG（1024px），动图输出 GIF（512px，最高 30 帧/秒）</value></data>
+  <data name="export_gif_hint" xml:space="preserve"><value>GIF，最长边 512px、最高 30 帧/秒</value></data>
+  <data name="settings_about" xml:space="preserve"><value>关于</value></data>
+  <data name="settings_version" xml:space="preserve"><value>版本</value></data>
+  <data name="settings_library_id" xml:space="preserve"><value>库 ID</value></data>
+  <data name="settings_device_id" xml:space="preserve"><value>设备 ID</value></data>
+  <data name="settings_licenses" xml:space="preserve"><value>开源许可</value></data>
+  <data name="settings_license_text" xml:space="preserve"><value>MIT 许可证。完整文本见项目仓库中的 LICENSE 文件。</value></data>
+  <data name="about_copy" xml:space="preserve"><value>复制</value></data>
+  <data name="about_copy_failed" xml:space="preserve"><value>复制失败，请手动选中文本复制。</value></data>
   <data name="failure_permission" xml:space="preserve"><value>缺少存储访问权限，请重试</value></data>
   <data name="failure_io" xml:space="preserve"><value>文件读写失败，请重试</value></data>
   <data name="failure_full" xml:space="preserve"><value>设备存储空间不足</value></data>
@@ -150,10 +177,78 @@
   <data name="sync_reauthorize" xml:space="preserve"><value>更换 Token</value></data>
   <data name="sync_disconnect" xml:space="preserve"><value>断开连接</value></data>
   <data name="sync_disconnect_hint" xml:space="preserve"><value>断开后将停止同步，本机已有的表情不会受影响。</value></data>
-  <data name="sync_background_hint" xml:space="preserve"><value>自动同步在后台运行，你也可以随时手动同步。</value></data>
+  <data name="sync_lifecycle_hint" xml:space="preserve"><value>应用运行期间会自动同步；暂停同步或关闭应用时停止。</value></data>
   <data name="sync_merge_hint" xml:space="preserve"><value>首次连接会自动合并本机与云端的表情。删除操作也会同步到其他设备。</value></data>
   <data name="sync_blocked_hint" xml:space="preserve"><value>部分内容因冲突未能同步，可在网页端查看详情。</value></data>
   <data name="sync_failure_unauthorized" xml:space="preserve"><value>设备 Token 已失效，请重新输入。</value></data>
   <data name="sync_failure_network" xml:space="preserve"><value>无法连接服务器，稍后将自动重试。</value></data>
   <data name="sync_failure_credential" xml:space="preserve"><value>无法读取登录凭证，请重新输入设备 Token。</value></data>
+  <data name="settings_original_count" xml:space="preserve"><value>原图数量</value></data>
+  <data name="settings_saved_originals" xml:space="preserve"><value>原图占用</value></data>
+  <data name="settings_cache_usage" xml:space="preserve"><value>缓存占用</value></data>
+  <data name="settings_cache_footer" xml:space="preserve"><value>缓存占用包括缩略图和临时分享文件</value></data>
+  <data name="desktop_space" xml:space="preserve"><value>空间</value></data>
+  <data name="desktop_cleanup" xml:space="preserve"><value>清理</value></data>
+  <data name="desktop_clean" xml:space="preserve"><value>清理</value></data>
+  <data name="desktop_cleanup_hint" xml:space="preserve"><value>删除复制、分享时生成且已过期的临时文件，剪贴板正在使用的会保留。缩略图由应用管理，需要时自动重建。原图不受影响。</value></data>
+  <data name="desktop_locations" xml:space="preserve"><value>位置</value></data>
+  <data name="desktop_data_directory" xml:space="preserve"><value>素材库目录</value></data>
+  <data name="desktop_cache_directory" xml:space="preserve"><value>缓存目录</value></data>
+  <data name="desktop_export_directory" xml:space="preserve"><value>分享目录</value></data>
+  <data name="desktop_open" xml:space="preserve"><value>打开…</value></data>
+  <data name="desktop_refresh" xml:space="preserve"><value>刷新</value></data>
+  <data name="desktop_cleanup_result" xml:space="preserve"><value>已清理 {0} 项临时分享文件</value></data>
+  <data name="desktop_storage_not_ready" xml:space="preserve"><value>资料库尚未就绪，暂时无法读取存储占用。</value></data>
+  <data name="desktop_directory_missing" xml:space="preserve"><value>目录不存在。</value></data>
+  <data name="desktop_directory_open_failed" xml:space="preserve"><value>无法打开目录。</value></data>
+  <data name="desktop_backup" xml:space="preserve"><value>备份</value></data>
+  <data name="desktop_backup_hint" xml:space="preserve"><value>备份会把整个素材库打包成一个文件</value></data>
+  <data name="desktop_backup_create" xml:space="preserve"><value>创建备份</value></data>
+  <data name="desktop_backup_file_type" xml:space="preserve"><value>MemeDock 备份</value></data>
+  <data name="desktop_backup_saved" xml:space="preserve"><value>已导出备份</value></data>
+  <data name="desktop_backup_saved_to" xml:space="preserve"><value>已保存到</value></data>
+  <data name="desktop_backup_exists" xml:space="preserve"><value>写入前出现了同名文件。请重新创建备份并确认替换，或换一个文件名。</value></data>
+  <data name="desktop_backup_too_large" xml:space="preserve"><value>备份超过 {0} 的大小上限，未保存。</value></data>
+  <data name="desktop_checkpoint" xml:space="preserve"><value>检查点</value></data>
+  <data name="desktop_checkpoint_hint" xml:space="preserve"><value>在素材库目录保存一份数据库快照，不包含原图文件。</value></data>
+  <data name="desktop_checkpoint_create" xml:space="preserve"><value>创建检查点</value></data>
+  <data name="desktop_checkpoint_created" xml:space="preserve"><value>已创建检查点：{0}</value></data>
+  <data name="desktop_restore" xml:space="preserve"><value>恢复</value></data>
+  <data name="desktop_restore_hint" xml:space="preserve"><value>选择一个备份文件。MemeDock 会先校验文件，之后才显示它的内容。</value></data>
+  <data name="desktop_restore_choose" xml:space="preserve"><value>选择备份文件</value></data>
+  <data name="desktop_restore_source" xml:space="preserve"><value>文件</value></data>
+  <data name="desktop_restore_file_size" xml:space="preserve"><value>文件大小</value></data>
+  <data name="desktop_restore_stickers" xml:space="preserve"><value>表情</value></data>
+  <data name="desktop_restore_deleted_stickers" xml:space="preserve"><value>已删除表情</value></data>
+  <data name="desktop_restore_collections" xml:space="preserve"><value>分组</value></data>
+  <data name="desktop_restore_tags" xml:space="preserve"><value>标签</value></data>
+  <data name="desktop_restore_original_bytes" xml:space="preserve"><value>原图文件</value></data>
+  <data name="desktop_restore_prediction" xml:space="preserve"><value>如果合并到当前素材库</value></data>
+  <data name="desktop_restore_prediction_value" xml:space="preserve"><value>新增 {0}，已存在 {1}，跳过 {2} 条关系</value></data>
+  <data name="desktop_restore_mode" xml:space="preserve"><value>恢复方式</value></data>
+  <data name="desktop_restore_merge" xml:space="preserve"><value>合并</value></data>
+  <data name="desktop_restore_merge_hint" xml:space="preserve"><value>保留当前素材库，把备份里的内容添加进来。</value></data>
+  <data name="desktop_restore_replace" xml:space="preserve"><value>替换</value></data>
+  <data name="desktop_restore_replace_hint" xml:space="preserve"><value>删除当前素材库，改用备份里的内容。此操作无法撤销。</value></data>
+  <data name="desktop_restore_apply" xml:space="preserve"><value>恢复</value></data>
+  <data name="desktop_restore_confirm_title" xml:space="preserve"><value>要替换当前素材库吗？</value></data>
+  <data name="desktop_restore_confirm_hint" xml:space="preserve"><value>素材库当前的全部内容都会被 {0} 替换，且无法撤销。</value></data>
+  <data name="desktop_restore_confirm_action" xml:space="preserve"><value>替换</value></data>
+  <data name="desktop_restore_merge_done" xml:space="preserve"><value>已恢复：新增 {0}，已存在 {1}，跳过 {2} 条关系。</value></data>
+  <data name="desktop_restore_replace_done" xml:space="preserve"><value>已用备份替换当前素材库。</value></data>
+  <data name="desktop_restore_busy" xml:space="preserve"><value>有其他操作正在使用素材库。请等它完成后再试。</value></data>
+  <data name="desktop_restore_corrupt" xml:space="preserve"><value>这不是有效的备份，或其中部分内容已损坏，未进行恢复。</value></data>
+  <data name="desktop_restore_unsupported" xml:space="preserve"><value>该备份来自当前版本无法恢复的版本或格式。</value></data>
+  <data name="desktop_restore_changed" xml:space="preserve"><value>校验之后素材库发生了变化，本次未恢复。请重新选择文件。</value></data>
+  <data name="desktop_restore_too_large" xml:space="preserve"><value>备份超过 {0} 的大小上限，未进行恢复。</value></data>
+  <data name="desktop_restore_read_failed" xml:space="preserve"><value>无法读取该文件。请确认文件仍然存在且可以打开。</value></data>
+  <data name="desktop_restore_reopen_failed" xml:space="preserve"><value>备份已恢复，但素材库无法重新打开。请重启应用。</value></data>
+  <data name="desktop_restore_state_reopened" xml:space="preserve"><value>素材库已重新打开，可以继续使用当前内容。</value></data>
+  <data name="desktop_restore_state_unchanged" xml:space="preserve"><value>素材库保持原样，未受影响。</value></data>
+  <data name="desktop_restore_state_applied" xml:space="preserve"><value>恢复已经生效，但页面无法重新加载。可尝试重新加载页面；若仍失败，请重启应用。</value></data>
+  <data name="desktop_restore_state_stopped" xml:space="preserve"><value>素材库已关闭，请重启应用后再使用。</value></data>
+  <data name="desktop_restore_state_unconfirmed" xml:space="preserve"><value>备份已应用，但当前页面仍在使用恢复前的会话，无法确认显示的是恢复后的内容。素材库仍可继续使用；重新打开应用可确认恢复后的内容。</value></data>
+  <data name="desktop_restore_retry_action" xml:space="preserve"><value>重新加载页面</value></data>
+  <data name="backup_creating" xml:space="preserve"><value>正在打包备份…</value></data>
+  <data name="backup_saving" xml:space="preserve"><value>正在保存…</value></data>
 </root>

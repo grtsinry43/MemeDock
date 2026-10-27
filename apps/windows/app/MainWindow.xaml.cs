@@ -44,15 +44,33 @@ public sealed partial class MainWindow : Window
     private bool _reordering;
     private string? _reorderCollection;
     private Task<bool>? _galleryDragPreparation;
+    private SyncCoordinator? _sync;
+    private readonly BackupDestinationPicker _backupPicker;
+    private readonly ArchiveSourcePicker _archivePicker;
 
     public MainWindow()
     {
-        ViewModel = new LibraryViewModel(Strings);
         _root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MemeDock");
         _preferences = new AppPreferences(_root);
+        // Read before the first frame so the saved appearance does not flash the
+        // system theme first. The file is small local JSON; the async read in
+        // InitializeAsync would be too late for the window's own visual tree.
+        _preferences.Load();
+        ViewModel = new LibraryViewModel(Strings, _preferences);
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(WindowTitleBar);
+        // Unpackaged WinUI apps cannot change Application.RequestedTheme at runtime,
+        // so the saved appearance is applied to the window's content root instead.
+        ApplyAppearance(_preferences.Appearance);
+        // The app is unpackaged, so the save dialog has to be constructed with the
+        // window's native identity. AppWindow.Id is that HWND-backed WindowId, and it
+        // stays valid for the life of the window, so one picker serves every backup.
+        _backupPicker = new BackupDestinationPicker(AppWindow.Id, Strings);
+        // Same identity rule as the save dialog: the open dialog is modal to this
+        // window through its native handle.
+        _archivePicker = new ArchiveSourcePicker(AppWindow.Id);
+        Settings.AppearanceChanged += OnAppearanceChanged;
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new global::Windows.Graphics.SizeInt32(1180, 820));
         AppWindow.Closing += OnClosing;
@@ -61,6 +79,7 @@ public sealed partial class MainWindow : Window
         ViewModel.CatalogChanged += OnCatalogChanged;
         ViewModel.ThumbnailInvalidated += OnThumbnailInvalidated;
         ViewModel.ContentChanged += OnContentChanged;
+        ViewModel.Rebuilt += OnRebuilt;
         Activated += OnActivated;
         ApplyLabels();
         _updatingNavigation = true;
@@ -69,6 +88,39 @@ public sealed partial class MainWindow : Window
     }
 
     public static Visibility ToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// The window content root owns the appearance: every control inside it inherits
+    /// the requested theme, while <see cref="ElementTheme.Default"/> follows the system
+    /// again without restarting the process.
+    /// </summary>
+    private void ApplyAppearance(AppearanceMode mode)
+    {
+        Root.RequestedTheme = mode switch
+        {
+            AppearanceMode.Light => ElementTheme.Light,
+            AppearanceMode.Dark => ElementTheme.Dark,
+            _ => ElementTheme.Default
+        };
+        try
+        {
+            // The caption buttons are drawn by the system outside the XAML tree;
+            // PreferredTheme keeps them on the same side as the content.
+            AppWindow.TitleBar.PreferredTheme = mode switch
+            {
+                AppearanceMode.Light => TitleBarTheme.Light,
+                AppearanceMode.Dark => TitleBarTheme.Dark,
+                _ => TitleBarTheme.UseDefaultAppMode
+            };
+        }
+        catch (Exception error)
+        {
+            // Older shells may not support the property; the content theme still applies.
+            Trace.WriteLine($"The title bar theme could not be applied: {error.GetType().Name}");
+        }
+    }
+
+    private void OnAppearanceChanged(AppearanceMode mode) => ApplyAppearance(mode);
 
     private async void OnLoaded(object sender, RoutedEventArgs args)
     {
@@ -80,11 +132,13 @@ public sealed partial class MainWindow : Window
 
     private async Task InitializeAsync()
     {
-        await _preferences.LoadAsync();
-        if (_stopping) return;
+        // Preferences were read synchronously in the constructor so the appearance
+        // applied to the first frame; only the language needs to reach the strings.
         Strings.SetLanguage(_preferences.Language);
         Settings.Configure(Strings, _preferences);
-        await ViewModel.InitializeAsync(_root);
+        await ViewModel.InitializeAsync(_root, _backupPicker, _archivePicker);
+        if (_stopping) return;
+        Settings.ShowIdentity(ViewModel.Identity);
         UpdateState();
     }
 
@@ -128,6 +182,7 @@ public sealed partial class MainWindow : Window
         Details.Relocalize();
         Batch.Relocalize();
         Catalog.Relocalize();
+        TrashGroupsPanel.Relocalize();
         ViewModel.Relocalize();
         UpdateState();
     }
@@ -137,28 +192,43 @@ public sealed partial class MainWindow : Window
 
     private void UpdateState()
     {
-        if (ViewModel.IsReady && !_childrenConfigured && ViewModel.Details is { } details && ViewModel.Batch is { } batch && ViewModel.Catalog is { } catalog && ViewModel.Output is { } output)
+        if (ViewModel.IsReady && !_childrenConfigured && ViewModel.Details is { } details && ViewModel.Batch is { } batch
+            && ViewModel.Catalog is { } catalog && ViewModel.TrashGroups is { } trashGroups && ViewModel.Output is { } output
+            && ViewModel.Storage is { } storage && ViewModel.Backup is { } backup)
         {
             _childrenConfigured = true;
             Details.Configure(details, Strings, ViewModel.Collections, ViewModel.Tags, output);
             Batch.Configure(batch, Strings, ViewModel.Collections, ViewModel.Tags);
             Catalog.Configure(catalog, Strings, ViewModel.Collections, ViewModel.Tags);
+            TrashGroupsPanel.Configure(trashGroups, Strings);
             Settings.ConfigureSync(ViewModel.Sync, Strings);
+            Settings.ConfigureStorage(storage);
+            Settings.ConfigureBackup(backup);
             details.Deleted += OnStickerDeleted;
             batch.PropertyChanged += OnModelChanged;
             batch.Completed += OnBatchCompleted;
+            trashGroups.PropertyChanged += OnModelChanged;
             output.PropertyChanged += OnModelChanged;
             output.SetForeground(_windowActive);
         }
+        // The coordinator outlives this window only until shutdown, so the
+        // handler is attached once per instance and dropped in the finally
+        // block of OnClosing.
+        AttachSync(ViewModel.Sync);
         var batchRunning = ViewModel.Batch?.IsRunning == true;
+        // A restore either holds the session open for a merge or is about to close it
+        // for a replace; either way nothing else may start work on it meanwhile.
+        var restoring = ViewModel.IsRestoring;
+        var blocked = batchRunning || restoring;
         var trash = ViewModel.IsTrash;
-        Gallery.IsEnabled = !batchRunning && !ViewModel.IsLoading && !ViewModel.IsTrashing;
-        AllNavigation.IsEnabled = StarredNavigation.IsEnabled = RecentNavigation.IsEnabled = !batchRunning;
-        TrashNavigation.IsEnabled = !batchRunning;
-        CatalogNavigation.IsEnabled = SettingsNavigation.IsEnabled = !batchRunning;
-        ImportButton.IsEnabled = ViewModel.IsReady && !ViewModel.IsImporting && !_stopping && !batchRunning && !trash;
-        Search.IsEnabled = ViewModel.IsReady && !_stopping && !batchRunning;
-        SortButton.IsEnabled = ViewModel.IsReady && ViewModel.Filter.Scope != LibraryScope.Recent && !batchRunning;
+        var trashGroupsVisible = trash && ViewModel.TrashGroups?.HasVisibleContent == true;
+        Gallery.IsEnabled = !blocked && !ViewModel.IsLoading && !ViewModel.IsTrashing;
+        AllNavigation.IsEnabled = StarredNavigation.IsEnabled = RecentNavigation.IsEnabled = !blocked;
+        TrashNavigation.IsEnabled = !blocked;
+        CatalogNavigation.IsEnabled = SettingsNavigation.IsEnabled = !blocked;
+        ImportButton.IsEnabled = ViewModel.IsReady && !ViewModel.IsImporting && !_stopping && !blocked && !trash;
+        Search.IsEnabled = ViewModel.IsReady && !_stopping && !blocked;
+        SortButton.IsEnabled = ViewModel.IsReady && ViewModel.Filter.Scope != LibraryScope.Recent && !blocked;
         Busy.IsActive = !ViewModel.IsReady && ViewModel.ErrorKey is null || ViewModel.IsLoading || ViewModel.IsImporting
             || ViewModel.IsTrashing || ViewModel.Output is { IsBusy: true, IsDragging: false };
         Busy.Visibility = ToVisibility(Busy.IsActive);
@@ -168,7 +238,9 @@ public sealed partial class MainWindow : Window
         CatalogErrorBar.Message = ViewModel.CatalogErrorText;
         OutputErrorBar.IsOpen = ViewModel.Output?.ErrorKey is not null;
         OutputErrorBar.Message = ViewModel.Output?.StatusText ?? "";
-        EmptyState.Visibility = ToVisibility(ViewModel.IsReady && !ViewModel.IsLoading && ViewModel.Cards.Count == 0 && ViewModel.ErrorKey is null);
+        TrashGroupsPanel.Visibility = ToVisibility(trashGroupsVisible);
+        EmptyState.Visibility = ToVisibility(ViewModel.IsReady && !ViewModel.IsLoading && ViewModel.Cards.Count == 0
+            && (!trashGroupsVisible || ViewModel.SearchText.Length > 0) && ViewModel.ErrorKey is null);
         EmptyHint.Text = ViewModel.SearchText.Length > 0 ? Strings["library_no_matches_hint"]
             : trash ? Strings["trash_empty_hint"] : "";
         Status.Text = !ViewModel.IsReady || ViewModel.IsLoading ? Strings["import_preparing"]
@@ -191,14 +263,134 @@ public sealed partial class MainWindow : Window
         if (!ViewModel.Filter.AllowsCollectionOrder || ViewModel.Filter.Id != _reorderCollection
             || ViewModel.SearchText.Length > 0 || ViewModel.Sort != StickerSort.CollectionOrder) _reordering = false;
         var reorder = ViewModel.Filter.AllowsCollectionOrder && !ViewModel.HasMore && !ViewModel.IsLoading
-            && ViewModel.SearchText.Length == 0 && !batchRunning && ViewModel.Output?.IsBusy != true;
+            && ViewModel.SearchText.Length == 0 && !blocked && ViewModel.Output?.IsBusy != true;
         ReorderMenu.IsEnabled = reorder;
         ReorderMenu.Visibility = ToVisibility(ViewModel.Filter.AllowsCollectionOrder);
         ReorderMenu.IsChecked = _reordering;
         ReorderDone.Visibility = ToVisibility(_reordering);
         Gallery.CanDragItems = _reordering && reorder || CanDragOut;
         Gallery.CanReorderItems = Gallery.AllowDrop = _reordering && reorder;
+        UpdateSyncStatus();
         Details.SetActive(_windowActive && Inspector.IsPaneOpen && !_settingsVisible && !_catalogVisible && Details.Visibility == Visibility.Visible);
+    }
+
+    /// <summary>
+    /// A replace closed the library and every view model was rebuilt behind a new
+    /// session. The XAML tree itself survives, so it is re-pointed at the new children
+    /// instead of being recreated; anything still holding old cards is cleared first.
+    /// </summary>
+    private void OnRebuilt(object? sender, EventArgs args)
+    {
+        if (_stopping) return;
+        DetachChildren();
+        _childrenConfigured = false;
+        _undoAvailable = false;
+        _reordering = false;
+        _reorderCollection = null;
+        _selectionVersion++;
+        OperationBar.IsOpen = false;
+        Gallery.SelectedItems.Clear();
+        // The clear above is ignored while IsRestoring is true, so the panes that showed
+        // the old library's selection are reset here instead.
+        Details.Visibility = Visibility.Collapsed;
+        Batch.Visibility = Visibility.Collapsed;
+        Inspector.IsPaneOpen = false;
+        ViewModel.SetSelectedCount(0);
+        // The browse state was reset to unfiltered, so the box must not keep showing a
+        // query that is no longer applied to the new library.
+        Search.Text = "";
+        Settings.ShowIdentity(ViewModel.Identity);
+        UpdateState();
+    }
+
+    /// <summary>
+    /// Drops the handlers attached to the previous generation of child view models so a
+    /// rebuild cannot leave two pages listening to the same event.
+    /// </summary>
+    private void DetachChildren()
+    {
+        if (ViewModel.Details is { } details) details.Deleted -= OnStickerDeleted;
+        if (ViewModel.Batch is { } batch)
+        {
+            batch.PropertyChanged -= OnModelChanged;
+            batch.Completed -= OnBatchCompleted;
+        }
+        if (ViewModel.TrashGroups is { } trashGroups) trashGroups.PropertyChanged -= OnModelChanged;
+        if (ViewModel.Output is { } output) output.PropertyChanged -= OnModelChanged;
+    }
+
+    private void AttachSync(SyncCoordinator? sync)
+    {
+        if (ReferenceEquals(_sync, sync)) return;
+        if (_sync is not null) _sync.StateChanged -= OnSyncStateChanged;
+        _sync = sync;
+        if (_sync is not null) _sync.StateChanged += OnSyncStateChanged;
+    }
+
+    private void OnSyncStateChanged(object? sender, EventArgs args)
+    {
+        if (_stopping) return;
+        // The coordinator notifies from whichever thread finished the native
+        // call; the status bar may only be touched on the UI thread.
+        DispatcherQueue?.TryEnqueue(() =>
+        {
+            if (!_stopping) UpdateSyncStatus();
+        });
+    }
+
+    private void UpdateSyncStatus()
+    {
+        if (ViewModel.Sync?.State is not { } state || !SyncPresentation.IsVisible(state))
+        {
+            SyncStatusButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var phase = SyncPresentation.Phase(state);
+        var text = Strings[SyncPresentation.StatusKey(state)];
+
+        SyncStatusLabel.Text = text;
+        SyncStatusIcon.Glyph = phase switch
+        {
+            SyncPhase.Running => "\uE895",
+            SyncPhase.Authorization => "\uE72E",
+            SyncPhase.Paused => "\uE769",
+            SyncPhase.Blocked => "\uE7BA",
+            SyncPhase.Failed => "\uE783",
+            SyncPhase.Pending or SyncPhase.Unsynced => "\uE917",
+            _ => "\uE73E",
+        };
+        // The three brushes are declared in this window's XAML resources, so a
+        // direct indexer read is enough. ResourceDictionary's C# projection
+        // exposes the IDictionary members (indexer, ContainsKey, TryGetValue);
+        // the WinRT ABI names Lookup/HasKey are not callable from C#.
+        var brush = phase switch
+        {
+            SyncPhase.Failed or SyncPhase.Authorization => Root.Resources["SyncFailureBrush"] as Brush,
+            SyncPhase.Blocked or SyncPhase.Pending or SyncPhase.Unsynced => Root.Resources["SyncAttentionBrush"] as Brush,
+            _ => Root.Resources["SyncIdleBrush"] as Brush,
+        };
+        if (brush is not null)
+        {
+            SyncStatusIcon.Foreground = brush;
+            SyncStatusLabel.Foreground = brush;
+        }
+
+        // The hint carries the actionable part (blocked changes, expired token,
+        // retryable failure) without adding another permanent banner.
+        var hint = SyncPresentation.HintKey(state);
+        ToolTipService.SetToolTip(SyncStatusButton, hint is null ? text : Strings[hint]);
+        AutomationProperties.SetName(SyncStatusButton, text);
+        // Settings navigation is disabled while a batch runs; keep the entry
+        // from promising a destination it cannot reach.
+        SyncStatusButton.IsEnabled = ViewModel.Batch?.IsRunning != true && !ViewModel.IsRestoring;
+        SyncStatusButton.Visibility = Visibility.Visible;
+    }
+
+    private void OnOpenSyncSettings(object sender, RoutedEventArgs args)
+    {
+        if (_stopping || ViewModel.Batch?.IsRunning == true || ViewModel.IsRestoring) return;
+        Navigation.SelectedItem = SettingsNavigation;
     }
 
     private void OnPaneToggle(TitleBar sender, object args) => Navigation.IsPaneOpen = !Navigation.IsPaneOpen;
@@ -206,10 +398,21 @@ public sealed partial class MainWindow : Window
     private async void OnNavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (_updatingNavigation || _stopping || args.SelectedItemContainer is not NavigationViewItem item) return;
-        if (ViewModel.Batch?.IsRunning == true || ViewModel.Details is { } detail && !await detail.CommitAsync())
+        if (ViewModel.Batch?.IsRunning == true || ViewModel.IsRestoring)
         {
             OnCatalogChanged(this, EventArgs.Empty);
             return;
+        }
+        if (ViewModel.Details is { } detail)
+        {
+            if (!await detail.CommitAsync())
+            {
+                OnCatalogChanged(this, EventArgs.Empty);
+                return;
+            }
+            // Committing is asynchronous: the window may have started closing
+            // while the editor saved, and a closing window must not navigate.
+            if (_stopping) return;
         }
         _settingsVisible = item == SettingsNavigation;
         _catalogVisible = item == CatalogNavigation;
@@ -217,9 +420,17 @@ public sealed partial class MainWindow : Window
         Settings.Visibility = ToVisibility(_settingsVisible);
         Catalog.Visibility = ToVisibility(_catalogVisible);
         Details.SetActive(!_settingsVisible && !_catalogVisible && Inspector.IsPaneOpen);
+        // Disk figures age while the user works elsewhere; re-read on every visit.
+        if (_settingsVisible) _ = Settings.RefreshStorageAsync();
         if (_settingsVisible || _catalogVisible) return;
         _tagMode = item == TagsNavigation;
         TagSelector.Visibility = ToVisibility(_tagMode);
+        if (item == TrashNavigation && ViewModel.TrashGroups is { } trashGroups)
+        {
+            await trashGroups.RefreshAsync();
+            // The read is asynchronous too; after it the panel may be gone.
+            if (_stopping) return;
+        }
         if (item == TrashNavigation)
         {
             // Deleted stickers are read-only here, so the inspector stays closed
@@ -246,11 +457,17 @@ public sealed partial class MainWindow : Window
         if (filter is null) return;
         Gallery.SelectedItems.Clear();
         await ViewModel.NavigateAsync(filter);
+        // Navigating is asynchronous: touching the gallery or its scroll view
+        // after the window closed would reach released controls.
+        if (_stopping) return;
         _scroll?.ChangeView(null, 0, null, disableAnimation: true);
     }
 
     private void OnCatalogChanged(object? sender, EventArgs args)
     {
+        // A catalog event is not a reason to rebuild navigation on a closing
+        // window; the controls are being detached.
+        if (_stopping) return;
         _updatingNavigation = true;
         try
         {
@@ -287,11 +504,14 @@ public sealed partial class MainWindow : Window
         if (_updatingNavigation || !_tagMode || _stopping || TagSelector.SelectedItem is not TagMetadata tag) return;
         if (ViewModel.Details is { } detail && !await detail.CommitAsync())
         {
+            // Do not restore the selector on a window that is closing.
+            if (_stopping) return;
             _updatingNavigation = true;
             try { TagSelector.SelectedValue = ViewModel.Filter.Id; }
             finally { _updatingNavigation = false; }
             return;
         }
+        if (_stopping) return;
         Gallery.SelectedItems.Clear();
         await ViewModel.NavigateAsync(new(LibraryScope.Tag, tag.Id, tag.Name));
     }
@@ -299,7 +519,12 @@ public sealed partial class MainWindow : Window
     private async void OnSort(object sender, RoutedEventArgs args)
     {
         if (_stopping || sender is not RadioMenuFlyoutItem item) return;
-        if (ViewModel.Details is { } detail && !await detail.CommitAsync()) { UpdateState(); return; }
+        if (ViewModel.Details is { } detail && !await detail.CommitAsync())
+        {
+            if (!_stopping) UpdateState();
+            return;
+        }
+        if (_stopping) return;
         Gallery.SelectedItems.Clear();
         await ViewModel.SortAsync(Enum.Parse<StickerSort>((string)item.Tag));
     }
@@ -397,7 +622,10 @@ public sealed partial class MainWindow : Window
 
     private async void OnSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (_restoringSelection || _stopping || ViewModel.Batch?.IsRunning == true
+        // During a replace rebuild the new detail view model is not bound yet, so a clear
+        // emitted by OnRebuilt must not be turned into a load against a half-built page.
+        if (_restoringSelection || _stopping || ViewModel.IsRestoring
+            || ViewModel.Batch?.IsRunning == true
             || ViewModel.IsLoading && ViewModel.Batch?.Report is not null) return;
         var version = ++_selectionVersion;
         var selected = Gallery.SelectedItems.OfType<StickerCard>().ToArray();
@@ -509,7 +737,13 @@ public sealed partial class MainWindow : Window
     {
         if (_stopping) return;
         if (ViewModel.IsReady) await ViewModel.RetryAsync();
-        else { _initialization = ViewModel.InitializeAsync(_root); await _initialization; }
+        else
+        {
+            _initialization = ViewModel.InitializeAsync(_root, _backupPicker, _archivePicker);
+            await _initialization;
+            if (_stopping) return;
+            Settings.ShowIdentity(ViewModel.Identity);
+        }
     }
 
     private async void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -523,7 +757,10 @@ public sealed partial class MainWindow : Window
         Details.Shutdown();
         Batch.Shutdown();
         Catalog.Shutdown();
+        TrashGroupsPanel.Shutdown();
         Settings.ShutdownSync();
+        Settings.ShutdownStorage();
+        Settings.ShutdownBackup();
         Root.IsHitTestVisible = false;
         _lifetime.Cancel();
         ViewModel.RequestStop();
@@ -543,19 +780,16 @@ public sealed partial class MainWindow : Window
         finally
         {
             if (_scroll is not null) _scroll.ViewChanged -= OnViewChanged;
+            Settings.AppearanceChanged -= OnAppearanceChanged;
             Strings.PropertyChanged -= OnLanguageChanged;
             ViewModel.PropertyChanged -= OnModelChanged;
             ViewModel.CatalogChanged -= OnCatalogChanged;
             ViewModel.ThumbnailInvalidated -= OnThumbnailInvalidated;
             ViewModel.ContentChanged -= OnContentChanged;
-            if (ViewModel.Output is { } output) output.PropertyChanged -= OnModelChanged;
+            DetachChildren();
+            ViewModel.Rebuilt -= OnRebuilt;
+            AttachSync(null);
             Activated -= OnActivated;
-            if (ViewModel.Details is { } details) details.Deleted -= OnStickerDeleted;
-            if (ViewModel.Batch is { } batch)
-            {
-                batch.PropertyChanged -= OnModelChanged;
-                batch.Completed -= OnBatchCompleted;
-            }
             _searchCancellation?.Dispose();
             _lifetime.Dispose();
             _canClose = true;

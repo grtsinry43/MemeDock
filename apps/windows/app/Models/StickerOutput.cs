@@ -17,12 +17,16 @@ public sealed record StickerOutputTarget(string Id, long Generation)
 
 public static class StickerOutputPolicy
 {
-    public static ExportOptions Options(bool animated, StickerOutputKind kind)
+    /// <summary>
+    /// <see cref="StickerOutputKind.OriginalFile"/> and <see cref="StickerOutputKind.FirstFrame"/>
+    /// are explicit user choices and never follow the configured presets.
+    /// </summary>
+    public static ExportOptions Options(bool animated, StickerOutputKind kind, OutputDefaults defaults)
     {
-        var original = kind == StickerOutputKind.OriginalFile || animated && kind != StickerOutputKind.FirstFrame;
-        return original
-            ? new(ExportPreset.Original, null, null, false, AnimationPolicy.Preserve)
-            : new(ExportPreset.CompatiblePng, 1024, null, true,
-                kind == StickerOutputKind.FirstFrame ? AnimationPolicy.FirstFrame : AnimationPolicy.Preserve);
+        if (kind == StickerOutputKind.OriginalFile)
+            return new(ExportPreset.Original, null, null, false, AnimationPolicy.Preserve);
+        if (kind == StickerOutputKind.FirstFrame)
+            return new(ExportPreset.CompatiblePng, 1024, null, true, AnimationPolicy.FirstFrame);
+        return StickerOutputPresets.Options(defaults.For(animated), animated);
     }
 }
