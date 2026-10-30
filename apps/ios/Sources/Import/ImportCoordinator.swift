@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import MemeDockBridge
 import Observation
 
@@ -19,11 +20,13 @@ final class ImportCoordinator {
     @ObservationIgnored private var transferProgress: Progress?
     @ObservationIgnored private var activeImport: ImportTask?
     @ObservationIgnored private var accepting = true
+    @ObservationIgnored private var retrySources: [UUID: ImportSource] = [:]
+    private(set) var previousProblems: [ImportItem] = []
 
     var completed: Int { items.filter { $0.status.isFinished }.count }
     var added: Int { items.filter { $0.status == .created }.count }
     var reused: Int { items.filter { $0.status == .reused }.count }
-    var problems: [ImportItem] { items.filter { $0.status.isProblem } }
+    var problems: [ImportItem] { previousProblems + items.filter { $0.status.isProblem } }
     var hasProblems: Bool { !problems.isEmpty || !cleanupErrors.isEmpty }
 
     init(library: LibraryHandle, maximumBytes: UInt64, didFinish: @escaping @MainActor () async -> Void = {}) {
@@ -41,8 +44,18 @@ final class ImportCoordinator {
             return
         }
         selectionError = nil
-        cleanupErrors = []
+        // Keep unresolved reports when a second batch starts. Archived reports
+        // retain metadata and retry sources; only the current batch owns pixels.
+        previousProblems += items.filter { $0.status.isProblem }.map { item in
+            var item = item
+            item.preview = nil
+            return item
+        }
         items = sources.map { ImportItem(name: $0.name) }
+        let retained = Set(previousProblems.map(\.id))
+        retrySources = retrySources.filter { retained.contains($0.key) }
+        retrySources.merge(
+            Dictionary(uniqueKeysWithValues: zip(items.map(\.id), sources)), uniquingKeysWith: { _, new in new })
         cancellation = ImportCancellation()
         isStopping = false
         isRunning = true
@@ -72,6 +85,18 @@ final class ImportCoordinator {
         guard !isRunning else { return }
         items = []
         cleanupErrors = []
+        retrySources = [:]
+        previousProblems = []
+    }
+
+    func retryProblems() {
+        let retrying = problems.filter { $0.status != .restoreRequired && retrySources[$0.id] != nil }.prefix(200)
+        let sources = retrying.compactMap { retrySources[$0.id] }
+        guard !isRunning, !sources.isEmpty else { return }
+        let ids = Set(retrying.map(\.id))
+        previousProblems.removeAll { ids.contains($0.id) }
+        items.removeAll { ids.contains($0.id) }
+        start(sources)
     }
 
     func cancel() {
@@ -104,6 +129,7 @@ final class ImportCoordinator {
             )
             items[index].name = name
             try cancellation.check()
+            items[index].preview = await ImportPreview.read(URL(fileURLWithPath: created.path()))
             items[index].status = .importing
             // importStaged consumes the single-use token even if admission fails.
             input = nil
@@ -128,8 +154,9 @@ final class ImportCoordinator {
         transferProgress = nil
         activeImport = nil
         if let input {
-            do { try await library.discardImportInput(input: input).awaitResult() }
-            catch { cleanupErrors.append(ImportCleanupIssue(message: BridgeErrors.importDescription(error))) }
+            do { try await library.discardImportInput(input: input).awaitResult() } catch {
+                cleanupErrors.append(ImportCleanupIssue(message: BridgeErrors.importDescription(error)))
+            }
         }
     }
 
@@ -137,5 +164,29 @@ final class ImportCoordinator {
         if case BridgeError.Failure(let code, _) = error { return code == .cancelled }
         let native = error as NSError
         return native.domain == NSCocoaErrorDomain && native.code == NSUserCancelledError
+    }
+}
+
+private actor ImportPreview {
+    static func read(_ url: URL) async -> CGImage? {
+        await worker.decode(url)
+    }
+    private static let worker = ImportPreview()
+    private func decode(_ url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+            let height = properties[kCGImagePropertyPixelHeight] as? NSNumber,
+            let limits = try? defaultResourceConfiguration(), width.uint64Value > 0, height.uint64Value > 0,
+            width.uint64Value <= limits.maxFramePixels / height.uint64Value
+        else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(
+            source, 0,
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: 96,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+            ] as CFDictionary)
     }
 }

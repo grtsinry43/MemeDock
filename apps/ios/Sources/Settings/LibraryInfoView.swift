@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LibraryInfoView: View {
     let session: LibrarySession
+    @Environment(\.locale) private var locale
 
     var body: some View {
         List {
@@ -34,6 +35,6 @@ struct LibraryInfoView: View {
     }
 
     private func bytes(_ title: LocalizedStringKey, _ count: Int64) -> some View {
-        LabeledContent(title, value: ByteCountFormatter.string(fromByteCount: count, countStyle: .file))
+        LabeledContent(title, value: ByteCountFormatStyle(locale: locale).format(count))
     }
 }

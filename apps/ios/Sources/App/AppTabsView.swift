@@ -3,8 +3,6 @@ import SwiftUI
 struct AppTabsView: View {
     @Bindable var navigation: AppNavigation
     let session: LibrarySession
-    @Namespace private var organizeNamespace
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TabView(selection: $navigation.selected) {
@@ -13,61 +11,52 @@ struct AppTabsView: View {
             }
             Tab("Organize", systemImage: "folder", value: AppTab.organize) {
                 NavigationStack(path: $navigation.organizePath) {
-                    if let organize = session.organize {
-                        OrganizeView(model: organize)
-                        .navigationDestination(for: OrganizeDestination.self) { destination in
-                            switch destination {
-                            case .group(let route):
-                                GroupLibraryView(
-                                    session: session, route: route, transitionNamespace: organizeNamespace
-                                ) { item in
-                                    navigation.organizePath.append(.sticker(StickerDetailRoute(item)))
-                                }
-                            case .sticker(let route):
-                                if reduceMotion {
-                                    detail(route)
-                                } else {
-                                    detail(route).navigationTransition(.zoom(sourceID: route, in: organizeNamespace))
+                    if let organize = session.organize, let thumbnails = session.thumbnails {
+                        OrganizeView(model: organize, thumbnails: thumbnails)
+                            .navigationDestination(for: OrganizeDestination.self) { destination in
+                                switch destination {
+                                case .collections:
+                                    CollectionsView(model: organize, thumbnails: thumbnails)
+                                case .reorderCollections:
+                                    CollectionsView(model: organize, thumbnails: thumbnails, reordering: true)
+                                case .reorderItems(let route):
+                                    CollectionItemsOrderView(session: session, route: route)
+                                case .group(let route):
+                                    GroupLibraryView(session: session, route: route, hero: navigation.hero) {
+                                        item, image in
+                                        navigation.hero.present(StickerDetailRoute(item), image: image)
+                                    }
                                 }
                             }
-                        }
                     }
                 }
             }
             Tab("Mine", systemImage: "person.crop.circle", value: AppTab.mine) {
                 NavigationStack(path: $navigation.minePath) {
                     MineView(session: session)
-                        .navigationDestination(for: MineDestination.self) { _ in
-                            LibraryInfoView(session: session)
+                        .navigationDestination(for: MineDestination.self) { destination in
+                            Group {
+                                switch destination {
+                                case .libraryInfo: LibraryInfoView(session: session)
+                                case .trash:
+                                    if let trash = session.trash, let thumbnails = session.thumbnails {
+                                        TrashView(model: trash, thumbnails: thumbnails, hero: navigation.hero) {
+                                            route, image in navigation.hero.present(route, image: image)
+                                        }
+                                    }
+                                case .backup:
+                                    if let backup = session.backup { BackupView(model: backup) }
+                                case .sync:
+                                    if let sync = session.sync { SyncView(model: sync) }
+                                case .licenses:
+                                    LicensesView()
+                                }
+                            }
+                            .toolbar(.hidden, for: .tabBar)
                         }
                 }
             }
         }
         .tabViewStyle(.sidebarAdaptable)
-        .safeAreaInset(edge: .bottom) {
-            if navigation.selected != .stickers, let imports = session.imports, !imports.items.isEmpty {
-                HStack {
-                    if imports.isRunning { ProgressView() }
-                    Text(imports.isRunning ? "Import in Progress" : "Import Finished")
-                        .font(.subheadline)
-                    Spacer()
-                    if !imports.isRunning, let id = imports.items.last(where: {
-                        $0.status == .created || $0.status == .reused
-                    })?.stickerID, !imports.hasProblems, let browser = session.browser {
-                        Button("View Imported") {
-                            Task { await navigation.showImported(id, browser: browser) }
-                        }
-                    } else {
-                        Button("View Import") { navigation.showImportProgress() }
-                    }
-                }
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(.bar)
-            }
-        }
-    }
-
-    private func detail(_ route: StickerDetailRoute) -> some View {
-        StickerDetailView(session: session, route: route, isVisible: navigation.selected == .organize)
     }
 }

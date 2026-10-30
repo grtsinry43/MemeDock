@@ -1,5 +1,5 @@
-import SwiftUI
 import PhotosUI
+import SwiftUI
 import UniformTypeIdentifiers
 
 struct LibraryHomeView: View {
@@ -9,34 +9,29 @@ struct LibraryHomeView: View {
     @State private var showFiles = false
     @State private var showProblems = false
     @State private var showImportSources = false
+    @State private var showTelegram = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
-    @Namespace private var transitionNamespace
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        NavigationStack(path: $navigation.homePath) {
+        NavigationStack {
             Group {
-                if let browser = session.browser, let thumbnails = session.thumbnails {
-                    libraryView(browser, thumbnails: thumbnails)
+                if let browser = session.browser, let thumbnails = session.thumbnails, let organize = session.organize {
+                    libraryView(browser, thumbnails: thumbnails, organize: organize)
                 }
             }
             .navigationTitle("Stickers")
-            .navigationDestination(for: StickerDetailRoute.self) { route in
-                if reduceMotion {
-                    StickerDetailView(session: session, route: route, isVisible: navigation.selected == .stickers)
-                } else {
-                    StickerDetailView(session: session, route: route, isVisible: navigation.selected == .stickers)
-                        .navigationTransition(.zoom(sourceID: route, in: transitionNamespace))
-                }
-            }
             .toolbar {
-                if session.phase == .ready, navigation.homePath.isEmpty {
+                if session.phase == .ready {
                     ToolbarItem(placement: .primaryAction) { importMenu }
                 }
+            }
+            .navigationDestination(isPresented: $showTelegram) {
+                if let telegram = session.telegram { TelegramView(model: telegram).toolbar(.hidden, for: .tabBar) }
             }
             .confirmationDialog("Import Images", isPresented: $showImportSources) {
                 Button("Photos", systemImage: "photo") { showPhotos = true }
                 Button("Files", systemImage: "folder") { showFiles = true }
+                Button("Telegram", systemImage: "paperplane") { showTelegram = true }
             }
             .photosPicker(
                 isPresented: $showPhotos, selection: $selectedPhotos,
@@ -47,73 +42,64 @@ struct LibraryHomeView: View {
                 session.imports?.start(selected.map(ImportSource.photo))
                 selectedPhotos = []
             }
-            .fileImporter(isPresented: $showFiles, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
+            .fileImporter(isPresented: $showFiles, allowedContentTypes: [.image], allowsMultipleSelection: true) {
+                result in
                 switch result {
                 case .success(let urls): session.imports?.start(urls.map(ImportSource.file))
                 case .failure(let error): session.imports?.selectionFailed(error)
                 }
             }
             .sheet(isPresented: $showProblems) {
-                if let imports = session.imports { ImportProblemsView(coordinator: imports) }
+                if let imports = session.imports {
+                    ImportProblemsView(coordinator: imports) {
+                        navigation.selected = .mine
+                        navigation.minePath = [.trash]
+                    }
+                }
             }
-            .alert("Couldn’t Import", isPresented: Binding(
-                get: { session.imports?.selectionError != nil },
-                set: { if !$0 { session.imports?.dismissSelectionError() } }
-            )) {
+            .alert(
+                "Couldn’t Import",
+                isPresented: Binding(
+                    get: { session.imports?.selectionError != nil },
+                    set: { if !$0 { session.imports?.dismissSelectionError() } }
+                )
+            ) {
                 Button("OK") { session.imports?.dismissSelectionError() }
             } message: {
                 Text(session.imports?.selectionError ?? "")
             }
-            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) {
+                _ in
                 Task { await session.thumbnails?.clearCache() }
-            }
-            .onChange(of: session.phase) { _, phase in
-                if phase != .ready { navigation.homePath = [] }
             }
         }
     }
 
-    private func libraryView(_ browser: LibraryBrowser, thumbnails: ThumbnailStore) -> some View {
+    private func libraryView(_ browser: LibraryBrowser, thumbnails: ThumbnailStore, organize: OrganizeModel)
+        -> some View
+    {
         @Bindable var browser = browser
         return LibraryGridView(
-            browser: browser, thumbnails: thumbnails, imports: session.imports,
+            browser: browser, thumbnails: thumbnails, imports: session.imports, session: session,
             sessionError: session.queryError, refresh: { await session.refresh() },
             showProblems: { showProblems = true }, importImages: { showImportSources = true },
-            transitionNamespace: transitionNamespace, open: { item in
-                guard navigation.homePath.isEmpty else { return }
-                navigation.homePath.append(StickerDetailRoute(item))
-            }
+            hero: navigation.hero,
+            open: { item, image in navigation.hero.present(StickerDetailRoute(item), image: image) }
         )
-        .searchable(text: $browser.searchText, prompt: "Search Stickers")
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Menu {
-                    Picker("Show", selection: $browser.filter) {
-                        Text("Recently Used").tag(LibraryFilter.recentlyUsed)
-                        Text("All Stickers").tag(LibraryFilter.all)
-                        Text("Favorites").tag(LibraryFilter.starred)
-                        ForEach(browser.collections, id: \.id) { collection in
-                            Text(collection.name).tag(LibraryFilter.collection(collection.id))
-                        }
-                    }
-                    if browser.collectionError != nil {
-                        Button("Retry Loading Collections") { Task { await browser.loadCollections() } }
-                    }
-                } label: {
-                    Label("Filter", systemImage: "line.3.horizontal.decrease")
-                }
-                .accessibilityValue(browser.filterTitle)
-            }
-        }
+        .modifier(StickerActionsToolbar(browser: browser, organize: organize))
+        .searchable(
+            text: $browser.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Stickers")
     }
 
     private var importMenu: some View {
         Menu {
             Button("Photos", systemImage: "photo") { showPhotos = true }
             Button("Files", systemImage: "folder") { showFiles = true }
+            Button("Telegram", systemImage: "paperplane") { showTelegram = true }
         } label: {
             Label("Import", systemImage: "plus")
         }
+        .labelStyle(.iconOnly)
         .disabled(session.imports?.isRunning != false)
         .accessibilityIdentifier("library-import")
     }

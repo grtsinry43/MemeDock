@@ -173,10 +173,9 @@ final class StickerDetailTests: XCTestCase {
                 window.rootViewController = nil
                 originalWindow?.makeKeyAndVisible()
             }
-            let host = UIHostingController(rootView: NavigationStack {
-                StickerDetailView(session: session, route: route)
-                    .environment(\.scenePhase, .active)
-            })
+            let model = try XCTUnwrap(session.makeDetail(for: route))
+            let host = UIHostingController(
+                rootView: StickerDetailView(session: session, model: model).environment(\.scenePhase, .active))
             window.rootViewController = host
             window.makeKeyAndVisible()
             // Allow native navigation layout and the real asynchronous preview to present.

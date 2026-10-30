@@ -22,6 +22,14 @@ final class LibraryBrowser {
     private(set) var scrollTarget: String?
     private(set) var isLocating = false
     var visibleStickerID: String?
+    private(set) var isSelecting = false
+    var isPresentingActions = false
+    private(set) var selected: [String: StickerMetadata] = [:]
+    private(set) var isMutating = false
+    private(set) var actionError: String?
+    private(set) var actionCompleted = 0
+    private(set) var actionTotal = 0
+    @ObservationIgnored private var batchTask: BatchTask?
 
     @ObservationIgnored private let library: LibraryHandle
     @ObservationIgnored private let pageSize: UInt32
@@ -44,6 +52,7 @@ final class LibraryBrowser {
     }
 
     deinit {
+        try? batchTask?.cancel()
         work?.cancel()
         changeWork?.cancel()
         _ = pageTask?.cancel()
@@ -85,8 +94,7 @@ final class LibraryBrowser {
         isLoadingMore = false
         changeWork?.cancel()
         changeWork = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(150)) }
-            catch { return }
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
             guard let self, !self.closed, !Task.isCancelled else { return }
             self.beginLoad(preservingItems: true, target: self.locatingTarget)
         }
@@ -116,8 +124,9 @@ final class LibraryBrowser {
         do {
             let resources = try await library.stickerResources(ids: [id]).awaitResult()
             guard !closed, generation == current,
-                  let resource = resources.first(where: { $0.asset.hash == id }),
-                  let index = items.firstIndex(where: { $0.id == id }) else { return }
+                let resource = resources.first(where: { $0.asset.hash == id }),
+                let index = items.firstIndex(where: { $0.id == id })
+            else { return }
             items[index].resource = resource
             if resource.thumbnailStatus == .ready || resource.thumbnailStatus == .failed {
                 items[index].thumbnailRevision &+= 1
@@ -144,6 +153,9 @@ final class LibraryBrowser {
 
     func stop() {
         closed = true
+        try? batchTask?.cancel()
+        selected = [:]
+        isSelecting = false
         catalogGeneration &+= 1
         changeWork?.cancel()
         invalidate()
@@ -158,8 +170,102 @@ final class LibraryBrowser {
     }
 
     private func restart(debounce: Bool = false) {
+        if !isMutating { endSelection() }
         changeWork?.cancel()
         beginLoad(debounce: debounce)
+    }
+
+    func startSelection() { isSelecting = true }
+
+    func endSelection() {
+        guard !isMutating else { return }
+        isSelecting = false
+        selected = [:]
+    }
+
+    func toggleSelection(_ item: LibraryItem) {
+        guard !isMutating else { return }
+        if selected.removeValue(forKey: item.id) == nil {
+            guard selected.count < 1000 else {
+                actionError = String(localized: "Select up to 1,000 stickers at a time.")
+                return
+            }
+            selected[item.id] = item.sticker
+        }
+    }
+
+    func dismissActionError() { actionError = nil }
+    func moveLocally(_ id: String, before: String?) {
+        guard !closed, !isLoading, !hasMore, let index = items.firstIndex(where: { $0.id == id }), id != before else {
+            return
+        }
+        let item = items.remove(at: index)
+        let destination = before.flatMap { next in items.firstIndex { $0.id == next } } ?? items.endIndex
+        items.insert(item, at: destination)
+    }
+    func cancelAction() { try? batchTask?.cancel() }
+
+    func apply(_ action: BatchAction, to stickers: [StickerMetadata]? = nil) async -> Bool {
+        guard !closed, !isMutating else { return false }
+        let targets = stickers ?? Array(selected.values)
+        guard !targets.isEmpty else { return false }
+        isMutating = true
+        actionError = nil
+        actionCompleted = 0
+        actionTotal = targets.count
+        defer {
+            isMutating = false
+            batchTask = nil
+        }
+        do {
+            let task = try library.batch(
+                targets: targets.map {
+                    BatchTarget(
+                        target: EntityReference(id: $0.id, generation: $0.lifecycle.generation), deletedRevision: nil)
+                }, action: action)
+            batchTask = task
+            let polling = Task { [weak browser = self] in
+                while !Task.isCancelled {
+                    browser?.actionCompleted = task.snapshot().items.filter { $0.outcome != .pending }.count
+                    do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+                }
+            }
+            let report: BatchReport
+            do { report = try await task.awaitResult() } catch {
+                polling.cancel()
+                await polling.value
+                throw error
+            }
+            polling.cancel()
+            await polling.value
+            actionCompleted = report.items.filter { $0.outcome != .pending }.count
+            guard !closed else { return false }
+            let failed = report.items.filter { $0.outcome == .failed || $0.outcome == .pending }
+            if !failed.isEmpty || report.stopped {
+                let failures = failed.map { result in
+                    let title = targets.first { $0.id == result.id }?.title ?? result.id
+                    let message =
+                        result.error.map {
+                            BridgeErrors.managementDescription(BridgeError.Failure(code: $0, detail: ""))
+                        }
+                        ?? String(localized: "Not completed")
+                    return "\(title): \(message)"
+                }
+                actionError =
+                    ([report.stopped ? String(localized: "The operation stopped. Completed changes are kept.") : nil]
+                    .compactMap { $0 } + failures).joined(separator: "\n")
+                let unresolved = Set(failed.map(\.id))
+                selected = selected.filter { unresolved.contains($0.key) }
+            } else {
+                selected = [:]
+            }
+            await refresh()
+            return failed.isEmpty && !report.stopped
+        } catch {
+            guard !closed else { return false }
+            actionError = BridgeErrors.managementDescription(error)
+            return false
+        }
     }
 
     private func invalidate() {
@@ -224,7 +330,8 @@ final class LibraryBrowser {
                     pageTask = task
                     let page = try await task.awaitResult()
                     guard !closed, generation == current, page.requestId == request.requestId else { return }
-                    let resources = Dictionary(page.resources.map { ($0.asset.hash, $0) }, uniquingKeysWith: { first, _ in first })
+                    let resources = Dictionary(
+                        page.resources.map { ($0.asset.hash, $0) }, uniquingKeysWith: { first, _ in first })
                     loaded += page.stickers.filter { loadedIDs.insert($0.id).inserted }.map {
                         LibraryItem(sticker: $0, resource: resources[$0.id])
                     }
@@ -232,7 +339,9 @@ final class LibraryBrowser {
                     request.cursor = next
                     request.requestId = newRequestId()
                     if let target, loaded.contains(where: { $0.id == target }) { break }
-                    if target == nil, loaded.count >= (preservingItems ? max(oldCount, Int(pageSize)) : Int(pageSize)) { break }
+                    if target == nil, loaded.count >= (preservingItems ? max(oldCount, Int(pageSize)) : Int(pageSize)) {
+                        break
+                    }
                 } while next != nil
                 guard !closed, generation == current else { return }
                 if more {
@@ -240,7 +349,8 @@ final class LibraryBrowser {
                     items += loaded.filter { !known.contains($0.id) }
                 } else {
                     // Retain thumbnail revisions across an in-place business refresh.
-                    let revisions = Dictionary(items.map { ($0.id, $0.thumbnailRevision) }, uniquingKeysWith: { first, _ in first })
+                    let revisions = Dictionary(
+                        items.map { ($0.id, $0.thumbnailRevision) }, uniquingKeysWith: { first, _ in first })
                     items = loaded.map { value in
                         var value = value
                         value.thumbnailRevision = revisions[value.id] ?? 0
@@ -250,14 +360,20 @@ final class LibraryBrowser {
                 cursor = next
                 hasMore = next != nil
                 if let target {
-                    if items.contains(where: { $0.id == target }) { scrollTarget = target }
-                    else { failure = String(localized: "This imported sticker is no longer available in the library.") }
+                    if items.contains(where: { $0.id == target }) {
+                        scrollTarget = target
+                    } else {
+                        failure = String(localized: "This imported sticker is no longer available in the library.")
+                    }
                     locatingTarget = nil
                 }
             } catch {
                 guard !closed, generation == current, !Task.isCancelled else { return }
-                if more { pageError = BridgeErrors.browseDescription(error) }
-                else { failure = BridgeErrors.browseDescription(error) }
+                if more {
+                    pageError = BridgeErrors.browseDescription(error)
+                } else {
+                    failure = BridgeErrors.browseDescription(error)
+                }
             }
         }
     }

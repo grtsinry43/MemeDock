@@ -2,7 +2,13 @@ import SwiftUI
 
 @main
 struct MemeDockApp: App {
-    @State private var session = LibrarySession()
+    @State private var session: LibrarySession
+
+    init() {
+        let session = LibrarySession()
+        _session = State(initialValue: session)
+        BackgroundSyncScheduler.register(session: session)
+    }
 
     var body: some Scene {
         WindowGroup {

@@ -9,22 +9,27 @@ struct GroupRoute: Hashable {
 }
 
 enum OrganizeDestination: Hashable {
+    case collections
+    case reorderCollections
+    case reorderItems(GroupRoute)
     case group(GroupRoute)
-    case sticker(StickerDetailRoute)
 }
 
-enum MineDestination: Hashable { case libraryInfo }
+enum MineDestination: Hashable {
+    case libraryInfo, trash, backup, sync, licenses
+}
 
 @MainActor
 @Observable
 final class AppNavigation {
     var selected: AppTab = .stickers
-    var homePath: [StickerDetailRoute] = []
     var organizePath: [OrganizeDestination] = []
     var minePath: [MineDestination] = []
+    /// Sticker details open above every tab rather than inside a tab's stack.
+    let hero = StickerHero()
 
     func showImportProgress() {
-        homePath = []
+        hero.reset()
         selected = .stickers
     }
 

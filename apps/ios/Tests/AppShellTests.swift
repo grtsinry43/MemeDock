@@ -46,17 +46,18 @@ final class AppShellTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(300))
             capture(renderedWindow, name: "App framework - Library Information")
             navigation.selected = .stickers
-            navigation.homePath = [StickerDetailRoute(LibraryItem(sticker: imported.sticker, resource: nil))]
+            let detail = StickerDetailRoute(LibraryItem(sticker: imported.sticker, resource: nil))
+            navigation.hero.present(detail, image: nil)
             try await Task.sleep(for: .milliseconds(300))
             navigation.selected = .organize
             navigation.selected = .stickers
-            XCTAssertEqual(navigation.homePath.count, 1)
+            XCTAssertEqual(navigation.hero.presentation?.route, detail)
             XCTAssertEqual(navigation.minePath, [.libraryInfo])
             // Same hosted shell, dark appearance and accessibility-sized text.
             host.rootView = AppTabsView(navigation: navigation, session: session)
                 .environment(\.scenePhase, .active).environment(\.dynamicTypeSize, .accessibility3)
             renderedWindow.overrideUserInterfaceStyle = .dark
-            navigation.homePath = []
+            navigation.hero.reset()
             navigation.selected = .mine
             try await Task.sleep(for: .milliseconds(300))
             capture(renderedWindow, name: "App framework - Dark Library Information")

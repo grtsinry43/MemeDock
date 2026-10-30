@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Synchronization
 
@@ -25,6 +26,7 @@ struct ImportItem: Identifiable {
     var name: String
     var status: ImportItemStatus = .queued
     var stickerID: String?
+    var preview: CGImage?
 }
 
 struct ImportCleanupIssue: Identifiable {

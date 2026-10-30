@@ -8,7 +8,8 @@ struct StickerThumbnailView: View {
     }
     let item: LibraryItem
     let store: ThumbnailStore
-    let open: () -> Void
+    var hero: StickerHero? = nil
+    let open: (CGImage?) -> Void
     @Environment(\.displayScale) private var displayScale
     @State private var image: CGImage?
     @State private var error: String?
@@ -18,19 +19,23 @@ struct StickerThumbnailView: View {
 
     var body: some View {
         ZStack {
-            Button(action: open) {
-                ZStack {
-                    if image == nil { Color(uiColor: .secondarySystemBackground) }
-                    if let image {
-                        Image(decorative: image, scale: displayScale)
-                            .resizable().scaledToFit().padding(6)
-                    } else if error == nil {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "photo").foregroundStyle(.secondary)
+            Button {
+                open(image)
+            } label: {
+                Color.clear.aspectRatio(1, contentMode: .fit).overlay {
+                    ZStack {
+                        if image == nil { Color(uiColor: .secondarySystemBackground) }
+                        if let image {
+                            Image(decorative: image, scale: displayScale).resizable().scaledToFit()
+                                .modifier(StickerHeroSource(id: item.id, hero: hero))
+                                .padding(6)
+                        } else if error == nil {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "photo").foregroundStyle(.secondary)
+                        }
                     }
                 }
-                .aspectRatio(1, contentMode: .fit)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -41,7 +46,9 @@ struct StickerThumbnailView: View {
                     Spacer()
                     HStack {
                         Spacer()
-                        Button { retry += 1 } label: {
+                        Button {
+                            retry += 1
+                        } label: {
                             Label("Retry Thumbnail", systemImage: "arrow.clockwise")
                                 .labelStyle(.iconOnly).frame(width: 44, height: 44)
                         }
