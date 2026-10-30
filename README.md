@@ -7,7 +7,7 @@
     <a href="https://github.com/grtsinry43/MemeDock/releases"><img src="https://img.shields.io/github/v/release/grtsinry43/MemeDock?style=flat-square&color=1F6FEB" alt="Release" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License: MIT" /></a>
     <img src="https://img.shields.io/badge/Rust-1.94.1-orange?style=flat-square&logo=rust" alt="Rust 1.94.1" />
-    <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Linux%20%7C%20Android%20%7C%20Windows%20(Preview)-2ea44f?style=flat-square" alt="Platforms" />
+    <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20iOS%20%7C%20Linux%20%7C%20Android%20%7C%20Windows-2ea44f?style=flat-square" alt="Platforms" />
   </p>
 
   <p>
@@ -27,7 +27,7 @@ MemeDock is a cross-platform sticker manager built around a shared Rust core and
 - **Thoughtful Organization** — Arrange stickers with collections, tags, and stars. Reorder items freely, batch-edit selections, search by title, note, filename, or tag, and let frequently used stickers surface naturally.
 - **Adaptable Sharing** — Original files remain untouched. When copying, dragging, or sharing, MemeDock prepares the right format on demand—**Original**, **Compatible PNG** (`1024 px`), **White Background PNG**, or **Small JPEG** (`512 px`)—while preserving animation or extracting the first frame when a still image is needed.
 - **Local & Enduring** — Everything lives on your device in a content-addressed (`SHA-256`) library with automatic deduplication and a recoverable Trash. Back up or migrate the entire library as a single archive, with content preview, non-destructive merging, and snapshot-protected replacement.
-- **Truly Native** — One memory-safe Rust engine (`#![forbid(unsafe_code)]`) paired with native interfaces for every platform: **SwiftUI & AppKit** on macOS, **GTK4 & Libadwaita** on Linux, **Jetpack Compose** on Android, and **WinUI 3** on Windows *(preview)*. Supports instant in-app switching between English and Chinese.
+- **Truly Native** — One memory-safe Rust engine (`#![forbid(unsafe_code)]`) paired with native interfaces for every platform: **SwiftUI & AppKit** on macOS, **SwiftUI** on iOS, **GTK4 & Libadwaita** on Linux, **Jetpack Compose** on Android, and **WinUI 3** on Windows. Supports instant in-app switching between English and Chinese.
 
 ## Screenshots
 
@@ -43,6 +43,8 @@ Prebuilt packages and `SHA256SUMS` manifests are available on [GitHub Releases](
 
 - **macOS (`arm64`)**: Download `MemeDock-<version>-macos-arm64.dmg` (or `.zip`) and drag `MemeDock.app` to Applications.
 - **Android (`arm64-v8a`)**: Download and install `MemeDock-<version>-android-arm64.apk`.
+- **iOS (`arm64`, iOS 18+)**: Download `MemeDock-<version>-ios-arm64-unsigned.ipa`, sign it with your own Apple signing credentials, and sideload it onto your device.
+- **Windows (`x64`)**: Extract `MemeDock-<version>-windows-x64.zip` and run `MemeDock.Windows.exe`.
 - **Arch Linux (`x86_64`)**: Build from `packaging/arch/memedock-bin` (prebuilt) or `packaging/arch/memedock-git` (from source) via `makepkg -si`.
 - **Linux Bundle (`x86_64`)**: Requires `gtk4 >= 4.22` and `libadwaita >= 1.9`:
   ```sh
@@ -56,7 +58,7 @@ crates/domain     Validated identities, models, export rules, and contracts
 crates/storage    SQLite (SeaORM), atomic file staging, and content-addressed blobs
 crates/core       Use cases, task scheduling, media pipelines, Telegram, and backups
 crates/ffi        UniFFI bindings and event streams for Swift, Kotlin, and C#
-apps/*            Native clients for android, linux, macos, and windows (preview)
+apps/*            Native clients for android, ios, linux, macos, and windows
 ```
 
 ```sh
@@ -69,7 +71,8 @@ cargo test --workspace --locked
 cargo build --release --locked -p memedock-linux                        # Linux
 bash tools/macos/build.sh release                                       # macOS (.app)
 (cd apps/android && ./gradlew :app:testDebugUnitTest :app:verifyDebugBridge) # Android
-pwsh tools/windows/build.ps1                                            # Windows (Preview)
+bash tools/ios/build.sh release device                                  # iOS (unsigned .app)
+pwsh tools/windows/build.ps1                                            # Windows
 ```
 
 ## License

@@ -7,7 +7,7 @@
     <a href="https://github.com/grtsinry43/MemeDock/releases"><img src="https://img.shields.io/github/v/release/grtsinry43/MemeDock?style=flat-square&color=1F6FEB" alt="Release" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License: MIT" /></a>
     <img src="https://img.shields.io/badge/Rust-1.94.1-orange?style=flat-square&logo=rust" alt="Rust 1.94.1" />
-    <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Linux%20%7C%20Android%20%7C%20Windows%20(Preview)-2ea44f?style=flat-square" alt="Platforms" />
+    <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20iOS%20%7C%20Linux%20%7C%20Android%20%7C%20Windows-2ea44f?style=flat-square" alt="Platforms" />
   </p>
 
   <p>
@@ -27,7 +27,7 @@ MemeDock 是一款本地优先的跨平台表情管理工具。它基于共享�
 - **井然有序** — 以合集、标签与星标梳理图库，支持自由拖拽排序、批量归类及按标题、备注、文件名或标签即时检索，并随日常使用自然浮现常用内容。
 - **从容分享** — 原图始终完整保留。复制、拖拽或分享时，可按需生成**原图**、**兼容 PNG** (`1024 px`)、**白底 PNG** 或**小尺寸 JPEG** (`512 px`)；动图默认保留动效，亦可在需要静图时提取首帧。
 - **本地长存** — 所有数据保存在本地设备，采用内容哈希 (`SHA-256`) 自动去重并配备可恢复回收站。支持将整个图库打包为单个备份文件，在恢复前预览内容，并按需选择增量合并或带安全快照的完整替换。
-- **原生质感** — 底层共享一套内存安全的 Rust 引擎 (`#![forbid(unsafe_code)]`)，上层采用各系统原生界面呈现：macOS (**SwiftUI & AppKit**)、Linux (**GTK4 & Libadwaita**)、Android (**Jetpack Compose**) 与 Windows (**WinUI 3**，预览版)，支持中英双语应用内即时切换。
+- **原生质感** — 底层共享一套内存安全的 Rust 引擎 (`#![forbid(unsafe_code)]`)，上层采用各系统原生界面呈现：macOS (**SwiftUI & AppKit**)、iOS (**SwiftUI**)、Linux (**GTK4 & Libadwaita**)、Android (**Jetpack Compose**) 与 Windows (**WinUI 3**)，支持中英双语应用内即时切换。
 
 ## 界面预览
 
@@ -43,6 +43,8 @@ MemeDock 是一款本地优先的跨平台表情管理工具。它基于共享�
 
 - **macOS (`arm64`)**：下载 `MemeDock-<version>-macos-arm64.dmg`（或 `.zip`），将 `MemeDock.app` 拖入应用程序目录。
 - **Android (`arm64-v8a`)**：下载并安装 `MemeDock-<version>-android-arm64.apk`。
+- **iOS (`arm64`，iOS 18+)**：下载 `MemeDock-<version>-ios-arm64-unsigned.ipa`，使用自己的 Apple 签名凭据签名后侧载到设备。
+- **Windows (`x64`)**：解压 `MemeDock-<version>-windows-x64.zip`，运行 `MemeDock.Windows.exe`。
 - **Arch Linux (`x86_64`)**：在 `packaging/arch/memedock-bin`（预编译）或 `packaging/arch/memedock-git`（源码）目录下执行 `makepkg -si`。
 - **通用 Linux (`x86_64`)**：需 `gtk4 >= 4.22` 与 `libadwaita >= 1.9`：
   ```sh
@@ -56,7 +58,7 @@ crates/domain     强类型标识、领域模型、导出规则与版本化契�
 crates/storage    SQLite (SeaORM)、原子暂存区与内容寻址文件存储
 crates/core       业务用例、任务调度、媒体转码管线、Telegram 与备份归档
 crates/ffi        面向 Swift、Kotlin 与 C# 的 UniFFI 绑定及事件流
-apps/*            android、linux、macos 与 windows (预览版) 原生客户端
+apps/*            android、ios、linux、macos 与 windows 原生客户端
 ```
 
 ```sh
@@ -69,7 +71,8 @@ cargo test --workspace --locked
 cargo build --release --locked -p memedock-linux                        # Linux
 bash tools/macos/build.sh release                                       # macOS (.app)
 (cd apps/android && ./gradlew :app:testDebugUnitTest :app:verifyDebugBridge) # Android
-pwsh tools/windows/build.ps1                                            # Windows (预览版)
+bash tools/ios/build.sh release device                                  # iOS (无签名 .app)
+pwsh tools/windows/build.ps1                                            # Windows
 ```
 
 ## 开源许可

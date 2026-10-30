@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -66,17 +71,25 @@ jobs:
             dotnet run --project tests/MemeDock.Windows.Tests.csproj --configuration Release --no-launch-profile
             if ($LASTEXITCODE -ne 0) { throw "Bridge tests failed with exit code $LASTEXITCODE" }
           } finally { Pop-Location }
-      - name: Package test build
+      - name: Package Windows build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $exe = Get-ChildItem -Path apps/windows/app/bin -Recurse -Filter MemeDock.Windows.exe |
-            Select-Object -First 1
-          if ($null -eq $exe) { throw 'MemeDock.Windows.exe was not produced.' }
+          $executables = @(Get-ChildItem -Path apps/windows/app/bin -Recurse -Filter MemeDock.Windows.exe)
+          if ($executables.Count -ne 1) { throw 'Expected exactly one MemeDock.Windows.exe.' }
+          $exe = $executables[0]
+          if (!(Test-Path (Join-Path $exe.DirectoryName 'memedock_ffi.dll'))) {
+            throw 'The native bridge is missing from the application directory.'
+          }
           $output = 'target/distribution/windows'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
+          $archive = Join-Path $output "MemeDock-$env:VERSION-windows-x64.zip"
           Compress-Archive -Path (Join-Path $exe.DirectoryName '*') `
-            -DestinationPath (Join-Path $output 'MemeDock-Windows-x64.zip') -Force
+            -DestinationPath $archive -Force
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          "$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -Encoding utf8NoBOM (Join-Path $output 'SHA256SUMS')
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: windows-x64
+          name: ${{ inputs.release == true && 'windows-release' || 'windows-x64' }}
           path: target/distribution/windows
           if-no-files-found: error

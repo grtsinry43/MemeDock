@@ -1,0 +1,76 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read and validate version
+        id: version
+        run: |
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          python=
+          for candidate in python3.13 python3.12 python3.11 python3 python; do
+            if command -v "$candidate" >/dev/null 2>&1 \
+              && "$candidate" -c 'import tomllib' >/dev/null 2>&1; then
+              python=$candidate
+              break
+            fi
+          done
+          if [[ -z $python ]]; then
+            echo "Need Python >= 3.11 for tools/release/version.py (tomllib)." >&2
+            exit 1
+          fi
+          "$python" tools/release/version.py --check --format github
+      - name: Prepare Apple toolchain and native build tools
+        env:
+          RUST_VERSION: ${{ steps.version.outputs.rust }}
+        run: |
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphonesimulator --show-sdk-version
+          for tool in cmake ninja nasm pkg-config; do
+            if ! command -v "$tool" >/dev/null 2>&1; then brew install "$tool"; fi
+          done
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim --toolchain "$RUST_VERSION"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/native-media
+          key: ios-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'tools/native-media/**', 'tools/ios/build-bridge.sh') }}
+      - name: Build unsigned iOS device release
+        run: bash tools/ios/build.sh release device
+      - name: Package and verify unsigned IPA
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bash tools/ios/package.sh "$VERSION"
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.release == true && 'ios-release' || 'ios-builds' }}
+          path: target/distribution/ios/
+          if-no-files-found: error

@@ -10,6 +10,7 @@ import re
 import subprocess
 import tarfile
 import tomllib
+import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -86,6 +87,22 @@ def main():
             if len(versions) != 1 or not re.fullmatch(pattern, versions[0]):
                 parser.error(f"{recipe} version differs; run tools/release/version.py --sync-arch")
     if args.check:
+        ios_config = ROOT / "apps/ios/Configuration/Base.xcconfig"
+        ios_versions = re.findall(
+            r"^MARKETING_VERSION\s*=\s*(\S+)\s*$", ios_config.read_text(), re.MULTILINE
+        )
+        if ios_versions != [value["version"]]:
+            parser.error(f"{ios_config} MARKETING_VERSION differs from the workspace version")
+        windows_project = ROOT / "apps/windows/app/MemeDock.Windows.csproj"
+        windows_versions = [
+            element.text for element in ET.parse(windows_project).findall("./PropertyGroup/Version")
+        ]
+        if windows_versions != [value["version"]]:
+            parser.error(f"{windows_project} Version differs from the workspace version")
+        windows_manifest = ROOT / "apps/windows/app/app.manifest"
+        identity = ET.parse(windows_manifest).find("{urn:schemas-microsoft-com:asm.v1}assemblyIdentity")
+        if identity is None or identity.get("version") != f"{value['version']}.0":
+            parser.error(f"{windows_manifest} assemblyIdentity version differs from the workspace version")
         with (ROOT / "Cargo.toml").open("rb") as source:
             members = tomllib.load(source)["workspace"]["members"]
         for member in members:

@@ -46,8 +46,18 @@ jobs:
     uses: ./.github/workflows/macos.yml
     with:
       release: true
+  ios:
+    needs: version
+    uses: ./.github/workflows/ios.yml
+    with:
+      release: true
+  windows:
+    needs: version
+    uses: ./.github/workflows/windows.yml
+    with:
+      release: true
   draft:
-    needs: [version, android, linux, macos]
+    needs: [version, android, linux, macos, ios, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -71,6 +81,7 @@ jobs:
           # regenerated here from the assets that are actually uploaded.
           assets=(./*.apk ./*.pkg.tar.zst ./*.tar.gz ./MemeDock-*-linux-x86_64.tar.zst
                   ./MemeDock-*-macos-arm64.zip ./MemeDock-*-macos-arm64.dmg
+                  ./MemeDock-*-ios-arm64-unsigned.ipa ./MemeDock-*-windows-x64.zip
                   ./*.PKGBUILD ./*.SRCINFO)
           sha256sum -- "${assets[@]}" | sed 's|  ./|  |' > SHA256SUMS
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > release-state; then
