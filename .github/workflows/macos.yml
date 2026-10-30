@@ -14,6 +14,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: macos-${{ inputs.release == true && 'release' || 'ci' }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ inputs.release != true }}
+
+env:
+  CACHE_PREFIX: ${{ inputs.release == true && 'release' || 'ci' }}-macos-v2
+  BUILD_PROFILE: ${{ inputs.release == true && 'release' || 'debug' }}
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
 jobs:
   build:
     runs-on: macos-26
@@ -46,13 +57,39 @@ jobs:
             exit 1
           fi
           "$python" tools/release/version.py --check --format github
+      - name: Identify Apple toolchain
+        id: toolchain
+        run: |
+          key=$({ uname -m; xcodebuild -version; xcrun --sdk macosx --show-sdk-version; } | shasum -a 256 | cut -d ' ' -f 1)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache native media
+        with:
+          path: |
+            target/native-media/*/install
+            target/native-media/*/complete
+            target/native-media/test-fixtures
+          key: ${{ env.CACHE_PREFIX }}-native-${{ steps.toolchain.outputs.key }}-${{ hashFiles('tools/native-media/**') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache Cargo dependencies and compiled artifacts
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target/native-media
-          key: macos-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'tools/native-media/**') }}
+            target/debug
+            target/${{ env.BUILD_PROFILE }}
+            target/aarch64-apple-darwin/${{ env.BUILD_PROFILE }}
+          key: ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/native-media/**') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/native-media/**') }}-${{ hashFiles('Cargo.lock') }}-
+            ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/native-media/**') }}-
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache Swift build artifacts
+        with:
+          path: apps/macos/.build
+          key: ${{ env.CACHE_PREFIX }}-swift-${{ steps.toolchain.outputs.key }}-${{ hashFiles('apps/macos/Package.swift', 'tools/macos/**') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ env.CACHE_PREFIX }}-swift-${{ steps.toolchain.outputs.key }}-${{ hashFiles('apps/macos/Package.swift', 'tools/macos/**') }}-
       - name: Install Rust toolchain
         env:
           RUST_VERSION: ${{ steps.version.outputs.rust }}
@@ -74,8 +111,15 @@ jobs:
           # The animation conversions only run when the fixtures are present,
           # so they stay ignored everywhere else.
           cargo test -p memedock-core --locked sources::telegram::tests:: -- --ignored
-      - name: Build macOS release
-        run: bash tools/macos/build.sh release
+      - name: Build macOS application
+        run: bash tools/macos/build.sh "$BUILD_PROFILE"
+      - name: macOS platform tests
+        if: inputs.release != true
+        run: |
+          work="$GITHUB_WORKSPACE/target/aarch64-apple-darwin/debug"
+          swift test --package-path apps/macos -c debug \
+            -Xlinker "-L$work" -Xlinker -rpath -Xlinker "$work" \
+            -Xlinker -rpath -Xlinker '@executable_path/../Frameworks'
       - name: Verify the bundle
         run: |
           bundle=apps/macos/Bundle/MemeDock.app
@@ -146,6 +190,7 @@ jobs:
             exit 1
           fi
       - name: Package
+        if: inputs.release == true
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -158,6 +203,7 @@ jobs:
           cd "$distribution"
           shasum -a 256 ./*.zip > SHA256SUMS
       - name: Build the installer disk image
+        if: inputs.release == true
         run: |
           # The zip above is the canonical artifact, matching the other platforms.
           # The dmg is what somebody on macOS expects to double-click, so it ships
@@ -174,6 +220,7 @@ jobs:
           shasum -a 256 ./*.zip ./*.dmg > SHA256SUMS
           cat SHA256SUMS
       - name: Verify the disk image
+        if: inputs.release == true
         run: |
           # A dmg can be produced and be empty: dmgbuild copies into a mounted image,
           # and if that mount is refused the file still lands on disk. Assert the
@@ -201,9 +248,10 @@ jobs:
           codesign --verify --strict "$mount/MemeDock.app"
           ls -la "$mount"
       - name: Upload macOS artifacts
+        if: inputs.release == true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ inputs.release == true && 'macos-release' || 'macos-builds' }}
+          name: macos-release
           path: target/distribution/macos/
           include-hidden-files: true
           if-no-files-found: error

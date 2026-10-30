@@ -14,6 +14,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ios-${{ inputs.release == true && 'release' || 'ci' }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ inputs.release != true }}
+
+env:
+  CACHE_PREFIX: ${{ inputs.release == true && 'release' || 'ci' }}-ios-v2
+  BUILD_PROFILE: ${{ inputs.release == true && 'release' || 'debug' }}
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
 jobs:
   build:
     runs-on: macos-26
@@ -43,6 +54,7 @@ jobs:
           fi
           "$python" tools/release/version.py --check --format github
       - name: Prepare Apple toolchain and native build tools
+        id: toolchain
         env:
           RUST_VERSION: ${{ steps.version.outputs.rust }}
         run: |
@@ -55,22 +67,77 @@ jobs:
           done
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim --toolchain "$RUST_VERSION"
+          key=$({ uname -m; xcodebuild -version; xcrun --sdk iphoneos --show-sdk-version; xcrun --sdk iphonesimulator --show-sdk-version; } | shasum -a 256 | cut -d ' ' -f 1)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache native media
+        with:
+          path: |
+            target/native-media/*/install
+            target/native-media/*/complete
+          key: ${{ env.CACHE_PREFIX }}-native-${{ steps.toolchain.outputs.key }}-${{ hashFiles('tools/native-media/**') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache Cargo dependencies and compiled artifacts
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target/native-media
-          key: ios-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'tools/native-media/**', 'tools/ios/build-bridge.sh') }}
+            target/debug
+            target/${{ env.BUILD_PROFILE }}
+            target/aarch64-apple-darwin/debug
+            target/aarch64-apple-ios-sim/debug
+            target/aarch64-apple-ios/${{ env.BUILD_PROFILE }}
+          key: ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/native-media/**', 'tools/ios/build-bridge.sh') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/native-media/**', 'tools/ios/build-bridge.sh') }}-${{ hashFiles('Cargo.lock') }}-
+            ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/native-media/**', 'tools/ios/build-bridge.sh') }}-
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache Xcode compilation and generated bridge
+        with:
+          path: |
+            apps/ios/Generated
+            apps/ios/build/DerivedData/Build
+            apps/ios/build/DerivedData/ModuleCache.noindex
+            apps/ios/build/DerivedData/SDKStatCaches.noindex
+            apps/ios/build/DerivedData/SDKExplicitPrecompiledModules
+          key: ${{ env.CACHE_PREFIX }}-xcode-${{ steps.toolchain.outputs.key }}-${{ hashFiles('apps/ios/MemeDock.xcodeproj/**', 'apps/ios/Configuration/*.xcconfig', 'tools/ios/**') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ env.CACHE_PREFIX }}-xcode-${{ steps.toolchain.outputs.key }}-${{ hashFiles('apps/ios/MemeDock.xcodeproj/**', 'apps/ios/Configuration/*.xcconfig', 'tools/ios/**') }}-
+      - name: Select an available iPhone simulator
+        if: inputs.release != true
+        id: simulator
+        run: |
+          device=$(xcrun simctl list devices available --json | /usr/bin/python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          print(next(device["udid"] for runtime in devices.values() for device in runtime
+                     if device["isAvailable"] and device["name"].startswith("iPhone")))')
+          echo "destination=platform=iOS Simulator,id=$device" >> "$GITHUB_OUTPUT"
+      - name: iOS simulator debug build and tests
+        if: inputs.release != true
+        env:
+          DESTINATION: ${{ steps.simulator.outputs.destination }}
+        run: bash tools/ios/test.sh "$DESTINATION"
       - name: Build unsigned iOS device release
+        if: inputs.release == true
         run: bash tools/ios/build.sh release device
       - name: Package and verify unsigned IPA
+        if: inputs.release == true
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: bash tools/ios/package.sh "$VERSION"
       - name: Upload iOS artifacts
+        if: inputs.release == true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ inputs.release == true && 'ios-release' || 'ios-builds' }}
+          name: ios-release
           path: target/distribution/ios/
           if-no-files-found: error
+      - name: Upload iOS test results
+        if: always() && inputs.release != true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-test-results
+          path: apps/ios/build/TestResults/*.xcresult
+          retention-days: 7
+          if-no-files-found: ignore

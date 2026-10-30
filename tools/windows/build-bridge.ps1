@@ -1,6 +1,9 @@
 #Requires -Version 7.0
 [CmdletBinding()]
-param([switch]$SkipMedia, [switch]$VerifyRust)
+param(
+    [switch]$SkipMedia, [switch]$VerifyRust,
+    [ValidateSet('Debug', 'Release')][string]$Configuration = 'Release'
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -10,6 +13,9 @@ $prefix = Join-Path $nativeRoot 'installed/x64-windows-memedock'
 $hostPrefix = Join-Path $nativeRoot 'installed/x64-windows'
 $buildRoot = Join-Path $nativeRoot 'cargo'
 $compatBuild = Join-Path $repository 'target/windows-compat'
+$profile = $Configuration.ToLowerInvariant()
+$profileArgs = @()
+if ($Configuration -eq 'Release') { $profileArgs = @('--release') }
 
 function Invoke-Checked {
     param([string]$Executable, [string[]]$Arguments)
@@ -43,9 +49,9 @@ foreach ($name in $environmentOverrides.Keys) {
 
 Push-Location $repository
 try {
-    Invoke-Checked cargo @('build', '-p', 'memedock-ffi', '--release', '--locked', '--target', 'x86_64-pc-windows-msvc', '--target-dir', $buildRoot)
+    Invoke-Checked cargo (@('build', '-p', 'memedock-ffi', '--locked', '--target', 'x86_64-pc-windows-msvc', '--target-dir', $buildRoot) + $profileArgs)
     if ($VerifyRust) {
-        $checks = @('-p', 'memedock-domain', '-p', 'memedock-storage', '-p', 'memedock-core', '-p', 'memedock-ffi', '--release', '--locked', '--target', 'x86_64-pc-windows-msvc', '--target-dir', $buildRoot)
+        $checks = @('-p', 'memedock-domain', '-p', 'memedock-storage', '-p', 'memedock-core', '-p', 'memedock-ffi', '--locked', '--target', 'x86_64-pc-windows-msvc', '--target-dir', $buildRoot) + $profileArgs
         Invoke-Checked cargo (@('clippy', '--all-targets') + $checks + @('--', '-D', 'warnings'))
         Invoke-Checked cargo (@('test') + $checks)
     }
@@ -54,7 +60,7 @@ try {
     $generated = Join-Path $nativeRoot 'generated'
     [IO.Directory]::CreateDirectory($runtime) | Out-Null
     [IO.Directory]::CreateDirectory($generated) | Out-Null
-    $library = Join-Path $buildRoot 'x86_64-pc-windows-msvc/release/memedock_ffi.dll'
+    $library = Join-Path $buildRoot "x86_64-pc-windows-msvc/$profile/memedock_ffi.dll"
     Copy-Item -LiteralPath $library -Destination $runtime
     Get-ChildItem -LiteralPath (Join-Path $prefix 'bin') -Filter '*.dll' | Copy-Item -Destination $runtime
     $licenses = Join-Path $runtime 'licenses'
@@ -70,7 +76,7 @@ try {
     Invoke-Checked $generator @('--library', $library, '--config', (Join-Path $repository 'apps/windows/bridge/uniffi.toml'), '--out-dir', $generated, '--no-format')
     Push-Location (Join-Path $repository 'apps/windows')
     try {
-        Invoke-Checked dotnet @('build', 'bridge/MemeDock.Bridge.csproj', '--configuration', 'Release')
+        Invoke-Checked dotnet @('build', 'bridge/MemeDock.Bridge.csproj', '--configuration', $Configuration)
     }
     finally { Pop-Location }
 }

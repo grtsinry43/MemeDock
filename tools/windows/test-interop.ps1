@@ -1,6 +1,6 @@
 #Requires -Version 7.0
 [CmdletBinding()]
-param()
+param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Release')
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -32,7 +32,7 @@ try {
     Invoke-Checked 'cargo' @('build', '--workspace', '--locked', '--target', $nativeTarget, '--target-dir', $buildRoot)
     [IO.Directory]::CreateDirectory($generated) | Out-Null
     Invoke-Checked $generator @('--library', $nativeLibrary, '--config', (Join-Path $compatibility 'probe/uniffi.toml'), '--out-dir', $generated, '--no-format')
-    Invoke-Checked 'dotnet' @('run', '--project', (Join-Path $compatibility 'runner/InteropProbe.csproj'), '--configuration', 'Release', '--no-launch-profile')
+    Invoke-Checked 'dotnet' @('run', '--project', (Join-Path $compatibility 'runner/InteropProbe.csproj'), '--configuration', $Configuration, '--no-launch-profile')
 }
 finally {
     Pop-Location

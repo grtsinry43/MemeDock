@@ -14,6 +14,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: linux-${{ inputs.release == true && 'release' || 'ci' }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ inputs.release != true }}
+
+env:
+  CACHE_PREFIX: ${{ inputs.release == true && 'release' || 'ci' }}-linux-v2
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -35,13 +45,31 @@ jobs:
       - name: Read and validate version
         id: version
         run: python tools/release/version.py --check --format github
+      - name: Identify native build environment
+        id: toolchain
+        run: |
+          key=$({ uname -m; pacman -Q glibc gcc-libs clang llvm-libs gtk4 libadwaita; } | sha256sum | cut -d ' ' -f 1)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache native media
+        with:
+          path: |
+            target/native-media/*/install
+            target/native-media/*/complete
+            target/native-media/test-fixtures
+          key: ${{ env.CACHE_PREFIX }}-native-${{ steps.toolchain.outputs.key }}-${{ hashFiles('tools/native-media/**') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache Cargo dependencies and compiled artifacts
         with:
           path: |
             /home/builder/.cargo/registry
             /home/builder/.cargo/git
-            target/native-media
-          key: linux-native-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'tools/native-media/**') }}
+            target/debug
+            target/${{ inputs.release == true && 'release' || 'debug' }}
+          key: ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/native-media/**') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/native-media/**') }}-${{ hashFiles('Cargo.lock') }}-
+            ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/native-media/**') }}-
       - name: Prepare unprivileged build user
         env:
           RUST_VERSION: ${{ steps.version.outputs.rust }}
@@ -58,13 +86,21 @@ jobs:
           runuser -u builder -- cargo test --workspace --locked
           runuser -u builder -- cargo test -p memedock-core --locked \
             sources::telegram::tests:: -- --ignored
+      - name: Build and smoke-test Linux debug application
+        if: inputs.release != true
+        run: |
+          runuser -u builder -- cargo build --locked -p memedock-linux
+          desktop-file-validate apps/linux/data/com.grtsinry43.memedock.desktop
+          runuser -u builder -- xvfb-run -a target/debug/memedock --help
       - name: Build Linux release
+        if: inputs.release == true
         run: |
           runuser -u builder -- cargo build --release --locked -p memedock-linux
           desktop-file-validate apps/linux/data/com.grtsinry43.memedock.desktop
           runuser -u builder -- xvfb-run -a target/release/memedock --help
           runuser -u builder -- bash tools/release/linux-bundle.sh
       - name: Build both Arch packages from this checkout
+        if: inputs.release == true
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -92,9 +128,10 @@ jobs:
           done
           cp "$archive" "$distribution/"
       - name: Upload Linux artifacts
+        if: inputs.release == true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ inputs.release == true && 'linux-release' || 'linux-builds' }}
+          name: linux-release
           path: target/distribution/linux/
           include-hidden-files: true
           if-no-files-found: error

@@ -14,6 +14,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: windows-${{ inputs.release == true && 'release' || 'ci' }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ inputs.release != true }}
+
+env:
+  CACHE_PREFIX: ${{ inputs.release == true && 'release' || 'ci' }}-windows-v2
+  BUILD_CONFIGURATION: ${{ inputs.release == true && 'Release' || 'Debug' }}
+  BUILD_PROFILE: ${{ inputs.release == true && 'release' || 'debug' }}
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/target/windows-native/vcpkg-binaries
+
 jobs:
   build:
     runs-on: windows-latest
@@ -29,6 +42,7 @@ jobs:
         id: version
         run: python tools/release/version.py --check --format github
       - name: Report Windows toolchain
+        id: toolchain
         run: |
           dotnet --list-sdks
           if (!(dotnet --list-sdks | Select-String -Pattern '^8\.0\.4\d{2}\s')) {
@@ -36,19 +50,40 @@ jobs:
           }
           cargo --version
           rustup toolchain list
+          "key=$env:ImageOS-$env:ImageVersion-$env:PROCESSOR_ARCHITECTURE" >> $env:GITHUB_OUTPUT
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
           # tools/windows/build-bridge.ps1 binds through libclang.dll and defaults to
           # this directory; a missing LLVM is a runner problem, not a build bug.
           if (!(Test-Path -LiteralPath 'C:/Program Files/LLVM/bin/libclang.dll')) {
             throw 'LLVM is missing: libclang.dll not found under C:/Program Files/LLVM/bin.'
           }
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache vcpkg binary packages
+        with:
+          path: target/windows-native/vcpkg-binaries
+          key: ${{ env.CACHE_PREFIX }}-native-${{ steps.toolchain.outputs.key }}-${{ hashFiles('tools/windows/prepare-media.ps1', 'tools/windows/native/**') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache Cargo dependencies and compiled artifacts
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target/windows-native
-            target/windows-compat
-          key: windows-native-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'apps/windows/compatibility/Cargo.lock', 'tools/windows/**') }}
+            target/windows-native/cargo/debug
+            target/windows-native/cargo/${{ env.BUILD_PROFILE }}
+            target/windows-native/cargo/x86_64-pc-windows-msvc/${{ env.BUILD_PROFILE }}
+            target/windows-compat/debug
+            target/windows-compat/x86_64-pc-windows-msvc/debug
+          key: ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/windows/**') }}-${{ hashFiles('Cargo.lock', 'apps/windows/compatibility/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/windows/**') }}-${{ hashFiles('Cargo.lock', 'apps/windows/compatibility/Cargo.lock') }}-
+            ${{ env.CACHE_PREFIX }}-cargo-${{ steps.toolchain.outputs.key }}-${{ hashFiles('rust-toolchain.toml', '.cargo/**', 'tools/windows/**') }}-
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Cache NuGet packages
+        with:
+          path: ~/.nuget/packages
+          key: ${{ env.CACHE_PREFIX }}-nuget-${{ hashFiles('apps/windows/**/packages.lock.json') }}
+          restore-keys: |
+            ${{ env.CACHE_PREFIX }}-nuget-
       - name: Install Rust toolchain
         env:
           RUST_VERSION: ${{ steps.version.outputs.rust }}
@@ -56,22 +91,23 @@ jobs:
           rustup toolchain install $env:RUST_VERSION --profile minimal --component rustfmt --component clippy
           rustup target add x86_64-pc-windows-msvc --toolchain $env:RUST_VERSION
       - name: Build media dependencies, native library and UniFFI bindings
-        run: ./tools/windows/build-bridge.ps1
+        run: ./tools/windows/build-bridge.ps1 -Configuration $env:BUILD_CONFIGURATION
       - name: Build WinUI application
-        run: ./tools/windows/build.ps1 -SkipBridge -SkipEnvironmentCheck
+        run: ./tools/windows/build.ps1 -SkipBridge -SkipEnvironmentCheck -Configuration $env:BUILD_CONFIGURATION
       - name: Contract tests
-        run: ./tools/windows/test-contracts.ps1 -SkipBuild
+        run: ./tools/windows/test-contracts.ps1 -SkipBuild -Configuration $env:BUILD_CONFIGURATION
       - name: Interop probe
-        run: ./tools/windows/test-interop.ps1
+        run: ./tools/windows/test-interop.ps1 -Configuration $env:BUILD_CONFIGURATION
       - name: Bridge and recycle bin tests
         run: |
           # Run inside apps/windows so global.json selects the pinned 8.0.4xx SDK.
           Push-Location apps/windows
           try {
-            dotnet run --project tests/MemeDock.Windows.Tests.csproj --configuration Release --no-launch-profile
+            dotnet run --project tests/MemeDock.Windows.Tests.csproj --configuration $env:BUILD_CONFIGURATION --no-launch-profile
             if ($LASTEXITCODE -ne 0) { throw "Bridge tests failed with exit code $LASTEXITCODE" }
           } finally { Pop-Location }
       - name: Package Windows build
+        if: inputs.release == true
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -89,7 +125,8 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
           "$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -Encoding utf8NoBOM (Join-Path $output 'SHA256SUMS')
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: inputs.release == true
         with:
-          name: ${{ inputs.release == true && 'windows-release' || 'windows-x64' }}
+          name: windows-release
           path: target/distribution/windows
           if-no-files-found: error
