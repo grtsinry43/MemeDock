@@ -251,4 +251,16 @@
   <data name="desktop_restore_retry_action" xml:space="preserve"><value>重新加载页面</value></data>
   <data name="backup_creating" xml:space="preserve"><value>正在打包备份…</value></data>
   <data name="backup_saving" xml:space="preserve"><value>正在保存…</value></data>
+  <data name="backup_title" xml:space="preserve"><value>备份与恢复</value></data>
+  <data name="clear_search" xml:space="preserve"><value>清空搜索</value></data>
+  <data name="sync_status" xml:space="preserve"><value>同步状态</value></data>
+  <data name="desktop_library_empty_hint" xml:space="preserve"><value>导入图片来建立素材库</value></data>
+  <data name="desktop_starred_empty_hint" xml:space="preserve"><value>给表情加星标后会显示在这里</value></data>
+  <data name="desktop_collection_empty_hint" xml:space="preserve"><value>选择表情后加入该合集</value></data>
+  <data name="desktop_tag_empty_hint" xml:space="preserve"><value>给表情添加该标签后会显示在这里</value></data>
+  <data name="desktop_selection_hint" xml:space="preserve"><value>点击表情加入所选</value></data>
+  <data name="desktop_storage" xml:space="preserve"><value>存储</value></data>
+  <data name="desktop_output_drag_hint" xml:space="preserve"><value>拖到其他应用时的格式</value></data>
+  <data name="output_copy_hint" xml:space="preserve"><value>复制按钮、右键菜单和 Ctrl+C</value></data>
+  <data name="settings_windows_colors" xml:space="preserve"><value>Windows 颜色设置</value></data>
 </root>

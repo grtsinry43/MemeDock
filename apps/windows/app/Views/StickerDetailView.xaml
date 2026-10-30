@@ -1,76 +1,106 @@
 <UserControl x:Class="MemeDock.Windows.Views.StickerDetailView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Unloaded="OnUnloaded">
-    <Grid Padding="20,12,20,20" RowSpacing="16" Background="{ThemeResource LayerFillColorDefaultBrush}">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:md="using:MemeDock.Windows.Controls" Unloaded="OnUnloaded">
+    <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-        <Grid ColumnSpacing="8">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <TextBlock x:Name="Heading" Style="{ThemeResource BodyStrongTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
-            <CommandBar Grid.Column="1" Background="Transparent" DefaultLabelPosition="Collapsed" OverflowButtonVisibility="Collapsed" IsDynamicOverflowEnabled="False">
-                <AppBarButton x:Name="CopyButton" Icon="Copy" Click="OnCopy" />
+        <Grid Padding="16,8,4,4" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock x:Name="Heading" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+            <ProgressRing x:Name="Saving" Grid.Column="1" Width="16" Height="16" IsActive="False" Visibility="Collapsed" VerticalAlignment="Center" />
+            <CommandBar Grid.Column="2" Background="Transparent" DefaultLabelPosition="Collapsed" OverflowButtonVisibility="Collapsed" IsDynamicOverflowEnabled="False">
                 <AppBarToggleButton x:Name="StarButton" Click="OnStar"><AppBarToggleButton.Icon><FontIcon x:Name="StarGlyph" Glyph="&#xE734;" /></AppBarToggleButton.Icon></AppBarToggleButton>
-                <AppBarButton x:Name="MoreButton" Icon="More"><AppBarButton.Flyout><MenuFlyout>
-                    <MenuFlyoutSubItem x:Name="CopyFormats" Icon="Copy">
-                        <MenuFlyoutItem x:Name="CopyOriginal" Click="OnCopyOriginal" />
-                        <MenuFlyoutItem x:Name="CopyPng" Click="OnCopy" />
-                        <MenuFlyoutItem x:Name="CopyFrame" Click="OnCopyFrame" />
-                    </MenuFlyoutSubItem>
-                    <MenuFlyoutSeparator />
-                    <MenuFlyoutItem x:Name="DeleteButton" Icon="Delete" Click="OnDelete" />
-                </MenuFlyout></AppBarButton.Flyout></AppBarButton>
-                <AppBarButton x:Name="CloseButton" Icon="Cancel" Click="OnClose" />
+                <AppBarButton x:Name="MoreButton"><AppBarButton.Icon><FontIcon Glyph="&#xE712;" /></AppBarButton.Icon>
+                    <AppBarButton.Flyout><MenuFlyout Placement="BottomEdgeAlignedRight">
+                        <MenuFlyoutItem x:Name="DeleteButton" Click="OnDelete" KeyboardAcceleratorTextOverride="Delete"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
+                    </MenuFlyout></AppBarButton.Flyout>
+                </AppBarButton>
+                <AppBarButton x:Name="CloseButton" Click="OnClose"><AppBarButton.Icon><FontIcon Glyph="&#xE711;" /></AppBarButton.Icon></AppBarButton>
             </CommandBar>
         </Grid>
-        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
-            <StackPanel Spacing="20">
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="16" Padding="16,4,16,24">
                 <InfoBar x:Name="ErrorBar" Severity="Error" IsClosable="False" />
-                <ProgressRing x:Name="DetailLoading" Width="24" Height="24" IsActive="False" Visibility="Collapsed" />
-                <StackPanel x:Name="Form" Spacing="20">
-                    <Border x:Name="DragSurface" DragStarting="OnPreviewDragStarting" DropCompleted="OnPreviewDropCompleted" Height="232" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
-                        <Grid>
-                            <Image x:Name="Preview" Margin="12" Stretch="Uniform" DoubleTapped="OnPreviewDoubleTapped" />
-                            <Button x:Name="PreviewRetry" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Click="OnPreviewRetry" />
-                            <Button x:Name="Playback" Style="{StaticResource SubtleButtonStyle}" Visibility="Collapsed" Click="OnPlayback" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="8" Width="36" Height="36"><FontIcon x:Name="PlaybackGlyph" Glyph="&#xE769;" FontSize="16" /></Button>
-                        </Grid>
-                    </Border>
-                    <TextBlock x:Name="PreviewHint" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                <StackPanel x:Name="PreviewArea" Spacing="4" Visibility="Collapsed">
+                    <Grid Height="208">
+                        <!-- Square so a tile's picture lands without distortion; the thumbnail waits
+                             underneath until the original has decoded. -->
+                        <Border x:Name="DragSurface" Background="Transparent" DragStarting="OnPreviewDragStarting" DropCompleted="OnPreviewDropCompleted"
+                                DoubleTapped="OnPreviewDoubleTapped" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Grid x:Name="PreviewFrame" Width="200" Height="200">
+                                <Image x:Name="Placeholder" Stretch="Uniform" />
+                                <Image x:Name="Preview" Stretch="Uniform" />
+                            </Grid>
+                        </Border>
+                        <ProgressRing x:Name="DetailLoading" Width="24" Height="24" IsActive="False" Visibility="Collapsed"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <Button x:Name="PreviewRetry" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Click="OnPreviewRetry" />
+                    </Grid>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock x:Name="PreviewHint" Style="{StaticResource SecondaryCaptionTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button x:Name="Playback" Grid.Column="1" Style="{StaticResource SubtleButtonStyle}" Visibility="Collapsed" Click="OnPlayback" Padding="8,4">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon x:Name="PlaybackGlyph" Glyph="&#xE769;" FontSize="12" />
+                                <TextBlock x:Name="PlaybackLabel" Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </StackPanel>
+
+                <StackPanel x:Name="Form" Spacing="16" Visibility="Collapsed">
+                    <TextBox x:Name="NameBox" TextChanged="OnTitleChanged" LostFocus="OnEditorLostFocus" KeyDown="OnEditorKeyDown" />
+
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Button x:Name="CopyButton" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Click="OnCopy">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE8C8;" FontSize="16" />
+                                <TextBlock x:Name="CopyLabel" Grid.Column="1" TextTrimming="CharacterEllipsis" />
+                                <TextBlock x:Name="CopyShortcut" Grid.Column="2" Text="Ctrl+C" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" VerticalAlignment="Center" />
+                                <ProgressRing x:Name="CopyBusy" Grid.Column="2" Width="16" Height="16" IsActive="False" Visibility="Collapsed"
+                                              Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                            </Grid>
+                        </Button>
+                        <DropDownButton x:Name="FormatButton" Grid.Column="1">
+                            <DropDownButton.Flyout><MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuFlyoutItem x:Name="CopyOriginal" Click="OnCopyOriginal" />
+                                <MenuFlyoutItem x:Name="CopyPng" Click="OnCopy" />
+                                <MenuFlyoutItem x:Name="CopyFrame" Click="OnCopyFrame" />
+                            </MenuFlyout></DropDownButton.Flyout>
+                        </DropDownButton>
+                    </Grid>
+
+                    <TextBlock x:Name="OrganizeLabel" Style="{StaticResource PaneSectionTextBlockStyle}" />
+                    <ComboBox x:Name="CollectionPicker" HorizontalAlignment="Stretch" DisplayMemberPath="Name" SelectionChanged="OnCollectionChosen" />
                     <StackPanel Spacing="8">
-                        <Button x:Name="TitleDisplay" Style="{StaticResource SubtleButtonStyle}" Click="OnEditTitle" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="0,4"><TextBlock x:Name="TitleText" Style="{ThemeResource SubtitleTextBlockStyle}" TextWrapping="Wrap" /></Button>
-                        <TextBox x:Name="NameBox" Visibility="Collapsed" TextChanged="OnTitleChanged" LostFocus="OnEditorLostFocus" KeyDown="OnEditorKeyDown" />
-                        <Button x:Name="NoteDisplay" Style="{StaticResource SubtleButtonStyle}" Click="OnEditNote" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="0,4"><TextBlock x:Name="NoteText" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" /></Button>
-                        <TextBox x:Name="NoteBox" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="88" MaxHeight="240" TextChanged="OnNoteChanged" LostFocus="OnEditorLostFocus" KeyDown="OnEditorKeyDown" />
-                        <StackPanel x:Name="DraftActions" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
-                            <Button x:Name="SaveButton" Style="{StaticResource AccentButtonStyle}" Click="OnSave" />
-                            <Button x:Name="DiscardButton" Style="{StaticResource SubtleButtonStyle}" Click="OnDiscard" />
-                            <ProgressRing x:Name="Saving" Width="18" Height="18" IsActive="False" />
-                        </StackPanel>
+                        <TextBlock x:Name="TagsLabel" />
+                        <md:WrapPanel x:Name="TagChips">
+                            <Button x:Name="AddTagButton" Style="{StaticResource TagChipButtonStyle}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE710;" FontSize="10" />
+                                    <TextBlock x:Name="AddTagLabel" />
+                                </StackPanel>
+                                <Button.Flyout>
+                                    <Flyout x:Name="TagFlyout" Opening="OnTagOpening">
+                                        <StackPanel Width="248" Spacing="12">
+                                            <ListView x:Name="TagChoices" DisplayMemberPath="Name" SelectionMode="Multiple"
+                                                      IsMultiSelectCheckBoxEnabled="True" MaxHeight="240" />
+                                            <TextBlock x:Name="NoTags" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <Button x:Name="ApplyTags" Click="OnApplyTags" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" />
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                        </md:WrapPanel>
                     </StackPanel>
-                    <StackPanel Spacing="4">
-                        <Button x:Name="CollectionButton" Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="8,10">
-                            <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <FontIcon Glyph="&#xE8B7;" FontSize="16" />
-                                <StackPanel Grid.Column="1" Spacing="2"><TextBlock x:Name="CollectionLabel" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" /><TextBlock x:Name="CollectionName" TextWrapping="Wrap" /></StackPanel>
-                                <FontIcon Grid.Column="2" Glyph="&#xE70D;" FontSize="12" />
-                            </Grid>
-                            <Button.Flyout><Flyout x:Name="CollectionFlyout" Opening="OnCollectionOpening"><ListView x:Name="CollectionPicker" Width="248" MaxHeight="320" DisplayMemberPath="Name" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="OnCollectionChosen" /></Flyout></Button.Flyout>
-                        </Button>
-                        <Button x:Name="TagButton" Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="8,10">
-                            <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <FontIcon Glyph="&#xE8EC;" FontSize="16" />
-                                <StackPanel Grid.Column="1" Spacing="2"><TextBlock x:Name="TagsLabel" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" /><TextBlock x:Name="TagSummary" TextWrapping="Wrap" /></StackPanel>
-                                <FontIcon Grid.Column="2" Glyph="&#xE70D;" FontSize="12" />
-                            </Grid>
-                            <Button.Flyout><Flyout x:Name="TagFlyout" Opening="OnTagOpening"><StackPanel Width="248" Spacing="12">
-                                <ListView x:Name="TagChoices" DisplayMemberPath="Name" SelectionMode="Multiple" IsMultiSelectCheckBoxEnabled="True" MaxHeight="240" />
-                                <TextBlock x:Name="NoTags" TextWrapping="Wrap" />
-                                <Button x:Name="ApplyTags" Click="OnApplyTags" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" />
-                            </StackPanel></Flyout></Button.Flyout>
-                        </Button>
-                    </StackPanel>
+                    <TextBox x:Name="NoteBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72" MaxHeight="200"
+                             TextChanged="OnNoteChanged" LostFocus="OnEditorLostFocus" KeyDown="OnEditorKeyDown" />
+
                     <Expander x:Name="FileSection" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                        <Grid RowSpacing="12" ColumnSpacing="16">
+                        <Grid RowSpacing="10" ColumnSpacing="16">
                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock x:Name="DimensionsLabel" Foreground="{ThemeResource TextFillColorSecondaryBrush}" /><TextBlock x:Name="DimensionsValue" Grid.Column="1" TextAlignment="Right" TextWrapping="Wrap" />

@@ -137,8 +137,13 @@ public sealed partial class SettingsView : UserControl
         try
         {
             Heading.Text = _strings["desktop_settings"];
+            GeneralHeader.Text = _strings["settings_general"];
+            SyncHeader.Text = _strings["sync_title"];
+            BackupSectionHeader.Text = _strings["backup_title"];
+            StorageHeader.Text = _strings["desktop_storage"];
 
-            AppearanceLabel.Text = _strings["settings_appearance"];
+            AppearanceRow.Header = _strings["settings_appearance"];
+            WindowsColors.Content = _strings["settings_windows_colors"];
             AutomationProperties.SetName(AppearanceSelector, _strings["settings_appearance"]);
             SystemAppearance.Content = _strings["theme_system"];
             LightAppearance.Content = _strings["theme_light"];
@@ -146,7 +151,7 @@ public sealed partial class SettingsView : UserControl
             AppearanceSelector.SelectedIndex = (int)_preferences.Appearance;
             AppearanceError.Message = _strings["settings_save_failed"];
 
-            LanguageLabel.Text = _strings["settings_language"];
+            LanguageRow.Header = _strings["settings_language"];
             AutomationProperties.SetName(LanguageSelector, _strings["settings_language"]);
             SystemLanguage.Content = _strings["language_system"];
             ChineseLanguage.Content = _strings["language_chinese"];
@@ -157,6 +162,8 @@ public sealed partial class SettingsView : UserControl
             OutputLabel.Text = _strings["settings_output"];
             CopyGroupLabel.Text = _strings["output_copy_group"];
             DragGroupLabel.Text = _strings["output_drag_group"];
+            CopyGroupHint.Text = _strings["output_copy_hint"];
+            DragGroupHint.Text = _strings["desktop_output_drag_hint"];
             CopyStillLabel.Text = _strings["output_still"];
             CopyAnimatedLabel.Text = _strings["output_animated"];
             DragStillLabel.Text = _strings["output_still"];
@@ -173,6 +180,7 @@ public sealed partial class SettingsView : UserControl
 
             StorageSpaceLabel.Text = _strings["desktop_space"];
             AutomationProperties.SetName(StorageRefresh, _strings["desktop_refresh"]);
+            ToolTipService.SetToolTip(StorageRefresh, _strings["desktop_refresh"]);
             OriginalCountLabel.Text = _strings["settings_original_count"];
             SavedOriginalsLabel.Text = _strings["settings_saved_originals"];
             CacheUsageLabel.Text = _strings["settings_cache_usage"];
@@ -180,17 +188,17 @@ public sealed partial class SettingsView : UserControl
             StorageRetry.Content = _strings["retry"];
             StorageNotice.Message = _strings["desktop_storage_not_ready"];
 
-            CleanupLabel.Text = _strings["desktop_cleanup"];
-            CleanupHint.Text = _strings["desktop_cleanup_hint"];
+            CleanupRow.Header = _strings["desktop_cleanup"];
+            CleanupRow.Description = _strings["desktop_cleanup_hint"];
             CleanButton.Content = _strings["desktop_clean"];
             AutomationProperties.SetName(CleanButton, _strings["desktop_clean"]);
 
-            BackupLabel.Text = _strings["desktop_backup"];
-            BackupHint.Text = _strings["desktop_backup_hint"];
+            BackupRow.Header = _strings["desktop_backup"];
+            BackupRow.Description = _strings["desktop_backup_hint"];
             CreateBackupButton.Content = _strings["desktop_backup_create"];
             AutomationProperties.SetName(CreateBackupButton, _strings["desktop_backup_create"]);
-            CheckpointLabel.Text = _strings["desktop_checkpoint"];
-            CheckpointHint.Text = _strings["desktop_checkpoint_hint"];
+            CheckpointRow.Header = _strings["desktop_checkpoint"];
+            CheckpointRow.Description = _strings["desktop_checkpoint_hint"];
             CreateCheckpointButton.Content = _strings["desktop_checkpoint_create"];
             AutomationProperties.SetName(CreateCheckpointButton, _strings["desktop_checkpoint_create"]);
 

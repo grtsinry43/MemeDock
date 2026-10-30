@@ -251,4 +251,16 @@
   <data name="desktop_restore_retry_action" xml:space="preserve"><value>Reload page</value></data>
   <data name="backup_creating" xml:space="preserve"><value>Creating backup…</value></data>
   <data name="backup_saving" xml:space="preserve"><value>Saving backup…</value></data>
+  <data name="backup_title" xml:space="preserve"><value>Backup &amp; Restore</value></data>
+  <data name="clear_search" xml:space="preserve"><value>Clear search</value></data>
+  <data name="sync_status" xml:space="preserve"><value>Sync status</value></data>
+  <data name="desktop_library_empty_hint" xml:space="preserve"><value>Import images to start your library</value></data>
+  <data name="desktop_starred_empty_hint" xml:space="preserve"><value>Star a sticker to keep it here</value></data>
+  <data name="desktop_collection_empty_hint" xml:space="preserve"><value>Select stickers and add them to this collection</value></data>
+  <data name="desktop_tag_empty_hint" xml:space="preserve"><value>Add the tag to a sticker to see it here</value></data>
+  <data name="desktop_selection_hint" xml:space="preserve"><value>Click stickers to add them to the selection</value></data>
+  <data name="desktop_storage" xml:space="preserve"><value>Storage</value></data>
+  <data name="desktop_output_drag_hint" xml:space="preserve"><value>Files dragged into other apps</value></data>
+  <data name="output_copy_hint" xml:space="preserve"><value>The Copy button, the context menu and Ctrl+C</value></data>
+  <data name="settings_windows_colors" xml:space="preserve"><value>Windows color settings</value></data>
 </root>

@@ -34,7 +34,7 @@ public sealed partial class SyncSettingsView : UserControl
     public void Relocalize()
     {
         if (_strings is null) return;
-        SyncLabel.Text = _strings["sync_title"];
+        SyncLabel.Text = _strings["sync_status"];
         OriginBox.Header = _strings["sync_server"];
         TokenBox.Header = _strings["sync_token"];
         TokenHint.Text = _strings["sync_token_hint"];
@@ -48,7 +48,7 @@ public sealed partial class SyncSettingsView : UserControl
         PendingLabel.Text = _strings["sync_pending"];
         BlockedLabel.Text = _strings["sync_blocked"];
         LastSyncLabel.Text = _strings["sync_last_success"];
-        BlockedHint.Text = _strings["sync_blocked_hint"];
+        BlockedHint.Message = _strings["sync_blocked_hint"];
         MergeHint.Text = _strings["sync_merge_hint"];
         LifecycleHint.Text = _strings["sync_lifecycle_hint"];
         Render();

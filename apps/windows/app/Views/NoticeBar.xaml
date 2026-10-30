@@ -1,0 +1,17 @@
+<UserControl
+    x:Class="MemeDock.Windows.Views.NoticeBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Visibility="Collapsed">
+    <!-- Transient feedback for a finished action. It floats over the content as an
+         overlay surface (8 epx corners, flyout stroke, in-app acrylic) instead of
+         pushing the gallery down like an inline status bar would. -->
+    <InfoBar x:Name="Bar" IsOpen="True" MinWidth="320" MaxWidth="560"
+             Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+             BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}" BorderThickness="1"
+             CornerRadius="{ThemeResource OverlayCornerRadius}" Closing="OnClosing">
+        <InfoBar.ActionButton>
+            <Button x:Name="ActionButton" Click="OnAction" HorizontalAlignment="Right" />
+        </InfoBar.ActionButton>
+    </InfoBar>
+</UserControl>

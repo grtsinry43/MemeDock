@@ -87,6 +87,21 @@ public sealed partial class TrashGroupsView : UserControl
         }
     }
 
+    private void OnRestoreLoaded(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button button && _strings is not null) button.Content = _strings["restore"];
+    }
+
+    private async void OnRestoreCollection(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { Tag: CollectionMetadata item } && _model is { IsBusy: false } model) await model.RestoreCollectionAsync(item);
+    }
+
+    private async void OnRestoreTag(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { Tag: TagMetadata item } && _model is { IsBusy: false } model) await model.RestoreTagAsync(item);
+    }
+
     private void OnCollectionMenu(object sender, RoutedEventArgs args)
     {
         if (sender is Button { Tag: CollectionMetadata item } button && _model is { IsBusy: false } model)

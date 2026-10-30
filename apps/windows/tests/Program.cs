@@ -1653,7 +1653,12 @@ internal static class Program
             ["desktop_backup"] = "backup", ["desktop_backup_create"] = "createBackup",
             ["desktop_backup_hint"] = "backupHint", ["desktop_backup_saved"] = "backupSaved",
             ["desktop_backup_saved_to"] = "backupSavedTo", ["desktop_checkpoint_create"] = "createCheckpoint",
-            ["desktop_checkpoint_hint"] = "checkpointHint"
+            ["desktop_checkpoint_hint"] = "checkpointHint",
+            // Android's empty-state hints describe touch gestures; the desktop wording comes from macOS.
+            ["desktop_library_empty_hint"] = "libraryEmptyHint", ["desktop_starred_empty_hint"] = "starredEmptyHint",
+            ["desktop_collection_empty_hint"] = "collectionEmptyHint", ["desktop_tag_empty_hint"] = "tagEmptyHint",
+            ["desktop_selection_hint"] = "selectionHint", ["desktop_storage"] = "storage",
+            ["desktop_output_drag_hint"] = "outputDragHint"
         };
         // Windows-only copy for the desktop settings page. Mobile has no drag
         // hand-off, a GIF preset, or a device identity panel, so these keys have no
@@ -1666,7 +1671,9 @@ internal static class Program
             "desktop_refresh", "desktop_cleanup_result", "desktop_storage_not_ready",
             "desktop_directory_missing", "desktop_directory_open_failed",
             "desktop_backup_file_type", "desktop_backup_exists", "desktop_backup_too_large",
-            "desktop_checkpoint", "desktop_checkpoint_created"
+            "desktop_checkpoint", "desktop_checkpoint_created",
+            // Windows shortcuts and the system color page have no mobile counterpart.
+            "output_copy_hint", "settings_windows_colors"
         };
         var macos = File.ReadAllText(Path.Combine(root, "apps/macos/Sources/MemeDock/Support/Localization.swift"));
         var split = macos.IndexOf("private static let chinese:", StringComparison.Ordinal);
