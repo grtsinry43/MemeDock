@@ -154,6 +154,9 @@ build_appimage() {
         --desktop-file "$appdir/usr/share/applications/com.grtsinry43.memedock.desktop" \
         --icon-file "$appdir/com.grtsinry43.memedock.png"
     rm -rf "$extract" "$noop"
+    # linuxdeploy leaves AppRun as a symlink to the executable; remove it first
+    # so copying our script cannot overwrite the binary through the link.
+    rm -f "$appdir/AppRun"
     cp "$root/packaging/appimage/AppRun" "$appdir/AppRun"
     chmod +x "$appdir/AppRun"
     APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 \
