@@ -46,6 +46,8 @@ __pycache__/
 /apps/server-web/src/lib/generated/
 /apps/server-web/test-results/
 /apps/server-web/playwright-report/
+/homepage/node_modules/
+/homepage/dist/
 *.sqlite
 *.sqlite-*
 *.db

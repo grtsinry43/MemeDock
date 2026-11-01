@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#FBFBFC" id="theme-color" />
+    <meta
+      name="description"
+      content="MemeDock 是一款本地优先的跨平台表情管理工具。把散落在聊天记录、下载文件夹和相册里的表情收进一处，收藏、整理、发送都在本地完成。"
+    />
+    <meta name="application-name" content="MemeDock" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="MemeDock" />
+    <meta property="og:title" content="MemeDock — 给表情包一个安静的家" />
+    <meta
+      property="og:description"
+      content="本地优先的跨平台表情管理器。收藏、整理、发送，都在你自己的设备上完成。"
+    />
+    <meta property="og:image" content="./og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="MemeDock — 给表情包一个安静的家" />
+    <meta
+      name="twitter:description"
+      content="本地优先的跨平台表情管理器。收藏、整理、发送，都在你自己的设备上完成。"
+    />
+    <meta name="twitter:image" content="./og.png" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
+    <title>MemeDock — 给表情包一个安静的家</title>
+    <style>
+      html {
+        background: #fbfbfc;
+      }
+      html.dark {
+        background: #0f1115;
+      }
+    </style>
+    <script>
+      ;(() => {
+        try {
+          var theme = localStorage.getItem('memedock-theme')
+          var dark =
+            theme === 'dark' ||
+            (theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          var locale = localStorage.getItem('memedock-locale')
+          if (dark) document.documentElement.classList.add('dark')
+          if (locale === 'en') document.documentElement.lang = 'en'
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+          var meta = document.getElementById('theme-color')
+          if (meta) meta.setAttribute('content', dark ? '#0f1115' : '#FBFBFC')
+        } catch (_) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div style="padding: 48px; font-family: sans-serif">
+        MemeDock 需要 JavaScript 才能展示。请启用 JavaScript，或直接前往
+        <a href="https://github.com/grtsinry43/MemeDock/releases">GitHub Releases</a> 下载。
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
