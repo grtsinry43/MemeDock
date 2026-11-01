@@ -13,7 +13,9 @@ public sealed record SyncState(
     Exception? Error)
 {
     public static SyncState Initial { get; } = new(
-        new SyncStatus(null, null, false, false, 0, 0, 0, null, null, 0),
+        new SyncStatus(
+            null, null, false, false, 0, 0, 0, null, null, 0,
+            null, 0, 0, null, Array.Empty<string>(), null),
         Loaded: false, Running: false, HasCredential: false, Changing: false, Error: null);
 }
 

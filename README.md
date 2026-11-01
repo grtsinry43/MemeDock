@@ -44,7 +44,7 @@ Prebuilt packages and `SHA256SUMS` manifests are available on [GitHub Releases](
 - **macOS (`arm64`)**: Download `MemeDock-<version>-macos-arm64.dmg` (or `.zip`) and drag `MemeDock.app` to Applications.
 - **Android (`arm64-v8a`)**: Download and install `MemeDock-<version>-android-arm64.apk`.
 - **iOS (`arm64`, iOS 18+)**: Download `MemeDock-<version>-ios-arm64-unsigned.ipa`, sign it with your own Apple signing credentials, and sideload it onto your device.
-- **Windows (`x64`)**: Extract `MemeDock-<version>-windows-x64.zip` and run `MemeDock.Windows.exe`.
+- **Windows (`x64`)**: Run `MemeDock-<version>-windows-x64-setup.exe` for a per-user install, or extract `MemeDock-<version>-windows-x64.zip` for the portable build.
 - **Arch Linux (`x86_64`)**: Build from `packaging/arch/memedock-bin` (prebuilt) or `packaging/arch/memedock-git` (from source) via `makepkg -si`.
 - **Linux Bundle (`x86_64`)**: Requires `gtk4 >= 4.22` and `libadwaita >= 1.9`:
   ```sh

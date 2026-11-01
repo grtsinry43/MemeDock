@@ -82,6 +82,7 @@ jobs:
           assets=(./*.apk ./*.pkg.tar.zst ./*.tar.gz ./MemeDock-*-linux-x86_64.tar.zst
                   ./MemeDock-*-macos-arm64.zip ./MemeDock-*-macos-arm64.dmg
                   ./MemeDock-*-ios-arm64-unsigned.ipa ./MemeDock-*-windows-x64.zip
+                  ./MemeDock-*-windows-x64-setup.exe
                   ./*.PKGBUILD ./*.SRCINFO)
           sha256sum -- "${assets[@]}" | sed 's|  ./|  |' > SHA256SUMS
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > release-state; then

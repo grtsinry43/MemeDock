@@ -17,10 +17,15 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <DefaultLanguage>en-US</DefaultLanguage>
     <WindowsSdkPackageVersion>10.0.26100.56</WindowsSdkPackageVersion>
+    <ApplicationIcon>Assets\MemeDock.ico</ApplicationIcon>
     <!-- Single source for the version shown in Settings > About; the test compares
          it with [workspace.package] in Cargo.toml. -->
     <Version>0.2.1</Version>
   </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Assets\MemeDock.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\MemeDock.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />

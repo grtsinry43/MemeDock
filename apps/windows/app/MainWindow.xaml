@@ -38,7 +38,13 @@
             <TitleBar.Resources>
                 <HorizontalAlignment x:Key="TitleBarContentHorizontalAlignment">Stretch</HorizontalAlignment>
             </TitleBar.Resources>
-            <TitleBar.IconSource><FontIconSource Glyph="&#xE7F4;" /></TitleBar.IconSource>
+            <TitleBar.IconSource>
+                <ImageIconSource>
+                    <ImageIconSource.ImageSource>
+                        <BitmapImage UriSource="ms-appx:///Assets/MemeDock.png" />
+                    </ImageIconSource.ImageSource>
+                </ImageIconSource>
+            </TitleBar.IconSource>
             <TitleBar.Content>
                 <AutoSuggestBox x:Name="Search" IsEnabled="False" QueryIcon="Find" MinWidth="240" MaxWidth="560"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Center"

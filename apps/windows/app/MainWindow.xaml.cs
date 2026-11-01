@@ -97,6 +97,7 @@ public sealed partial class MainWindow : Window
         Settings.AppearanceChanged += OnAppearanceChanged;
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new global::Windows.Graphics.SizeInt32(1180, 820));
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "MemeDock.ico"));
         AppWindow.Closing += OnClosing;
         Strings.PropertyChanged += OnLanguageChanged;
         ViewModel.PropertyChanged += OnModelChanged;

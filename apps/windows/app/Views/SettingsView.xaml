@@ -273,7 +273,7 @@
                 <Expander.Header>
                     <Grid ColumnSpacing="16" Padding="0,12,16,12">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <FontIcon Glyph="&#xE7F4;" FontSize="20" VerticalAlignment="Center" />
+                        <Image Source="ms-appx:///Assets/MemeDock.png" Width="20" Height="20" VerticalAlignment="Center" Stretch="Uniform" />
                         <TextBlock x:Name="AboutTitle" Grid.Column="1" Text="MemeDock" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                             <TextBlock x:Name="VersionLabel" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
