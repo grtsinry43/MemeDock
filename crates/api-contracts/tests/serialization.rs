@@ -53,10 +53,10 @@ fn sync_requests_preserve_validated_domain_contracts_and_reject_extra_fields()
         ),
     };
     let mut wire = serde_json::to_value(&request)?;
-    assert_eq!(wire["operation"]["protocol_version"], 1);
+    assert_eq!(wire["operation"]["protocol_version"], 2);
     let decoded: memedock_api_contracts::PushRequest = serde_json::from_value(wire.clone())?;
     assert_eq!(decoded.operation, request.operation);
-    wire["operation"]["protocol_version"] = serde_json::json!(2);
+    wire["operation"]["protocol_version"] = serde_json::json!(1);
     assert!(serde_json::from_value::<memedock_api_contracts::PushRequest>(wire).is_err());
     let mut wire = serde_json::to_value(&request)?;
     wire["unexpected"] = serde_json::json!(true);

@@ -24,7 +24,13 @@ pub(super) async fn run(
     if binding.paused {
         return status(services).await;
     }
+    if binding.cooldown_until_ms > crate::writes::now()?.get() {
+        return status(services).await;
+    }
+    let start_cursor = binding.cursor;
+    let start_deferred = binding.deferred.stickers.len();
     let client = Client::new(&binding.origin, token)?;
+    client.check_protocol(control).await?;
     if binding.initialized {
         enqueue(services, false).await?;
     }
@@ -42,6 +48,7 @@ pub(super) async fn run(
     if !binding.initialized {
         initialize(services).await?;
     }
+    status(services).await?;
     enqueue(services, false).await?;
     for mut job in services
         .db
@@ -123,7 +130,7 @@ pub(super) async fn run(
                 .await?
                 .is_some_and(|v| v.lifecycle().is_purged())
         {
-            block(services, &mut job, "superseded_by_permanent_delete").await?;
+            block(services, &mut job, "superseded_by_permanent_delete", None).await?;
             continue;
         }
         let upload = match job.envelope.operation().kind() {
@@ -144,9 +151,14 @@ pub(super) async fn run(
         if let Err(error) = upload {
             if matches!(
                 error.code(),
-                ErrorCode::InvalidInput | ErrorCode::ResourceLimit
+                ErrorCode::InvalidInput
+                    | ErrorCode::ResourceLimit
+                    | ErrorCode::NotFound
+                    | ErrorCode::CorruptData
+                    | ErrorCode::InvalidImage
+                    | ErrorCode::UnsupportedFormat
             ) {
-                block(services, &mut job, error.code().as_str()).await?;
+                block(services, &mut job, error.code().as_str(), Some(&error)).await?;
                 continue;
             }
             return Err(error);
@@ -181,7 +193,7 @@ pub(super) async fn run(
                     ErrorCode::InvalidInput | ErrorCode::ResourceLimit
                 ) =>
             {
-                block(services, &mut job, error.code().as_str()).await?;
+                block(services, &mut job, error.code().as_str(), Some(&error)).await?;
                 continue;
             }
             Err(error) => return Err(error),
@@ -206,6 +218,21 @@ pub(super) async fn run(
             ReceiptOutcome::Rejected { code } => {
                 job.done = true;
                 job.error = Some(format!("{code:?}"));
+                let mut binding = required(services).await?;
+                binding.last_error = Some("conflict".into());
+                memedock_storage::client_sync::diagnostics::record(
+                    &mut binding,
+                    memedock_domain::sync::diagnostics::SyncDiagnostic {
+                        stage: format!("push op={}", job.envelope.op_id()),
+                        code: format!("{code:?}"),
+                        detail: "server rejected this operation; other operations can continue"
+                            .into(),
+                        occurred_at_ms: crate::writes::now()?.get(),
+                        attempts: 1,
+                        ..Default::default()
+                    },
+                );
+                tx.set_sync_binding(&binding, budget(services)).await?;
             }
         }
         if let Some(order) = job.source_order
@@ -236,7 +263,7 @@ pub(super) async fn run(
             break;
         }
     }
-    download(services, &client, control).await?;
+    super::transfer::run(services, &client, control).await?;
     crate::use_cases::purge::cleanup(services).await?;
     let _write = services
         .write_permit
@@ -244,21 +271,40 @@ pub(super) async fn run(
         .await
         .map_err(|_| CoreError::internal("write service closed"))?;
     let mut binding = required(services).await?;
-    binding.last_success_ms = Some(crate::writes::now()?.get());
-    binding.last_error = None;
+    let now = crate::writes::now()?.get();
+    if binding.cursor != start_cursor || binding.deferred.stickers.len() < start_deferred {
+        binding.last_progress_ms = Some(now);
+    }
+    let transfers = services.db.sync_transfers(budget(services)).await?;
+    let jobs = services.db.sync_jobs(budget(services)).await?;
+    if binding.deferred.stickers.is_empty()
+        && transfers.is_empty()
+        && !jobs.iter().any(|j| !j.done || j.error.is_some())
+    {
+        binding.last_success_ms = Some(now);
+        binding.last_error = None;
+        binding.diagnostic = None;
+    }
+    binding.failures = 0;
+    binding.cooldown_until_ms = 0;
     let mut tx = services.db.begin_write().await?;
     tx.delete_finished_sync_jobs().await?;
     tx.commit_sync(&binding, None, budget(services)).await?;
     status(services).await
 }
-async fn required(services: &Services) -> Result<Binding> {
+pub(super) async fn required(services: &Services) -> Result<Binding> {
     services
         .db
         .sync_binding(budget(services))
         .await?
         .ok_or_else(|| CoreError::new(ErrorCode::Conflict, "sync binding missing"))
 }
-async fn block(services: &Services, job: &mut SyncJob, code: &str) -> Result<()> {
+async fn block(
+    services: &Services,
+    job: &mut SyncJob,
+    code: &str,
+    failure: Option<&CoreError>,
+) -> Result<()> {
     let _write = services
         .write_permit
         .acquire()
@@ -274,6 +320,22 @@ async fn block(services: &Services, job: &mut SyncJob, code: &str) -> Result<()>
         tx.save_change(&source).await?;
     }
     tx.save_sync_job(job).await?;
+    if let Some(failure) = failure {
+        let hash = match job.envelope.operation().kind() {
+            OperationKind::CreateSticker { asset, .. } => Some(asset.hash().to_string()),
+            OperationKind::RestoreSticker {
+                rebuild: Some(rebuild),
+                ..
+            }
+            | OperationKind::ReimportSticker { rebuild, .. } => {
+                Some(rebuild.asset.hash().to_string())
+            }
+            _ => None,
+        };
+        let mut binding = required(services).await?;
+        super::diagnostics::failed(&mut binding, failure, "upload/push", hash, true)?;
+        tx.set_sync_binding(&binding, budget(services)).await?;
+    }
     tx.commit().await?;
     Ok(())
 }
@@ -325,10 +387,12 @@ async fn initialize(services: &Services) -> Result<()> {
     }
     enqueue_in(services, &mut tx, &mut binding, true).await?;
     binding.initialized = true;
-    let mut view = services
+    let live = services
         .db
         .archive_data_bounded(services.config.limits.max_archive_metadata_bytes)
         .await?;
+    let mut view = binding.deferred.clone();
+    catalog::merge(&mut view, &live)?;
     adopt_generations(&mut view, &binding)?;
     catalog::merge(&mut view, &binding.canonical)?;
     for job in tx
@@ -342,7 +406,7 @@ async fn initialize(services: &Services) -> Result<()> {
             job.envelope.operation().kind(),
             job.envelope.client_time_ms(),
         ) {
-            eprintln!("initial sync overlay deferred: {}", error.code().as_str());
+            super::diagnostics::failed(&mut binding, &error, "initial local overlay", None, true)?;
         }
     }
     catalog::clean(&mut view);
@@ -490,10 +554,12 @@ async fn pull(services: &Services, client: &Client, control: &TaskControl) -> Re
         tx.save_sync_job(job).await?;
     }
     let view = if binding.initialized {
-        let mut view = services
+        let live = services
             .db
             .archive_data_bounded(services.config.limits.max_archive_metadata_bytes)
             .await?;
+        let mut view = binding.deferred.clone();
+        catalog::merge(&mut view, &live)?;
         catalog::merge(&mut view, &binding.canonical)?;
         for job in jobs.iter().filter(|j| !j.done) {
             if let Err(error) = project::overlay(
@@ -501,7 +567,7 @@ async fn pull(services: &Services, client: &Client, control: &TaskControl) -> Re
                 job.envelope.operation().kind(),
                 job.envelope.client_time_ms(),
             ) {
-                eprintln!("sync overlay deferred: {}", error.code().as_str());
+                super::diagnostics::failed(&mut binding, &error, "local overlay", None, true)?;
             }
         }
         // Include edits committed while the network request was in flight.
@@ -521,7 +587,13 @@ async fn pull(services: &Services, client: &Client, control: &TaskControl) -> Re
                     && let Err(error) =
                         project::overlay(&mut view, change.operation().kind(), change.created_at())
                 {
-                    eprintln!("sync overlay deferred: {}", error.code().as_str());
+                    super::diagnostics::failed(
+                        &mut binding,
+                        &error,
+                        "concurrent local overlay",
+                        None,
+                        true,
+                    )?;
                 }
             }
         }
@@ -540,9 +612,10 @@ async fn pull(services: &Services, client: &Client, control: &TaskControl) -> Re
     if let Some(view) = view {
         notify(services, &view)?;
     }
+    status(services).await?;
     Ok(more)
 }
-fn notify(services: &Services, view: &ArchiveData) -> Result<()> {
+pub(super) fn notify(services: &Services, view: &ArchiveData) -> Result<()> {
     services.events.publish(ChangeKind::CollectionsChanged)?;
     services.events.publish(ChangeKind::TagsChanged)?;
     for sticker in &view.stickers {
@@ -658,37 +731,19 @@ fn adopt_generations(view: &mut ArchiveData, binding: &Binding) -> Result<()> {
     }
     Ok(())
 }
-async fn download(
+pub(super) async fn download_one(
     services: &Arc<Services>,
     client: &Client,
     control: &Arc<TaskControl>,
+    asset: &memedock_domain::asset::Asset,
 ) -> Result<()> {
-    let binding = required(services).await?;
-    let mut missing = Vec::new();
-    for assets in binding.canonical.assets.chunks(200) {
-        let hashes: Vec<_> = assets.iter().map(|a| a.hash()).collect();
-        for (asset, local) in services.db.resource_rows(&hashes).await? {
-            if binding
-                .canonical
-                .stickers
-                .iter()
-                .any(|v| v.id() == asset.sticker_id() && v.lifecycle().is_purged())
-            {
-                continue;
-            }
-            if !local.is_some_and(|v| v.blob_status() == memedock_domain::local::BlobStatus::Ready)
-            {
-                missing.push(asset);
-                if missing.len() == 8 {
-                    break;
-                }
-            }
-        }
-        if missing.len() == 8 {
-            break;
-        }
+    if asset.byte_size().get() as u64 > services.config.limits.max_file_bytes {
+        return Err(CoreError::new(
+            ErrorCode::ResourceLimit,
+            "sync original exceeds the local file limit",
+        ));
     }
-    for asset in &missing {
+    {
         control.check()?;
         let blobs = services.blobs.clone();
         let pending = tokio::task::spawn_blocking(move || blobs.create_staging()).await??;
@@ -711,7 +766,10 @@ async fn download(
             .is_some_and(|v| v.lifecycle().is_purged())
         {
             tokio::task::spawn_blocking(move || pending.discard()).await??;
-            continue;
+            return Err(CoreError::new(
+                ErrorCode::EntityDeleted,
+                "download superseded by permanent deletion",
+            ));
         }
         tokio::task::spawn_blocking(move || -> Result<()> {
             let staged =
@@ -723,6 +781,7 @@ async fn download(
                     "downloaded original hash mismatch",
                 ));
             }
+            blobs.quarantine_damaged(expected.hash(), expected.byte_size().get() as u64)?;
             blobs.publish(staged, || check.is_cancelled())?;
             Ok(())
         })

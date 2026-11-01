@@ -1,6 +1,13 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Waiting for Originals": { "extractionState": "manual", "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "等待原图入库" } } } },
+    "Waiting to Retry": { "extractionState": "manual", "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "等待重试" } } } },
+    "Retry Allowed After": { "extractionState": "manual", "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "下次允许重试" } } } },
+    "Sync Diagnostic Details": { "extractionState": "manual", "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "同步诊断详情" } } } },
+    "Sync protocol mismatch. Update both the server and this app.": { "extractionState": "manual", "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "同步协议不兼容，请升级服务端和客户端。" } } } },
+    "An original image is missing on the server. Other images can continue syncing.": { "extractionState": "manual", "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "服务器缺少某张原图，其他图片仍可继续同步。" } } } },
+    "The backup excludes %lld images that are still syncing.": { "extractionState": "manual", "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "另有 %lld 张图片尚未同步入库，不包含在此备份中。" } } } },
     "The backup is incomplete or damaged.": {
       "extractionState": "manual",
       "localizations": {

@@ -76,7 +76,7 @@ impl LibraryDatabase {
         let connection = Database::connect(options).await?;
         let version = pragma(&connection, "PRAGMA user_version", "user_version").await?;
         let application = pragma(&connection, "PRAGMA application_id", "application_id").await?;
-        if ![0, 4, 5, SCHEMA_VERSION].contains(&version)
+        if ![0, 4, 5, 6, SCHEMA_VERSION].contains(&version)
             || (version > 0 && application != APPLICATION_ID)
             || (version == 0 && application != 0)
         {
@@ -89,7 +89,7 @@ impl LibraryDatabase {
                 return Err(StorageError::UnsupportedSchema);
             }
             schema::initialize(&connection).await?;
-        } else if version == 4 || version == 5 {
+        } else if version < SCHEMA_VERSION {
             let tx = connection
                 .begin_with_options(TransactionOptions {
                     sqlite_transaction_mode: Some(SqliteTransactionMode::Immediate),
@@ -100,8 +100,12 @@ impl LibraryDatabase {
             match pragma(&tx, "PRAGMA user_version", "user_version").await? {
                 4 => super::migrations::v0_1_0_to_v0_2_0::apply(&tx).await?,
                 5 => super::migrations::v0_1_0_to_v0_2_0::add_purge(&tx).await?,
+                6 => {}
                 SCHEMA_VERSION => {}
                 _ => return Err(StorageError::UnsupportedSchema),
+            }
+            if pragma(&tx, "PRAGMA user_version", "user_version").await? == 6 {
+                super::migrations::v0_2_0_to_v0_2_1::apply(&tx).await?;
             }
             tx.commit().await?;
         }

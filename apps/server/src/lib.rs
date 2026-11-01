@@ -5,6 +5,7 @@ mod routes;
 mod session_store;
 pub mod state;
 mod static_assets;
+pub mod transfer;
 
 use axum::{
     Router,
@@ -65,7 +66,11 @@ pub fn router(state: AppState) -> Result<Router, String> {
         )
         .route(
             "/api/v1/admin/devices/{id}",
-            axum::routing::delete(routes::devices::revoke),
+            axum::routing::delete(routes::devices::delete),
+        )
+        .route(
+            "/api/v1/admin/devices/{id}/revoke",
+            post(routes::devices::revoke),
         )
         .route("/api/v1/device/verify", get(routes::devices::verify))
         .route("/api/v1/device/sync/info", get(routes::sync::info))
@@ -111,7 +116,16 @@ async fn request_boundary(
         .and_then(|v| v.to_str().ok())
         == Some(state.config.public_origin.as_str());
     request.extensions_mut().insert(ctx.clone());
-    let mut response = if admin_write && !valid_origin {
+    let sync_request = request.uri().path().starts_with("/api/v1/device/")
+        && !request.uri().path().ends_with("/sync/info")
+        && !request.uri().path().ends_with("/verify");
+    let compatible = request
+        .headers()
+        .get("x-memedock-sync-protocol")
+        .is_some_and(|v| v == "2");
+    let mut response = if sync_request && !compatible {
+        ctx.respond::<()>(Err(ApiError(ApiErrorKind::UnsupportedProtocol)))
+    } else if admin_write && !valid_origin {
         ctx.respond::<()>(Err(ApiError(ApiErrorKind::Forbidden)))
     } else {
         next.run(request).await

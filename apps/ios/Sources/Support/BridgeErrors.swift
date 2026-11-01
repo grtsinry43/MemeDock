@@ -3,6 +3,9 @@ import MemeDockBridge
 
 enum BridgeErrors {
     static func backupDescription(_ error: any Error) -> String {
+        if case let BridgeError.Failure(_, detail) = error, detail.contains("backup:") {
+            return String(localized: "The backup is incomplete or damaged.") + "\n" + detail
+        }
         if case let BridgeError.Failure(code, _) = error {
             switch code {
             case .corruptData, .invalidImage: return String(localized: "The backup is incomplete or damaged.")

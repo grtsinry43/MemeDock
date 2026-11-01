@@ -20,6 +20,10 @@ impl State {
             && !self.status.paused
             && !self.suspended
             && !self.terminal
+            && !matches!(
+                self.status.error.as_deref(),
+                Some("unauthorized" | "unsupported_schema" | "storage_full" | "permission_denied")
+            )
     }
     pub fn needs_authorization(&self) -> bool {
         !self.credential || self.status.error.as_deref() == Some("unauthorized")
@@ -29,6 +33,7 @@ impl State {
 pub(super) enum Command {
     Connect { origin: String, token: String },
     Synchronize,
+    SynchronizeManually,
     Pause(bool),
     Disconnect,
 }

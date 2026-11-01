@@ -1,4 +1,9 @@
 <resources>
+    <string name="sync_downloading">Waiting for originals</string>
+    <string name="sync_waiting">Waiting to retry</string>
+    <string name="sync_retry_at">Retry allowed after</string>
+    <string name="sync_diagnostics">Diagnostic details (select to copy)</string>
+    <string name="backup_pending_sync">%1$d images have not finished syncing and are not included in this backup.</string>
     <string name="sync_title">Sync</string>
     <string name="sync_server">Server address</string>
     <string name="sync_token">Device token</string>

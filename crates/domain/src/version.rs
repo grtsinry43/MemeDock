@@ -101,6 +101,30 @@ macro_rules! version {
         }
     };
 }
-version!(ProtocolVersion);
+/// Sync protocol 2 is the first public sync protocol, shipped in 0.2.1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "u32", into = "u32")]
+pub struct ProtocolVersion(u32);
+impl ProtocolVersion {
+    pub const CURRENT: Self = Self(2);
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+impl TryFrom<u32> for ProtocolVersion {
+    type Error = DomainError;
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        if value == 2 {
+            Ok(Self::CURRENT)
+        } else {
+            Err(DomainError::UnsupportedVersion)
+        }
+    }
+}
+impl From<ProtocolVersion> for u32 {
+    fn from(value: ProtocolVersion) -> Self {
+        value.0
+    }
+}
 version!(ChangeSchemaVersion);
 version!(ArchiveFormatVersion);

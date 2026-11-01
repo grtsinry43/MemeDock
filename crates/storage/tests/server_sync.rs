@@ -9,6 +9,211 @@ use sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[tokio::test]
+async fn deleting_revoked_device_rolls_back_on_failure_and_preserves_server_history() -> Result {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("server.sqlite");
+    let db = ServerDatabase::open(&path).await?;
+    let device = DeviceId::new();
+    db.create_device(&device.to_string(), "historic device", &"1".repeat(64), 0)
+        .await?;
+    let tx = db.begin_sync(device).await?;
+    let identity = tx.identity;
+    let op = OperationEnvelope::new(
+        identity.library_id,
+        identity.epoch,
+        device,
+        OperationId::new(),
+        TimestampMs::new(0),
+        Operation::new(OperationKind::CreateTag {
+            tag_id: memedock_domain::identity::TagId::new(),
+            name: "history".parse()?,
+        })?,
+    );
+    let receipt = OperationReceipt {
+        device_id: device,
+        op_id: op.op_id(),
+        outcome: ReceiptOutcome::NoOp {
+            canonical_revision: identity.head,
+        },
+    };
+    tx.finish(&op, &receipt, None, TimestampMs::new(123))
+        .await?;
+    db.pull_events_observed(
+        device,
+        (identity.library_id, identity.epoch),
+        identity.head,
+        10,
+        Some(TimestampMs::new(124)),
+    )
+    .await?;
+    assert!(db.delete_revoked_device(&device.to_string()).await.is_err());
+    assert_eq!(db.sync_overview().await?.devices[0].applied_cursor, Some(0));
+    db.revoke_device(&device.to_string(), 125).await?;
+    let raw = Database::connect(format!("sqlite://{}?mode=rw", path.display())).await?;
+    raw.execute_unprepared("CREATE TRIGGER reject_device_delete BEFORE DELETE ON server_devices BEGIN SELECT RAISE(ABORT,'injected deletion failure'); END").await?;
+    assert!(db.delete_revoked_device(&device.to_string()).await.is_err());
+    assert!(db.device(&device.to_string()).await?.is_some());
+    assert_eq!(db.sync_overview().await?.devices[0].applied_cursor, Some(0));
+    raw.execute_unprepared("DROP TRIGGER reject_device_delete")
+        .await?;
+    raw.close().await?;
+    assert!(db.delete_revoked_device(&device.to_string()).await?);
+    assert!(!db.delete_revoked_device(&device.to_string()).await?);
+    assert!(db.device(&device.to_string()).await?.is_none());
+    assert!(db.sync_overview().await?.devices.is_empty());
+    assert_eq!(db.sync_identity().await?.head, identity.head);
+    let history = db
+        .sync_activity(&memedock_storage::server::ActivityFilter {
+            device: Some(device),
+            result: None,
+            page: 1,
+            limit: 100,
+        })
+        .await?;
+    assert_eq!(history.total, 1);
+    assert_eq!(history.items[0].device_name, "historic device");
+    assert_eq!(history.items[0].op_id, op.op_id().to_string());
+    assert_eq!(history.items[0].received_at, Some(123));
+    assert!(db.begin_sync(device).await.is_err());
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn device_deletion_migration_from_provisional_v021_rolls_back_and_keeps_receipts() -> Result {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("server.sqlite");
+    let db = ServerDatabase::open(&path).await?;
+    let device = DeviceId::new();
+    db.create_device(&device.to_string(), "retained source", &"2".repeat(64), 0)
+        .await?;
+    let tx = db.begin_sync(device).await?;
+    let identity = tx.identity;
+    let op = OperationEnvelope::new(
+        identity.library_id,
+        identity.epoch,
+        device,
+        OperationId::new(),
+        TimestampMs::new(0),
+        Operation::new(OperationKind::CreateTag {
+            tag_id: memedock_domain::identity::TagId::new(),
+            name: "retained".parse()?,
+        })?,
+    );
+    let receipt = OperationReceipt {
+        device_id: device,
+        op_id: op.op_id(),
+        outcome: ReceiptOutcome::NoOp {
+            canonical_revision: identity.head,
+        },
+    };
+    tx.finish(&op, &receipt, None, TimestampMs::new(120))
+        .await?;
+    db.close().await?;
+    let raw = Database::connect(format!("sqlite://{}?mode=rw", path.display())).await?;
+    for sql in [
+        "CREATE TABLE old_receipts (device_id TEXT NOT NULL REFERENCES server_devices(id), op_id TEXT NOT NULL, request TEXT NOT NULL CHECK(json_valid(request)), receipt TEXT NOT NULL CHECK(json_valid(receipt)), received_at INTEGER, PRIMARY KEY(device_id,op_id)) STRICT",
+        "INSERT INTO old_receipts SELECT device_id,op_id,request,receipt,received_at FROM server_sync_receipts",
+        "DROP TABLE server_sync_receipts",
+        "ALTER TABLE old_receipts RENAME TO server_sync_receipts",
+        "CREATE INDEX server_receipt_time ON server_sync_receipts(received_at DESC,device_id,op_id)",
+        "PRAGMA user_version=5",
+        // Fail near the end, after the migration has copied and replaced the
+        // receipt table, to verify that transactional DDL restores the old one.
+        "CREATE TABLE migration_collision(value INTEGER)",
+        "CREATE INDEX server_receipt_device_time ON migration_collision(value)",
+    ] {
+        raw.execute_unprepared(sql).await?;
+    }
+    assert!(ServerDatabase::open(&path).await.is_err());
+    let version = raw
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA user_version".to_owned(),
+        ))
+        .await?
+        .ok_or("version")?;
+    assert_eq!(version.try_get::<i64>("", "user_version")?, 5);
+    let row = raw
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT count(*) AS n FROM server_sync_receipts".to_owned(),
+        ))
+        .await?
+        .ok_or("receipt count")?;
+    assert_eq!(row.try_get::<i64>("", "n")?, 1);
+    raw.execute_unprepared("DROP TABLE migration_collision")
+        .await?;
+    raw.close().await?;
+    let db = ServerDatabase::open(&path).await?;
+    let tx = db.begin_sync(device).await?;
+    assert_eq!(tx.prior_receipt(&op).await?, Some(receipt));
+    drop(tx);
+    db.revoke_device(&device.to_string(), 130).await?;
+    assert!(db.delete_revoked_device(&device.to_string()).await?);
+    let history = db
+        .sync_activity(&memedock_storage::server::ActivityFilter {
+            device: Some(device),
+            result: None,
+            page: 1,
+            limit: 100,
+        })
+        .await?;
+    assert_eq!(history.items[0].device_name, "retained source");
+    assert_eq!(history.items[0].received_at, Some(120));
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn v0_2_1_upgrade_preserves_historic_receipt_identity_and_deduplication() -> Result {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("server.sqlite");
+    let db = ServerDatabase::open(&path).await?;
+    let device = DeviceId::new();
+    db.create_device(&device.to_string(), "upgrade", &"1".repeat(64), 0)
+        .await?;
+    let tx = db.begin_sync(device).await?;
+    let identity = tx.identity;
+    let op = OperationEnvelope::new(
+        identity.library_id,
+        identity.epoch,
+        device,
+        OperationId::new(),
+        TimestampMs::new(0),
+        Operation::new(OperationKind::CreateTag {
+            tag_id: memedock_domain::identity::TagId::new(),
+            name: "retained".parse()?,
+        })?,
+    );
+    let receipt = OperationReceipt {
+        device_id: device,
+        op_id: op.op_id(),
+        outcome: ReceiptOutcome::NoOp {
+            canonical_revision: identity.head,
+        },
+    };
+    tx.finish(&op, &receipt, None, TimestampMs::new(100))
+        .await?;
+    db.close().await?;
+    let raw = Database::connect(format!("sqlite://{}?mode=rw", path.display())).await?;
+    raw.execute_unprepared(
+        "UPDATE server_sync_receipts SET request=json_set(request,'$.protocol_version',1)",
+    )
+    .await?;
+    raw.execute_unprepared("PRAGMA user_version=4").await?;
+    raw.close().await?;
+    let db = ServerDatabase::open(&path).await?;
+    let tx = db.begin_sync(device).await?;
+    assert_eq!(tx.prior_receipt(&op).await?, Some(receipt));
+    drop(tx);
+    assert_eq!(db.sync_identity().await?.library_id, identity.library_id);
+    assert_eq!(db.sync_identity().await?.epoch, identity.epoch);
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn monitoring_upgrade_preserves_receipts_and_rolls_back_partial_ddl() -> Result {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("server.sqlite");

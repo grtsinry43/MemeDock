@@ -45,5 +45,5 @@ class BackupRepository(private val session: LibrarySession,
             }
         }
     private suspend fun <T> translate(block: suspend () -> T): T = try { block() }
-        catch (failure: BridgeException.Failure) { throw LibraryFailure(failure.code.name) }
+        catch (failure: BridgeException.Failure) { throw LibraryFailure(failure.code.name, failure, failure.detail) }
 }

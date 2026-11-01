@@ -18,6 +18,7 @@ data class SyncState(
     val wifiOnly: Boolean = false, val error: String? = null, val loaded: Boolean = false,
     val preferencesLoaded: Boolean = false,
     val changing: Boolean = false,
+    val diagnostic: String? = null,
 ) { val busy: Boolean get() = running || changing }
 enum class SyncRun { Complete, Skipped, Retry, Blocked }
 
@@ -98,8 +99,8 @@ class SyncCoordinator(
     }
     private fun enabled(): Boolean = !maintenance && mutable.value.let {
         it.binding != null && it.preferencesLoaded && it.status.connected && !it.status.paused && it.hasCredential &&
-            !it.status.error.equals("unauthorized", ignoreCase = true) &&
-            it.error?.uppercase() !in setOf("UNAUTHORIZED", "CREDENTIAL", "INVALID_INPUT", "UNSUPPORTED_SCHEMA", "CORRUPT_DATA")
+            it.status.error?.uppercase() !in setOf("UNAUTHORIZED", "UNSUPPORTED_SCHEMA", "STORAGE_FULL", "PERMISSION_DENIED") &&
+            it.error?.uppercase() !in setOf("UNAUTHORIZED", "CREDENTIAL", "INVALID_INPUT", "UNSUPPORTED_SCHEMA", "CORRUPT_DATA", "STORAGE_FULL", "PERMISSION_DENIED")
     }
     private fun schedule() {
         val current = mutable.value
@@ -111,7 +112,7 @@ class SyncCoordinator(
         loop = scope.launch {
             while (isActive && foreground && !maintenance) {
                 if (enabled() && scheduler.automaticNetworkAvailable(mutable.value.wifiOnly)) synchronize()
-                val delayMs = mutable.value.status.retryAfterMs.coerceIn(500, 60_000)
+                val delayMs = mutable.value.status.retryAfterMs.coerceIn(500, 86_400_000)
                 withTimeoutOrNull(delayMs) { wake.receive() }
             }
         }
@@ -184,20 +185,22 @@ class SyncCoordinator(
     private suspend fun synchronize(expected: SyncWorkIdentity? = null, manual: Boolean = false): SyncRun = gate.withLock {
         val current = mutable.value
         val binding = current.binding ?: return@withLock SyncRun.Skipped
-        if (!enabled() || (expected != null && current.status.workIdentity(binding) != expected)) return@withLock SyncRun.Skipped
+        val allowed = if (manual) !maintenance && current.preferencesLoaded && current.status.connected && !current.status.paused && current.hasCredential else enabled()
+        if (!allowed || (expected != null && current.status.workIdentity(binding) != expected)) return@withLock SyncRun.Skipped
         if (!manual && !scheduler.automaticNetworkAvailable(current.wifiOnly)) return@withLock SyncRun.Retry
         val origin = current.status.origin ?: return@withLock SyncRun.Skipped
         active = currentCoroutineContext().job
-        mutable.update { it.copy(running = true, error = null) }
+        mutable.update { it.copy(running = true, error = null, diagnostic = null) }
         try {
             val token = loadToken(binding, origin)
             if (token == null) {
                 mutable.update { it.copy(hasCredential = false) }
                 return@withLock SyncRun.Skipped
             }
+            if (manual && current.status.blocked > 0 && current.status.downloading > 0) repository.retryDownloads(binding)
             val status = repository.synchronize(binding, token)
             mutable.update { it.copy(status = status) }
-            if (status.pending > 0 && status.blocked == 0L) SyncRun.Retry else SyncRun.Complete
+            if (status.pending > 0) SyncRun.Retry else SyncRun.Complete
         } catch (cancel: CancellationException) { throw cancel }
         catch (error: Exception) {
             failed(error)
@@ -234,5 +237,5 @@ class SyncCoordinator(
         tokens.load(binding.libraryId, origin)
     } catch (cancel: CancellationException) { throw cancel }
     catch (_: Exception) { throw com.grtsinry43.memedock.data.library.LibraryFailure("CREDENTIAL") }
-    private fun failed(error: Exception) { mutable.update { it.copy(error = failureCode(error)) } }
+    private fun failed(error: Exception) { mutable.update { it.copy(error = failureCode(error), diagnostic = (error as? com.grtsinry43.memedock.data.library.LibraryFailure)?.diagnostic) } }
 }

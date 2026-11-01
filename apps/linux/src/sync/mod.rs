@@ -111,7 +111,7 @@ impl Coordinator {
         self.request(Command::Connect { origin, token });
     }
     pub fn synchronize(&self) {
-        self.request(Command::Synchronize);
+        self.request(Command::SynchronizeManually);
     }
     pub fn pause(&self, paused: bool) {
         self.request(Command::Pause(paused));
@@ -266,8 +266,9 @@ impl Coordinator {
                 break;
             }
             if !self.pending.replace(false) {
-                let delay =
-                    Duration::from_millis(self.snapshot().status.retry_after_ms.clamp(500, 60_000));
+                let delay = Duration::from_millis(
+                    self.snapshot().status.retry_after_ms.clamp(500, 86_400_000),
+                );
                 let cancel = self.wake.borrow().clone();
                 let _ = gio::CancellableFuture::new(glib::timeout_future(delay), cancel).await;
             }
@@ -311,8 +312,19 @@ impl Coordinator {
                 saved?;
                 self.wake();
             }
-            Command::Synchronize => {
-                if !self.snapshot().automatic() {
+            Command::Synchronize | Command::SynchronizeManually => {
+                let manual = matches!(command, Command::SynchronizeManually);
+                if matches!(command, Command::SynchronizeManually)
+                    && self.snapshot().status.downloading > 0
+                    && self.snapshot().status.blocked > 0
+                {
+                    let status = self
+                        .task(self.library.retry_sync_downloads())
+                        .await
+                        .map_err(|e| error(e.code()))?;
+                    self.update(|s| s.status = status);
+                }
+                if !manual && !self.snapshot().automatic() {
                     return Ok(());
                 }
                 let origin = self.snapshot().status.origin.ok_or(Key::FailureInput)?;

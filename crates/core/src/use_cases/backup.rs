@@ -41,7 +41,7 @@ impl Library {
                     let path = directory.join("backup.memedock");
                     let worker = services.clone();
                     let check = control.clone();
-                    let output = tokio::task::spawn_blocking(move || {
+                    let mut output = tokio::task::spawn_blocking(move || {
                         archive::format::write(
                             &path,
                             &data,
@@ -52,6 +52,11 @@ impl Library {
                         )
                     })
                     .await??;
+                    output.pending_sync_items = services
+                        .db
+                        .sync_binding(crate::sync::budget(&services))
+                        .await?
+                        .map_or(0, |b| b.deferred.stickers.len() as u64);
                     let root = services.config.data_dir.clone();
                     tokio::task::spawn_blocking(move || remove_archive_file(&root, &snapshot))
                         .await??;

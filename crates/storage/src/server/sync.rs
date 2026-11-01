@@ -21,6 +21,7 @@ pub struct SyncIdentity {
 pub struct SyncTransaction {
     inner: DatabaseTransaction,
     pub identity: SyncIdentity,
+    device_name: String,
 }
 pub(super) fn encode(value: &impl Serialize) -> Result<String> {
     serde_json::to_string(value).map_err(|source| StorageError::InvalidData {
@@ -76,15 +77,18 @@ impl ServerDatabase {
         let active = inner
             .query_one_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
-                "SELECT id FROM server_devices WHERE id=? AND revoked_at IS NULL",
+                "SELECT id,name FROM server_devices WHERE id=? AND revoked_at IS NULL",
                 [device.to_string().into()],
             ))
             .await?;
-        if active.is_none() {
-            return Err(StorageError::Conflict("device revoked"));
-        }
+        let active = active.ok_or(StorageError::Conflict("device revoked"))?;
+        let device_name = active.try_get("", "name")?;
         let identity = identity(&inner).await?;
-        Ok(SyncTransaction { inner, identity })
+        Ok(SyncTransaction {
+            inner,
+            identity,
+            device_name,
+        })
     }
     pub async fn pull_events(
         &self,
@@ -166,7 +170,7 @@ impl SyncTransaction {
             .await?;
         row.map(|r| {
             let request: String = r.try_get("", "request")?;
-            if request != encode(op)? {
+            if decode::<OperationEnvelope>(&request)? != *op {
                 return Err(StorageError::Conflict("op id reused"));
             }
             decode(&r.try_get::<String>("", "receipt")?)
@@ -282,13 +286,14 @@ impl SyncTransaction {
         self.inner
             .execute_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
-                "INSERT INTO server_sync_receipts(device_id,op_id,request,receipt,received_at) VALUES(?,?,?,?,?)",
+                "INSERT INTO server_sync_receipts(device_id,op_id,request,receipt,received_at,device_name) VALUES(?,?,?,?,?,?)",
                 [
                     op.device_id().to_string().into(),
                     op.op_id().to_string().into(),
                     encode(op)?.into(),
                     encode(receipt)?.into(),
                     received_at.get().into(),
+                    self.device_name.into(),
                 ],
             ))
             .await?;

@@ -10,6 +10,7 @@ final class SyncModel {
     private(set) var isBusy = false
     private(set) var error: String?
     private(set) var backgroundMessage: String?
+    private(set) var diagnostic: String?
     var wifiOnly: Bool {
         didSet { UserDefaults.standard.set(wifiOnly, forKey: "sync.wifiOnly") }
     }
@@ -97,9 +98,13 @@ final class SyncModel {
 
     @discardableResult
     func synchronize(automatically: Bool = false) async -> Bool {
+        if automatically, let code = status?.error, ["unauthorized", "unsupported_schema", "storage_full", "permission_denied"].contains(code) { return false }
         if automatically && (wifiOnly && !onWiFi || status?.paused == true || maintenance) { return false }
         guard hasCredential, let origin = status?.origin else { return false }
         return await run {
+            if !automatically, (self.status?.blocked ?? 0) > 0, (self.status?.downloading ?? 0) > 0 {
+                self.status = try await self.awaitTask(self.library.retrySyncDownloads())
+            }
             guard let token = try await SecureCredentials.shared.read(self.account(for: origin)) else {
                 throw CredentialError.unavailable
             }
@@ -131,7 +136,7 @@ final class SyncModel {
                 guard self != nil else { return }
                 await self?.synchronize(automatically: true)
                 let retry = self?.status?.retryAfterMs ?? 0
-                do { try await Task.sleep(for: .milliseconds(max(30_000, min(retry, 300_000)))) } catch { return }
+                do { try await Task.sleep(for: .milliseconds(max(500, min(retry, 86_400_000)))) } catch { return }
             }
         }
     }
@@ -178,9 +183,14 @@ final class SyncModel {
                 let value = try await operation()
                 guard !self.closed else { return false }
                 self.status = value
+                self.diagnostic = nil
                 return value.error == nil
             } catch {
-                if !self.closed { self.error = BridgeErrors.syncDescription(error) }
+                if !self.closed {
+                    self.error = BridgeErrors.syncDescription(error)
+                    if case let BridgeError.Failure(_, detail) = error { self.diagnostic = detail }
+                    self.status = try? await self.library.syncStatus().awaitResult()
+                }
                 return false
             }
         }

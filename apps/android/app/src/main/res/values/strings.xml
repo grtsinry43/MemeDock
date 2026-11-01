@@ -1,4 +1,9 @@
 <resources>
+    <string name="sync_downloading">等待原图入库</string>
+    <string name="sync_waiting">等待重试</string>
+    <string name="sync_retry_at">下次允许重试</string>
+    <string name="sync_diagnostics">诊断详情（展开后可复制）</string>
+    <string name="backup_pending_sync">另有 %1$d 张图片尚未同步入库，不包含在此备份中。</string>
     <string name="sync_title">同步</string>
     <string name="sync_server">服务器地址</string>
     <string name="sync_token">设备 Token</string>

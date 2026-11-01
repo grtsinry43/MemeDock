@@ -8,6 +8,8 @@ data class SyncStatus(
     val connected: Boolean = false, val paused: Boolean = false,
     val pending: Long = 0, val blocked: Long = 0, val cursor: Long = 0,
     val lastSuccessMs: Long? = null, val error: String? = null, val retryAfterMs: Long = 15_000,
+    val lastProgressMs: Long? = null, val downloading: Long = 0, val waiting: Long = 0,
+    val diagnostic: String? = null, val recentErrors: List<String> = emptyList(), val cooldownUntilMs: Long? = null,
 )
 
 data class SyncWorkIdentity(val libraryId: String, val origin: String, val deviceId: String)
@@ -20,6 +22,7 @@ interface SyncRepository {
     suspend fun status(binding: LibraryBinding): SyncStatus
     suspend fun connect(binding: LibraryBinding, origin: String, token: String): SyncStatus
     suspend fun synchronize(binding: LibraryBinding, token: String): SyncStatus
+    suspend fun retryDownloads(binding: LibraryBinding): SyncStatus
     suspend fun pause(binding: LibraryBinding, paused: Boolean): SyncStatus
     fun observe(binding: LibraryBinding): Flow<SyncStatus>
 }

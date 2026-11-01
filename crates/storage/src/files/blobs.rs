@@ -100,6 +100,35 @@ impl FsBlobStore {
         )
     }
     /// Core must validate actual image format/dimensions before calling this.
+    /// Preserve damaged bytes before replacing a corrupt content-addressed file.
+    /// Caller serializes this with publication and business writes.
+    pub fn quarantine_damaged(&self, hash: ContentHash, size: u64) -> Result<()> {
+        match self.verify(hash, size, || false) {
+            Ok(()) => return Ok(()),
+            Err(StorageError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(());
+            }
+            Err(StorageError::Integrity(_) | StorageError::InvalidInput(_)) => {}
+            Err(error) => return Err(error),
+        }
+        self.check_shards(hash)?;
+        let path = self.original_path(hash);
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(StorageError::Integrity("unsafe damaged original"));
+        }
+        let damaged = self.root.join("damaged");
+        directory(&damaged)?;
+        let destination = damaged.join(format!("{hash}-{}", uuid::Uuid::now_v7()));
+        super::move_no_replace(&path, &destination)?;
+        sync_directory(&damaged)?;
+        sync_directory(
+            path.parent()
+                .ok_or(StorageError::Integrity("blob parent"))?,
+        )?;
+        Ok(())
+    }
+    /// Core must validate actual image format/dimensions before calling this.
     /// NOREPLACE rename atomically publishes without overwrite on Android/Linux,
     /// require staging and originals to be on the same filesystem.
     pub fn publish(

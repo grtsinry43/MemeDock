@@ -102,6 +102,25 @@ pub async fn revoke(
         .await,
     )
 }
+pub async fn delete(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
+    session: Session,
+    Path(id): Path<String>,
+) -> Response {
+    ctx.respond(
+        async {
+            auth::require_admin(&state, &session).await?;
+            id.parse::<DeviceId>()
+                .map_err(|_| ApiError(ApiErrorKind::ParamsError))?;
+            if !state.db.delete_revoked_device(&id).await? {
+                return Err(ApiError(ApiErrorKind::NotFound));
+            }
+            Ok(())
+        }
+        .await,
+    )
+}
 /// Real credential check for client setup; never accepts an administrator cookie.
 pub async fn verify(
     State(state): State<AppState>,

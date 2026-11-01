@@ -16,6 +16,7 @@
     onSuccess: () => {
       device = null;
       void client.invalidateQueries({ queryKey: devicesKey });
+      void client.invalidateQueries({ queryKey: ['sync', 'overview'] });
     },
   }));
 

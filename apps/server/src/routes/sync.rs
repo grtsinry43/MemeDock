@@ -30,7 +30,7 @@ pub async fn info(
             let device = auth::require_device(&state, &headers).await?;
             let identity = state.db.sync_identity().await?;
             Ok(SyncInfo {
-                protocol_version: ProtocolVersion::V1.get(),
+                protocol_version: ProtocolVersion::CURRENT.get(),
                 library_id: identity.library_id.to_string(),
                 sync_epoch: identity.epoch.to_string(),
                 device_id: device.to_string(),
@@ -87,7 +87,7 @@ pub async fn push(
             .await
             .map_err(|_| ApiError(ApiErrorKind::ServerError))??;
             Ok(PushResponse {
-                protocol_version: ProtocolVersion::V1,
+                protocol_version: ProtocolVersion::CURRENT,
                 receipt,
             })
         }

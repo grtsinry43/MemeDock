@@ -15,6 +15,9 @@ pub enum ApiErrorKind {
     ServerError,
     PayloadTooLarge,
     InvalidAsset,
+    TransferQueueFull,
+    TransferBusy,
+    UnsupportedProtocol,
 }
 
 impl ApiErrorKind {
@@ -30,6 +33,9 @@ impl ApiErrorKind {
             Self::ServerError => 500,
             Self::PayloadTooLarge => 413,
             Self::InvalidAsset => 422,
+            Self::TransferQueueFull => 429,
+            Self::TransferBusy => 503,
+            Self::UnsupportedProtocol => 426,
         }
     }
     pub const fn code(self) -> u32 {
@@ -51,6 +57,9 @@ impl ApiErrorKind {
             Self::ServerError => "SERVER_ERROR",
             Self::PayloadTooLarge => "PAYLOAD_TOO_LARGE",
             Self::InvalidAsset => "INVALID_ASSET",
+            Self::TransferQueueFull => "TRANSFER_QUEUE_FULL",
+            Self::TransferBusy => "TRANSFER_BUSY",
+            Self::UnsupportedProtocol => "UNSUPPORTED_PROTOCOL",
         }
     }
     pub const fn message(self) -> &'static str {
@@ -66,6 +75,9 @@ impl ApiErrorKind {
             Self::ServerError => "服务暂时不可用，请根据请求编号检查日志",
             Self::PayloadTooLarge => "上传内容超过大小限制",
             Self::InvalidAsset => "图片内容或哈希校验失败",
+            Self::TransferQueueFull => "文件传输等待队列已满，请稍后重试",
+            Self::TransferBusy => "等待文件传输名额超时，请稍后重试",
+            Self::UnsupportedProtocol => "同步协议不兼容，请使用配套的 0.2.1 服务端和客户端",
         }
     }
 }

@@ -76,9 +76,12 @@ final class BackupCoordinator: ObservableObject {
             await Self.discard(backup: handle, library: library)
             backup = nil
             savedPath = url.path
-            status.show(L10n.text(.backupSaved))
+            let pending = handle.pendingSyncItems()
+            status.show(L10n.text(.backupSaved) + (pending > 0 ? "\n\(L10n.text(.backupPendingSync)): \(pending)" : ""))
         } catch {
-            failure = describe(error)
+            if case let BridgeError.Failure(_, detail) = error, detail.contains("backup:") {
+                failure = describe(error) + "\n" + detail
+            } else { failure = describe(error) }
             if let backup {
                 await Self.discard(backup: backup, library: library)
             }

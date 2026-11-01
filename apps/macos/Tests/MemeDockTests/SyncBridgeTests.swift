@@ -78,7 +78,14 @@ final class SyncBridgeTests: XCTestCase {
         for _ in 0..<16 {
             let state = try await library.synchronize(token: token).awaitResult()
             XCTAssertEqual(state.blocked, 0)
-            if state.pending == 0 { return }
+            if state.pending == 0 {
+                XCTAssertEqual(state.downloading, 0)
+                XCTAssertEqual(state.waiting, 0)
+                XCTAssertNil(state.cooldownUntilMs)
+                XCTAssertNotNil(state.lastSuccessMs)
+                return
+            }
+            try await Task.sleep(nanoseconds: min(state.retryAfterMs, 86_400_000) * 1_000_000)
         }
         XCTFail("Sync queue did not drain")
     }

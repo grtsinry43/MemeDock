@@ -210,6 +210,10 @@ export const zh = {
     revokeTitle: '撤销设备授权？',
     revokeDesc: (name: string) => `“${name}”将无法继续同步，设备上的本地表情不会被删除`,
     confirmRevoke: '撤销授权',
+    deleteAction: '删除设备',
+    deleteTitle: '删除已撤销的设备？',
+    deleteDesc: (name: string) => `将从设备列表中移除“${name}”并删除其访问凭据和同步进度。服务器图库、同步历史及设备原有的本地表情均会保留。此操作无法撤销`,
+    confirmDelete: '删除设备',
   },
   settings: {
     title: '设置',
@@ -463,6 +467,10 @@ export const en: Translations = {
     revokeTitle: 'Revoke device access?',
     revokeDesc: (name: string) => `"${name}" will no longer be able to sync. Local stickers on the device will not be deleted`,
     confirmRevoke: 'Revoke Access',
+    deleteAction: 'Delete Device',
+    deleteTitle: 'Delete revoked device?',
+    deleteDesc: (name: string) => `Remove "${name}" from the device list and delete its credentials and sync progress. The server library, sync history and local stickers on the device will be preserved. This cannot be undone`,
+    confirmDelete: 'Delete Device',
   },
   settings: {
     title: 'Settings',

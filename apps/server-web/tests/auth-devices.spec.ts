@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('login, create and revoke a device, keep session across reload, then logout', async ({ page, request }) => {
+test('login, create, revoke and delete a device, keep session across reload, then logout', async ({ page, request }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error' && /Content Security Policy|Refused to/.test(message.text())) errors.push(message.text()); });
@@ -44,6 +44,25 @@ test('login, create and revoke a device, keep session across reload, then logout
   await expect(page.getByText(/已撤销/)).toBeVisible();
   const revoked = await request.get('/api/v1/device/verify', { headers: { Authorization: `Bearer ${token}` } });
   expect(revoked.status()).toBe(401);
+  await page.getByRole('button', { name: '更多操作：Browser smoke phone' }).click();
+  await page.getByRole('menuitem', { name: '删除设备', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('服务器图库、同步历史');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/device-delete-mobile.png', fullPage: true, animations: 'disabled' });
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByText('Browser smoke phone', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole('button', { name: '更多操作：Browser smoke phone' }).click();
+  await page.getByRole('menuitem', { name: '删除设备', exact: true }).click();
+  await page.screenshot({ path: 'test-results/device-delete-desktop.png', fullPage: true, animations: 'disabled' });
+  await page.getByRole('button', { name: '删除设备', exact: true }).click();
+  await expect(page.getByText('Browser smoke phone', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '暂无设备', exact: true })).toBeVisible();
+  const deleted = await request.get('/api/v1/device/verify', { headers: { Authorization: `Bearer ${token}` } });
+  expect(deleted.status()).toBe(401);
+  await page.reload();
+  await expect(page.getByText('Browser smoke phone', { exact: true })).toHaveCount(0);
   await page.getByRole('link', { name: '设置', exact: true }).click();
   await expect(page).toHaveURL(/\/settings$/);
   await page.reload();

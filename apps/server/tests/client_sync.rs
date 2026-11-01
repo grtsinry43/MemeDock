@@ -27,6 +27,7 @@ async fn sync(library: &Library, token: &str) -> Result {
             assert_eq!(state.blocked, 0);
             return Ok(());
         }
+        tokio::time::sleep(std::time::Duration::from_millis(state.retry_after_ms)).await;
     }
     Err("sync did not drain".into())
 }

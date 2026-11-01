@@ -13,6 +13,12 @@ pub struct SyncStatus {
     pub last_success_ms: Option<i64>,
     pub error: Option<String>,
     pub retry_after_ms: u64,
+    pub last_progress_ms: Option<i64>,
+    pub downloading: u64,
+    pub waiting: u64,
+    pub diagnostic: Option<String>,
+    pub recent_errors: Vec<String>,
+    pub cooldown_until_ms: Option<i64>,
 }
 impl From<memedock_core::sync::SyncStatus> for SyncStatus {
     fn from(v: memedock_core::sync::SyncStatus) -> Self {
@@ -27,11 +33,20 @@ impl From<memedock_core::sync::SyncStatus> for SyncStatus {
             last_success_ms: v.last_success_ms,
             error: v.error,
             retry_after_ms: v.retry_after_ms,
+            last_progress_ms: v.last_progress_ms,
+            downloading: v.downloading,
+            waiting: v.waiting,
+            diagnostic: v.diagnostic,
+            recent_errors: v.recent_errors,
+            cooldown_until_ms: v.cooldown_until_ms,
         }
     }
 }
 #[uniffi::export]
 impl LibraryHandle {
+    pub fn retry_sync_downloads(&self) -> Result<Arc<SyncStatusTask>> {
+        Ok(SyncStatusTask::new(self.inner.retry_sync_downloads()?))
+    }
     pub fn sync_status(&self) -> Result<Arc<SyncStatusTask>> {
         Ok(SyncStatusTask::new(self.inner.sync_status()?))
     }

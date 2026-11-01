@@ -64,6 +64,7 @@ pub struct CoreError {
     code: ErrorCode,
     message: &'static str,
     source: Option<Arc<dyn Error + Send + Sync>>,
+    diagnostic: Option<Arc<memedock_domain::sync::diagnostics::SyncDiagnostic>>,
 }
 impl CoreError {
     pub fn code(&self) -> ErrorCode {
@@ -72,11 +73,28 @@ impl CoreError {
     pub fn message(&self) -> &'static str {
         self.message
     }
+    pub fn sync_diagnostic(&self) -> Option<&memedock_domain::sync::diagnostics::SyncDiagnostic> {
+        self.diagnostic.as_deref()
+    }
+    pub(crate) fn with_sync_diagnostic(
+        mut self,
+        mut diagnostic: memedock_domain::sync::diagnostics::SyncDiagnostic,
+    ) -> Self {
+        if diagnostic.code.is_empty() {
+            diagnostic.code = self.code.as_str().into();
+        }
+        if diagnostic.occurred_at_ms == 0 {
+            diagnostic.occurred_at_ms = crate::writes::now().map_or(0, |n| n.get());
+        }
+        self.diagnostic = Some(Arc::new(diagnostic.bounded()));
+        self
+    }
     pub(crate) fn new(code: ErrorCode, message: &'static str) -> Self {
         Self {
             code,
             message,
             source: None,
+            diagnostic: None,
         }
     }
     pub(crate) fn caused(
@@ -88,6 +106,7 @@ impl CoreError {
             code,
             message,
             source: Some(Arc::new(source)),
+            diagnostic: None,
         }
     }
     pub(crate) fn internal(message: &'static str) -> Self {

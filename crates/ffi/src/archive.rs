@@ -43,6 +43,7 @@ pub struct BackupFileHandle {
     path: String,
     file_name: String,
     byte_size: u64,
+    pending_sync_items: u64,
 }
 impl BackupFileHandle {
     pub(crate) fn new(value: memedock_core::BackupFile) -> Result<Arc<Self>> {
@@ -50,6 +51,7 @@ impl BackupFileHandle {
             path: path(&value.path)?,
             file_name: value.file_name.clone(),
             byte_size: value.byte_size,
+            pending_sync_items: value.pending_sync_items,
             inner: Mutex::new(Some(value)),
         }))
     }
@@ -64,6 +66,9 @@ impl BackupFileHandle {
     }
     pub fn byte_size(&self) -> u64 {
         self.byte_size
+    }
+    pub fn pending_sync_items(&self) -> u64 {
+        self.pending_sync_items
     }
 }
 #[derive(uniffi::Record)]

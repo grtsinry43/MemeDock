@@ -33,6 +33,7 @@ pub(crate) async fn recover(services: &Arc<Services>) -> Result<()> {
         }
     }
     super::artifact_maintenance::cleanup(services, crate::writes::now()?.get()).await?;
+    crate::sync::recovery::recover(services).await?;
     // A filesystem failure must leave the library accessible for an explicit retry.
     if let Err(error) = super::purge::cleanup(services).await {
         eprintln!("permanent-delete cleanup retry failed: {error}");

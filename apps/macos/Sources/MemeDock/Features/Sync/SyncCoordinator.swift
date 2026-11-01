@@ -10,6 +10,15 @@ final class SyncCoordinator: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var hasCredential = false
     @Published private(set) var error: String?
+    @Published private(set) var diagnostic: String?
+
+    private func describe(_ failure: Error) -> String {
+        if case let BridgeError.Failure(code, detail) = failure {
+            diagnostic = detail
+            return code.message
+        }
+        return failure.localizedDescription
+    }
 
     private weak var session: LibrarySession?
     private var observers = Set<AnyCancellable>()
@@ -101,7 +110,13 @@ final class SyncCoordinator: ObservableObject {
         } catch { if workVersion == version { operation = nil; self.error = describe(error) } }
     }
 
-    func synchronizeNow() async { await resumeLoop() }
+    func synchronizeNow() async {
+        if let library = session?.library, (state?.blocked ?? 0) > 0, (state?.downloading ?? 0) > 0 {
+            do { state = try await library.retrySyncDownloads().awaitResult() }
+            catch { self.error = describe(error); return }
+        }
+        await resumeLoop(automatically: false)
+    }
 
     func setPaused(_ paused: Bool) async {
         guard let library = session?.library else { return }
@@ -131,7 +146,8 @@ final class SyncCoordinator: ObservableObject {
         } catch { if workVersion == version { self.error = describe(error) } }
     }
 
-    private func resumeLoop() async {
+    private func resumeLoop(automatically: Bool = true) async {
+        if automatically, let code = state?.error, ["unsupported_schema", "storage_full", "permission_denied"].contains(code) { return }
         guard let state, state.connected, !state.paused, !busy, session?.phase == .ready,
               state.error != "unauthorized", let origin = state.origin else { return }
         let version = await stop()
@@ -162,16 +178,18 @@ final class SyncCoordinator: ObservableObject {
                     guard !Task.isCancelled, self.generation == version else { self.busy = false; return }
                     self.state = state
                     self.error = nil
+                    self.diagnostic = nil
                     delay = state.retryAfterMs
                 } catch {
                     if Task.isCancelled { self.busy = false; return }
                     self.error = describe(error)
                     self.state = try? await library.syncStatus().awaitResult()
-                    if self.state?.error == "unauthorized" { self.busy = false; self.operation = nil; self.loop = nil; return }
+                    delay = self.state?.retryAfterMs ?? 30_000
+                    if let code = self.state?.error, ["unauthorized", "unsupported_schema", "storage_full", "permission_denied"].contains(code) { self.busy = false; self.operation = nil; self.loop = nil; return }
                 }
                 self.operation = nil
                 self.busy = false
-                do { try await Task.sleep(nanoseconds: max(delay, 250) * 1_000_000) }
+                do { try await Task.sleep(nanoseconds: min(max(delay, 250), 86_400_000) * 1_000_000) }
                 catch { return }
             }
         }

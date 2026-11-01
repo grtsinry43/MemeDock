@@ -39,7 +39,8 @@ fun BackupRoute(coordinator: BackupCoordinator, back: () -> Unit) {
     LaunchedEffect(state.phase, state.error) {
         val error = state.error
         val message = when {
-            state.phase == BackupPhase.Saved -> MemeDockMessage(resources.getString(R.string.backup_saved), MemeDockMessageType.Success)
+            state.phase == BackupPhase.Saved -> MemeDockMessage(resources.getString(R.string.backup_saved) +
+                if (state.pendingSyncItems > 0) "\n" + resources.getString(R.string.backup_pending_sync, state.pendingSyncItems) else "", MemeDockMessageType.Success)
             state.phase == BackupPhase.Restored -> MemeDockMessage(resources.getString(R.string.backup_restored), MemeDockMessageType.Success)
             error != null -> MemeDockMessage(resources.getString(backupFailureRes(error)), MemeDockMessageType.Error)
             else -> return@LaunchedEffect
@@ -59,6 +60,11 @@ fun BackupRoute(coordinator: BackupCoordinator, back: () -> Unit) {
             .padding(top = top + 8.dp, bottom = bottom + MemeDockLayout.SectionGap)) {
             Text(title, style = MaterialTheme.typography.headlineLarge,
                 modifier = Modifier.padding(horizontal = MemeDockLayout.PagePadding, vertical = 12.dp).semantics { heading() })
+            state.diagnostic?.let { detail ->
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(detail, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = MemeDockLayout.PagePadding))
+                }
+            }
             MemeDockGroup(title = stringResource(R.string.backup_heading), footer = stringResource(R.string.backup_description)) {
                 row {
                     if (state.phase in CreatePhases) Progress(state.phase, coordinator::cancel)

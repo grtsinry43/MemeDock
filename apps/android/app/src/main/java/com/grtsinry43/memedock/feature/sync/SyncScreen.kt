@@ -15,6 +15,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.unit.dp
 import com.grtsinry43.memedock.R
 import com.grtsinry43.memedock.ui.components.*
@@ -30,6 +31,7 @@ fun SyncScreen(state: SyncState, back: () -> Unit, connect: (String, String) -> 
     var token by remember { mutableStateOf("") }
     var reauthorizing by remember(state.binding) { mutableStateOf(false) }
     var disconnecting by remember { mutableStateOf(false) }
+    var diagnosticsExpanded by remember { mutableStateOf(false) }
     val authorizing = reauthorizing || !state.hasCredential || state.status.error.equals("unauthorized", true)
     val scroll = rememberScrollState()
     val focus = LocalFocusManager.current
@@ -64,10 +66,16 @@ fun SyncScreen(state: SyncState, back: () -> Unit, connect: (String, String) -> 
                     !state.hasCredential || state.status.error.equals("unauthorized", true) -> R.string.sync_authorize
                     state.error != null || state.status.error != null -> R.string.sync_failed
                     state.status.paused -> R.string.sync_paused
+                    state.status.pending > 0 -> R.string.sync_pending
                     else -> R.string.sync_ready
                 })) }
                 row { MemeDockRow(stringResource(R.string.sync_pending), value = state.status.pending.toString()) }
                 row { MemeDockRow(stringResource(R.string.sync_blocked), value = state.status.blocked.toString()) }
+                row { MemeDockRow(stringResource(R.string.sync_downloading), value = state.status.downloading.toString()) }
+                row { MemeDockRow(stringResource(R.string.sync_waiting), value = state.status.waiting.toString()) }
+                state.status.cooldownUntilMs?.let { time ->
+                    row { MemeDockRow(stringResource(R.string.sync_retry_at), value = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(time))) }
+                }
                 row { MemeDockRow(stringResource(R.string.sync_last_success), value = state.status.lastSuccessMs?.let {
                     DateUtils.getRelativeTimeSpanString(it).toString()
                 } ?: stringResource(R.string.sync_never)) }
@@ -87,6 +95,13 @@ fun SyncScreen(state: SyncState, back: () -> Unit, connect: (String, String) -> 
                     { disconnecting = true }, enabled = !state.busy, destructive = true)
                 val error = state.error ?: state.status.error
                 if (error != null) Text(failureText(error), color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("sync-error"))
+                val details = (listOfNotNull(state.diagnostic, state.status.diagnostic) + state.status.recentErrors.asReversed()).distinct()
+                if (details.isNotEmpty()) {
+                    TextButton(onClick = { diagnosticsExpanded = !diagnosticsExpanded }) { Text(stringResource(R.string.sync_diagnostics)) }
+                    if (diagnosticsExpanded) SelectionContainer {
+                        Text(details.joinToString("\n\n"), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("sync-diagnostics"))
+                    }
+                }
                 if (state.status.blocked > 0) Text(stringResource(R.string.sync_blocked_hint), style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.sync_background_hint), style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.sync_merge_hint), style = MaterialTheme.typography.bodySmall)

@@ -7,7 +7,7 @@
   import { formatTime } from '#lib/shared/format.ts';
   import { i18n } from '#lib/shared/i18n/i18n.svelte.ts';
 
-  let { device, onrevoke }: { device: DeviceInfo; onrevoke: (device: DeviceInfo) => void } = $props();
+  let { device, onrevoke, ondelete }: { device: DeviceInfo; onrevoke: (device: DeviceInfo) => void; ondelete: (device: DeviceInfo) => void } = $props();
 </script>
 
 <li class="flex min-w-0 items-start gap-4 px-5 py-5 sm:items-center sm:px-6">
@@ -27,12 +27,16 @@
       <span class="block sm:inline">{i18n.t.devices.createdAt(formatTime(device.createdAt))}</span>
     </p>
   </div>
-  {#if !device.revokedAt}
     <Menu label={i18n.t.devices.moreActionsAria(device.name)}>
       {#snippet trigger()}<MoreHorizontal size={20} />{/snippet}
+      {#if device.revokedAt}
+      <DropdownMenu.Item class="menu-item text-danger" onclick={() => ondelete(device)}>
+        {i18n.t.devices.deleteAction}
+      </DropdownMenu.Item>
+      {:else}
       <DropdownMenu.Item class="menu-item text-danger" onclick={() => onrevoke(device)}>
         <Unplug size={16} />{i18n.t.devices.revokeAction}
       </DropdownMenu.Item>
+      {/if}
     </Menu>
-  {/if}
 </li>

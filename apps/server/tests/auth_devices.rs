@@ -195,6 +195,15 @@ async fn real_http_device_lifecycle_and_authorization_boundaries() -> TestResult
             .send()
             .await?
             .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        admin
+            .post(server.url(&format!("/admin/devices/{id}/revoke")))
+            .header("Origin", &server.origin)
+            .send()
+            .await?
+            .status(),
         StatusCode::OK
     );
     assert_eq!(
@@ -213,6 +222,51 @@ async fn real_http_device_lifecycle_and_authorization_boundaries() -> TestResult
         .send()
         .await?;
     assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        admin
+            .delete(server.url(&format!("/admin/devices/{id}")))
+            .send()
+            .await?
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        anonymous
+            .delete(server.url(&format!("/admin/devices/{id}")))
+            .header("Origin", &server.origin)
+            .send()
+            .await?
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        admin
+            .delete(server.url(&format!("/admin/devices/{id}")))
+            .header("Origin", &server.origin)
+            .send()
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+    assert!(server.db.device(id).await?.is_none());
+    assert_eq!(
+        anonymous
+            .get(server.url("/device/verify"))
+            .bearer_auth(token)
+            .send()
+            .await?
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        admin
+            .delete(server.url(&format!("/admin/devices/{id}")))
+            .header("Origin", &server.origin)
+            .send()
+            .await?
+            .status(),
+        StatusCode::NOT_FOUND
+    );
     let missing = admin.get(server.url("/missing")).send().await?;
     assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     assert_eq!(missing.json::<Value>().await?["bizErr"], "NOT_FOUND");

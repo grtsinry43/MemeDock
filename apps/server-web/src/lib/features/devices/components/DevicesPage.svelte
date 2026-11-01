@@ -9,10 +9,12 @@
   import CreateDeviceDialog from './CreateDeviceDialog.svelte';
   import DeviceList from './DeviceList.svelte';
   import RevokeDeviceDialog from './RevokeDeviceDialog.svelte';
+  import DeleteDeviceDialog from './DeleteDeviceDialog.svelte';
   import { i18n } from '#lib/shared/i18n/i18n.svelte.ts';
 
   const devices = createQuery(() => devicesQuery());
   let selected = $state<DeviceInfo | null>(null);
+  let deleting = $state<DeviceInfo | null>(null);
 </script>
 
 <PageHeader title={i18n.t.devices.title} description={i18n.t.devices.description}>
@@ -29,7 +31,7 @@
 {#if devices.isPending}
   <p role="status" class="panel p-8 text-body text-secondary">{i18n.t.devices.loading}</p>
 {:else if devices.data?.items.length}
-  <DeviceList devices={devices.data.items} onrevoke={device => { selected = device; }} />
+  <DeviceList devices={devices.data.items} onrevoke={device => { selected = device; }} ondelete={device => { deleting = device; }} />
 {:else if devices.data}
   <div class="panel flex flex-col items-center px-6 py-16 text-center">
     <span class="mb-5 flex size-16 items-center justify-center rounded-panel bg-input text-secondary">
@@ -45,3 +47,4 @@
 </p>
 
 <RevokeDeviceDialog bind:device={selected} />
+<DeleteDeviceDialog bind:device={deleting} />

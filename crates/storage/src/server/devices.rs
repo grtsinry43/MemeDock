@@ -1,8 +1,8 @@
 use super::{ServerDatabase, entities::device};
-use crate::Result;
+use crate::{Result, StorageError};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, QueryFilter,
-    QueryOrder, Set, Statement,
+    QueryOrder, Set, SqliteTransactionMode, Statement, TransactionOptions, TransactionTrait,
 };
 
 pub struct StoredDevice {
@@ -83,5 +83,49 @@ impl ServerDatabase {
             .exec(&self.connection)
             .await?;
         Ok(result.rows_affected == 1)
+    }
+    /// Remove credentials only after revocation. Canonical entities, events
+    /// and operation receipts remain server-owned and are never cascaded away.
+    pub async fn delete_revoked_device(&self, id: &str) -> Result<bool> {
+        let tx = self
+            .connection
+            .begin_with_options(TransactionOptions {
+                sqlite_transaction_mode: Some(SqliteTransactionMode::Immediate),
+                ..Default::default()
+            })
+            .await?;
+        let row = tx
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Sqlite,
+                "SELECT revoked_at FROM server_devices WHERE id=?",
+                [id.into()],
+            ))
+            .await?;
+        let Some(row) = row else {
+            return Ok(false);
+        };
+        if row.try_get::<Option<i64>>("", "revoked_at")?.is_none() {
+            return Err(StorageError::Conflict(
+                "revoke the device before deleting it",
+            ));
+        }
+        tx.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "DELETE FROM server_device_progress WHERE device_id=?",
+            [id.into()],
+        ))
+        .await?;
+        let deleted = tx
+            .execute_raw(Statement::from_sql_and_values(
+                DbBackend::Sqlite,
+                "DELETE FROM server_devices WHERE id=? AND revoked_at IS NOT NULL",
+                [id.into()],
+            ))
+            .await?;
+        if deleted.rows_affected() != 1 {
+            return Err(StorageError::Conflict("device changed during deletion"));
+        }
+        tx.commit().await?;
+        Ok(true)
     }
 }

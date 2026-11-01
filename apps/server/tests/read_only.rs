@@ -140,6 +140,7 @@ impl Fixture {
             assert_eq!(
                 client
                     .post(format!("{origin}/api/v1/device/sync/push"))
+                    .header("x-memedock-sync-protocol", "2")
                     .bearer_auth(&token)
                     .json(&json!({"operation":operation}))
                     .send()
@@ -286,6 +287,7 @@ async fn real_catalog_assets_receipts_and_acknowledged_progress() -> Result {
             f.origin, identity.library_id, identity.epoch
         ))
         .bearer_auth(&f.token)
+        .header("x-memedock-sync-protocol", "2")
         .send()
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
@@ -416,6 +418,114 @@ async fn permanent_delete_propagates_offline_edits_cannot_revive_and_explicit_re
     a.close().await?;
     b.close().await?;
     f.task.abort();
+    f.db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn deleting_device_keeps_cloud_images_history_and_sync_for_other_devices() -> Result {
+    let f = Fixture::start(0).await?;
+    f.login().await?;
+    let source =
+        f.db.devices()
+            .await?
+            .into_iter()
+            .next()
+            .ok_or("source device")?;
+    let history_path = format!("/sync/operations?deviceId={}&limit=100", source.id);
+    let history_before = f.get(&history_path).await?;
+    let overview_before = f.get("/sync/overview").await?;
+    assert!(history_before["total"].as_u64().is_some_and(|n| n > 0));
+    let path = format!("{}/api/v1/admin/devices/{}", f.origin, source.id);
+    assert_eq!(
+        f.client
+            .delete(&path)
+            .header("Origin", &f.origin)
+            .send()
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        f.client
+            .post(format!("{path}/revoke"))
+            .header("Origin", &f.origin)
+            .send()
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        f.client
+            .delete(&path)
+            .header("Origin", &f.origin)
+            .send()
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+    assert!(f.db.device(&source.id).await?.is_none());
+    assert_eq!(
+        f.client
+            .get(format!("{}/api/v1/device/verify", f.origin))
+            .bearer_auth(&f.token)
+            .send()
+            .await?
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let history_after = f.get(&history_path).await?;
+    assert_eq!(history_before, history_after);
+    assert!(
+        history_after["items"]
+            .as_array()
+            .is_some_and(|items| items.iter().all(|v| v["deviceName"] == source.name))
+    );
+    let overview_after = f.get("/sync/overview").await?;
+    assert_eq!(overview_after["head"], overview_before["head"]);
+    assert_eq!(overview_after["stickers"], overview_before["stickers"]);
+    assert_eq!(
+        overview_after["originalBytes"],
+        overview_before["originalBytes"]
+    );
+    assert!(
+        overview_after["devices"]
+            .as_array()
+            .is_some_and(|v| v.is_empty())
+    );
+    let device = DeviceId::new();
+    let token = format!(
+        "mdk_{device}_{}",
+        auth::random_secret().map_err(|_| "token")?
+    );
+    f.db.create_device(
+        &device.to_string(),
+        "remaining device",
+        &auth::digest(&token),
+        0,
+    )
+    .await?;
+    let root = tempfile::tempdir()?;
+    let library = Library::open(LibraryConfig::new(
+        root.path().join("data"),
+        root.path().join("cache"),
+        root.path().join("exports"),
+    ))
+    .await?;
+    library
+        .connect_sync(f.origin.clone(), token.clone())?
+        .wait()
+        .await?;
+    let state = library.synchronize(token)?.wait().await?;
+    assert_eq!(state.pending, 0);
+    let detail = library.sticker_detail(f.sticker.parse()?)?.wait().await?;
+    assert_eq!(detail.sticker.title(), "云端猫猫");
+    assert!(detail.original_path.is_some_and(|p| p.is_file()));
+    assert_eq!(detail.tags.len(), 1);
+    assert!(detail.collection.is_some());
+    library.close().await?;
+    f.task.abort();
+    let _ = f.task.await;
     f.db.close().await?;
     Ok(())
 }

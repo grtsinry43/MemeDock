@@ -49,6 +49,54 @@ async fn restart_preserves_identity_models_and_log() -> TestResult {
 }
 
 #[tokio::test]
+async fn v0_2_1_upgrade_keeps_pending_operation_identity_and_rolls_back_on_collision() -> TestResult
+{
+    use memedock_domain::{identity::SyncEpoch, sync::OperationEnvelope};
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("library.sqlite");
+    let db = LibraryDatabase::open(&path).await?;
+    let identity = db.identity();
+    let op = OperationEnvelope::new(
+        identity.library_id,
+        SyncEpoch::new(),
+        identity.device_id,
+        OperationId::new(),
+        TimestampMs::new(0),
+        Operation::new(OperationKind::CreateTag {
+            tag_id: TagId::new(),
+            name: "pending across upgrade".parse()?,
+        })?,
+    );
+    db.close().await?;
+    let conn = raw(&path).await?;
+    let job = serde_json::json!({"ordinal":0,"source_order":null,"envelope":op,"attempted":true,"accepted":null,"done":false,"projected":false,"error":null});
+    conn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "INSERT INTO client_sync_jobs(payload) VALUES(json_set(?,'$.envelope.protocol_version',1))",
+        [serde_json::to_string(&job)?.into()],
+    ))
+    .await?;
+    conn.execute_unprepared("PRAGMA user_version=6").await?;
+    // The new table collision must roll back even the preceding table rebuilds.
+    assert!(LibraryDatabase::open(&path).await.is_err());
+    let row = conn.query_one_raw(Statement::from_string(DbBackend::Sqlite,
+        "SELECT json_extract(payload,'$.envelope.protocol_version') AS version FROM client_sync_jobs".to_owned())).await?.ok_or("job")?;
+    assert_eq!(row.try_get::<i64>("", "version")?, 1);
+    conn.execute_unprepared("DROP TABLE client_sync_transfers")
+        .await?;
+    conn.close().await?;
+    let db = LibraryDatabase::open(&path).await?;
+    let jobs = db.sync_jobs(1024 * 1024).await?;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].envelope, op);
+    assert!(jobs[0].attempted);
+    assert_eq!(db.identity(), identity);
+    db.close().await?;
+    LibraryDatabase::open(&path).await?.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn sync_development_schema_upgrade_preserves_data_and_rolls_back_purge_ddl() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("library.sqlite");
@@ -66,6 +114,8 @@ async fn sync_development_schema_upgrade_preserves_data_and_rolls_back_purge_ddl
     conn.execute_unprepared("CREATE TABLE purge_cleanup(collision INTEGER)")
         .await?;
     conn.execute_unprepared("PRAGMA user_version=5").await?;
+    conn.execute_unprepared("DROP TABLE client_sync_transfers")
+        .await?;
     assert!(LibraryDatabase::open(&path).await.is_err());
     let columns = conn
         .query_all_raw(Statement::from_string(
@@ -117,6 +167,8 @@ async fn sync_upgrade_preserves_v0_1_data_and_recovers_after_rollback() -> TestR
         .await?;
     conn.execute_unprepared("DROP TABLE client_sync").await?;
     conn.execute_unprepared("PRAGMA user_version=4").await?;
+    conn.execute_unprepared("DROP TABLE client_sync_transfers")
+        .await?;
     // Force failure after the first CREATE to verify that it rolls back too.
     conn.execute_unprepared("CREATE TABLE client_sync_jobs (collision INTEGER)")
         .await?;

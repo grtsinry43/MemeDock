@@ -111,7 +111,7 @@ impl ServerDatabase {
             .try_get::<i64>("", "n")? as u64;
         values.push(i64::from(filter.limit).into());
         values.push((i64::from(filter.page - 1) * i64::from(filter.limit)).into());
-        let rows = tx.query_all_raw(Statement::from_sql_and_values(DbBackend::Sqlite, format!("SELECT r.device_id,r.op_id,d.name,r.received_at,json_extract(r.request,'$.operation.type') AS kind,coalesce(json_extract(r.request,'$.operation.sticker_id'),json_extract(r.request,'$.operation.collection_id'),json_extract(r.request,'$.operation.tag_id'),json_extract(r.request,'$.operation.asset.hash')) AS target,json_extract(r.receipt,'$.status') AS result,json_extract(r.receipt,'$.code') AS error_code,json_extract(r.receipt,'$.event_seq') AS event_seq FROM server_sync_receipts r JOIN server_devices d ON d.id=r.device_id WHERE {condition} ORDER BY r.received_at DESC,r.device_id,r.op_id LIMIT ? OFFSET ?"), values)).await?;
+        let rows = tx.query_all_raw(Statement::from_sql_and_values(DbBackend::Sqlite, format!("SELECT r.device_id,r.op_id,r.device_name AS name,r.received_at,json_extract(r.request,'$.operation.type') AS kind,coalesce(json_extract(r.request,'$.operation.sticker_id'),json_extract(r.request,'$.operation.collection_id'),json_extract(r.request,'$.operation.tag_id'),json_extract(r.request,'$.operation.asset.hash')) AS target,json_extract(r.receipt,'$.status') AS result,json_extract(r.receipt,'$.code') AS error_code,json_extract(r.receipt,'$.event_seq') AS event_seq FROM server_sync_receipts r WHERE {condition} ORDER BY r.received_at DESC,r.device_id,r.op_id LIMIT ? OFFSET ?"), values)).await?;
         let items = rows
             .into_iter()
             .map(|r| {

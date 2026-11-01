@@ -53,6 +53,7 @@ class SyncWorkflowTest {
         var runGate: CompletableDeferred<Unit>? = null
         var failure: String? = null
         var calls = 0
+        var retryCalls = 0
         var active = 0
         var peak = 0
         var cancellations = 0
@@ -63,6 +64,7 @@ class SyncWorkflowTest {
             status.value.copy(origin = origin, paused = false, error = null).also { status.value = it }
         override suspend fun pause(binding: LibraryBinding, paused: Boolean): SyncStatus =
             status.value.copy(paused = paused).also { status.value = it }
+        override suspend fun retryDownloads(binding: LibraryBinding): SyncStatus { retryCalls++; return status.value }
         override suspend fun synchronize(binding: LibraryBinding, token: String): SyncStatus {
             calls++; active++; peak = maxOf(peak, active)
             try {
@@ -150,6 +152,30 @@ class SyncWorkflowTest {
             assertEquals(SyncRun.Skipped, h.model.background(h.identity))
             assertEquals(1, h.repository.calls)
             assertNull(h.scheduler.configurations.last())
+        } finally { Dispatchers.resetMain() }
+    }
+    @Test fun backgroundKeepsDrainingHealthyWorkWhenOtherChangesAreBlocked() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val h = Harness(backgroundScope); runCurrent()
+            h.repository.status.value = h.repository.status.value.copy(pending = 2, blocked = 1)
+            runCurrent()
+            assertEquals(SyncRun.Retry, h.model.background(h.identity))
+            h.repository.status.value = h.repository.status.value.copy(pending = 0)
+            runCurrent()
+            assertEquals(SyncRun.Complete, h.model.background(h.identity))
+        } finally { Dispatchers.resetMain() }
+    }
+    @Test fun onlyManualSyncRetriesExhaustedDownloads() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val h = Harness(backgroundScope); runCurrent()
+            h.repository.status.value = h.repository.status.value.copy(blocked = 1, downloading = 1)
+            runCurrent()
+            h.model.background(h.identity)
+            assertEquals(0, h.repository.retryCalls)
+            h.model.synchronizeNow(); runCurrent()
+            assertEquals(1, h.repository.retryCalls)
         } finally { Dispatchers.resetMain() }
     }
     @Test fun failedCredentialSavePausesBindingAndRestoreDrainsWorkBeforeRebinding() = runTest {

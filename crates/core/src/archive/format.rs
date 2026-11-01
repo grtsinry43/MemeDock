@@ -73,7 +73,19 @@ pub(crate) fn write(
             if size > limits.max_file_bytes {
                 return Err(corrupt("archive original exceeds file limit"));
             }
-            blobs.verify(asset.hash(), size, || control.is_cancelled())?;
+            blobs
+                .verify(asset.hash(), size, || control.is_cancelled())
+                .map_err(|error| {
+                    crate::CoreError::from(error)
+                        .with_sync_diagnostic(memedock_domain::sync::diagnostics::SyncDiagnostic {
+                        stage: "backup: verifying original".into(),
+                        asset_hash: Some(asset.hash().to_string()),
+                        detail:
+                            "original is missing, damaged or inaccessible; backup was not completed"
+                                .into(),
+                        ..Default::default()
+                    })
+                })?;
             writer
                 .start_file(format!("originals/{}", asset.hash()), options)
                 .map_err(zip)?;
@@ -109,6 +121,7 @@ pub(crate) fn write(
             path.parent().ok_or(corrupt("backup parent missing"))?,
         )?;
         Ok(BackupFile {
+            pending_sync_items: 0,
             path: path.to_owned(),
             byte_size,
             file_name: format!("MemeDock-{}.memedock.zip", at.get()),

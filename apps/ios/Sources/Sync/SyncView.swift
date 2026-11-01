@@ -35,6 +35,11 @@ struct SyncView: View {
                     LabeledContent("Sync Status", value: model.title)
                     LabeledContent("Pending", value: status.pending.formatted())
                     LabeledContent("Blocked", value: status.blocked.formatted())
+                    LabeledContent("Waiting for Originals", value: status.downloading.formatted())
+                    LabeledContent("Waiting to Retry", value: status.waiting.formatted())
+                    if let time = status.cooldownUntilMs {
+                        LabeledContent("Retry Allowed After") { Text(Date(timeIntervalSince1970: Double(time) / 1000), style: .time) }
+                    }
                     LabeledContent("Last Synced") {
                         if let value = status.lastSuccessMs {
                             Text(Date(timeIntervalSince1970: Double(value) / 1000), style: .relative)
@@ -80,6 +85,15 @@ struct SyncView: View {
                     }
                 }
             }
+            let details = [model.diagnostic, model.status?.diagnostic].compactMap { $0 }
+                + (model.status?.recentErrors.reversed().map { $0 } ?? [])
+            if !details.isEmpty {
+                Section {
+                    DisclosureGroup("Sync Diagnostic Details") {
+                        Text(details.joined(separator: "\n\n")).font(.caption).textSelection(.enabled)
+                    }
+                }
+            }
         }
         .navigationTitle("Sync").disabled(model.isBusy)
         .task { if origin.isEmpty { origin = model.status?.origin ?? "" } }
@@ -93,6 +107,9 @@ struct SyncView: View {
         switch code.lowercased() {
         case "unauthorized": String(localized: "The device token is no longer valid. Enter it again.")
         case "network", "timeout": String(localized: "Unable to connect. Sync will retry later.")
+        case "rate_limited": String(localized: "Too many requests. Wait a moment and try again.")
+        case "unsupported_schema": String(localized: "Sync protocol mismatch. Update both the server and this app.")
+        case "not_found": String(localized: "An original image is missing on the server. Other images can continue syncing.")
         default: String(localized: "Sync failed. Check your connection and try again.")
         }
     }

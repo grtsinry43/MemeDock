@@ -160,7 +160,12 @@ async fn two_real_devices_upload_merge_pull_and_recover_after_process_crash() ->
         .await?;
         credentials.push(credential);
     }
-    let client = Client::new();
+    let client = Client::builder()
+        .default_headers(reqwest::header::HeaderMap::from_iter([(
+            reqwest::header::HeaderName::from_static("x-memedock-sync-protocol"),
+            reqwest::header::HeaderValue::from_static("2"),
+        )]))
+        .build()?;
     let a = &credentials[0].token;
     let b = &credentials[1].token;
     let info_a: SyncInfo = payload(

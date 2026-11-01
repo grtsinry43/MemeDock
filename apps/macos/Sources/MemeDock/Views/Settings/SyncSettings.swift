@@ -41,9 +41,14 @@ struct SyncSettings: View {
                 Section {
                     LabeledContent(L10n.text(.syncStatus)) {
                         if coordinator.busy { ProgressView().controlSize(.small).accessibilityLabel(L10n.text(.syncRunning)) }
-                        Text(L10n.text(coordinator.busy ? .syncRunning : state.paused ? .syncPaused : .syncReady))
+                        Text(L10n.text(coordinator.busy ? .syncRunning : state.paused ? .syncPaused : state.error != nil || state.blocked > 0 ? .syncFailed : state.pending > 0 ? .syncIncomplete : .syncReady))
                     }
                     LabeledContent(L10n.text(.syncPending), value: "\(state.pending)")
+                    LabeledContent(L10n.text(.syncDownloading), value: "\(state.downloading)")
+                    LabeledContent(L10n.text(.syncWaiting), value: "\(state.waiting)")
+                    if let time = state.cooldownUntilMs {
+                        LabeledContent(L10n.text(.syncRetryAt)) { Text(Date(timeIntervalSince1970: Double(time) / 1000), style: .time) }
+                    }
                     if state.blocked > 0 { LabeledContent(L10n.text(.syncBlocked), value: "\(state.blocked)") }
                     LabeledContent(L10n.text(.syncLastSuccess)) {
                         if let time = state.lastSuccessMs { Text(Date(timeIntervalSince1970: Double(time) / 1000), style: .relative) }
@@ -68,6 +73,15 @@ struct SyncSettings: View {
             }
             if let error = coordinator.error {
                 Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+            }
+            let details = [coordinator.diagnostic, coordinator.state?.diagnostic].compactMap { $0 }
+                + (coordinator.state?.recentErrors.reversed().map { $0 } ?? [])
+            if !details.isEmpty {
+                Section {
+                    DisclosureGroup(L10n.text(.syncDiagnostics)) {
+                        Text(details.joined(separator: "\n\n")).font(MemeDockTypography.caption).textSelection(.enabled)
+                    }
+                }
             }
             Section { SettingsFooter(.syncMergeHint) }
         }

@@ -14,6 +14,7 @@ pub struct BackupFile {
     pub path: PathBuf,
     pub byte_size: u64,
     pub file_name: String,
+    pub pending_sync_items: u64,
 }
 
 /// Prepared input is owned by its library; Android never supplies a raw path.

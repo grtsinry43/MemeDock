@@ -40,7 +40,7 @@ data class ThumbnailUpdate(val id: String, val state: ThumbnailState, val path: 
 enum class ImportDisposition { Created, Reused, RestoreRequired }
 data class ImportedItem(val id: String, val disposition: ImportDisposition)
 interface ImportSlot : AutoCloseable { val path: String }
-class LibraryFailure(val reason: String, cause: Throwable? = null) : Exception(reason, cause)
+class LibraryFailure(val reason: String, cause: Throwable? = null, val diagnostic: String? = null) : Exception(reason, cause)
 
 data class StickerDetails(val id: String, val title: String, val note: String, val originalName: String,
     val mime: String, val width: Int, val height: Int, val byteSize: Long, val animated: Boolean,

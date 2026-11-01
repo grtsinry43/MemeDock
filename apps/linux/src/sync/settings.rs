@@ -12,6 +12,11 @@ struct View {
     connect: gtk4::Button,
     status: adw::ActionRow,
     pending: adw::ActionRow,
+    downloading: adw::ActionRow,
+    waiting: adw::ActionRow,
+    retry_at: adw::ActionRow,
+    diagnostics: gtk4::Label,
+    diagnostic_expander: gtk4::Expander,
     blocked: adw::ActionRow,
     last: adw::ActionRow,
     now: gtk4::Button,
@@ -40,10 +45,37 @@ impl View {
             Key::SyncAuthorize
         } else if state.status.paused {
             Key::SyncPaused
+        } else if state.status.error.is_some() || state.status.blocked > 0 {
+            Key::SyncNeedsAttention
+        } else if state.status.pending > 0 {
+            Key::SyncPending
         } else {
             Key::SyncReady
         }));
         self.pending.set_subtitle(&state.status.pending.to_string());
+        self.downloading
+            .set_subtitle(&state.status.downloading.to_string());
+        self.waiting.set_subtitle(&state.status.waiting.to_string());
+        let retry = state
+            .status
+            .cooldown_until_ms
+            .and_then(|t| glib::DateTime::from_unix_local(t / 1000).ok())
+            .and_then(|t| t.format("%x %X").ok())
+            .map(|t| t.to_string());
+        self.retry_at.set_visible(retry.is_some());
+        self.retry_at.set_subtitle(retry.as_deref().unwrap_or(""));
+        let mut details = state.status.diagnostic.iter().cloned().collect::<Vec<_>>();
+        details.extend(
+            state
+                .status
+                .recent_errors
+                .iter()
+                .rev()
+                .filter(|v| Some(*v) != state.status.diagnostic.as_ref())
+                .cloned(),
+        );
+        self.diagnostics.set_text(&details.join("\n\n"));
+        self.diagnostic_expander.set_visible(!details.is_empty());
         self.blocked.set_subtitle(&state.status.blocked.to_string());
         let last = state
             .status
@@ -118,9 +150,20 @@ pub fn present(parent: &impl IsA<gtk4::Widget>, coordinator: Rc<Coordinator>) ->
     let group = adw::PreferencesGroup::new();
     let status = crate::settings::value_row(Key::Sync);
     let pending = crate::settings::value_row(Key::SyncPending);
+    let downloading = crate::settings::value_row(Key::SyncDownloading);
+    let waiting = crate::settings::value_row(Key::SyncWaiting);
+    let retry_at = crate::settings::value_row(Key::SyncRetryAt);
     let blocked = crate::settings::value_row(Key::SyncBlocked);
     let last = crate::settings::value_row(Key::SyncLastSuccess);
-    for row in [&status, &pending, &blocked, &last] {
+    for row in [
+        &status,
+        &pending,
+        &downloading,
+        &waiting,
+        &retry_at,
+        &blocked,
+        &last,
+    ] {
         group.add(row);
     }
     body.append(&group);
@@ -140,6 +183,14 @@ pub fn present(parent: &impl IsA<gtk4::Widget>, coordinator: Rc<Coordinator>) ->
     let fallback = i18n::label(Key::FileTokenHint);
     fallback.set_wrap(true);
     body.append(&error);
+    let diagnostics = gtk4::Label::new(None);
+    diagnostics.set_selectable(true);
+    diagnostics.set_wrap(true);
+    diagnostics.set_xalign(0.0);
+    let diagnostic_expander = gtk4::Expander::new(None);
+    i18n::bind(&diagnostic_expander, "label", Key::SyncDiagnostics);
+    diagnostic_expander.set_child(Some(&diagnostics));
+    body.append(&diagnostic_expander);
     body.append(&fallback);
     let hint = i18n::label(Key::SyncMergeHint);
     hint.set_wrap(true);
@@ -156,6 +207,11 @@ pub fn present(parent: &impl IsA<gtk4::Widget>, coordinator: Rc<Coordinator>) ->
         connect,
         status,
         pending,
+        downloading,
+        waiting,
+        retry_at,
+        diagnostics,
+        diagnostic_expander,
         blocked,
         last,
         now,

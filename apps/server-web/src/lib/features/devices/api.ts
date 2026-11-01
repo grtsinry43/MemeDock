@@ -3,4 +3,5 @@ import type { CreateDeviceRequest, DeviceCredential, DeviceList } from '#lib/gen
 
 export const getDevices = (signal?: AbortSignal) => getApi()<DeviceList>('/admin/devices', { signal });
 export const createDevice = (body: CreateDeviceRequest) => getApi()<DeviceCredential>('/admin/devices', { method: 'POST', body: JSON.stringify(body) });
-export const revokeDevice = (id: string) => getApi()<null>(`/admin/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const revokeDevice = (id: string) => getApi()<null>(`/admin/devices/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
+export const deleteDevice = (id: string) => getApi()<null>(`/admin/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });

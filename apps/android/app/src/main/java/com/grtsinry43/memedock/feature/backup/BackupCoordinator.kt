@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.*
 import java.util.concurrent.atomic.AtomicBoolean
 
 enum class BackupPhase { Idle, Creating, ChooseDestination, Saving, ChooseSource, Reading, Preview, Restoring, Saved, Restored }
-data class BackupState(val phase: BackupPhase = BackupPhase.Idle, val summary: ArchiveSummary? = null, val error: String? = null) {
+data class BackupState(val phase: BackupPhase = BackupPhase.Idle, val summary: ArchiveSummary? = null, val error: String? = null, val pendingSyncItems: Long = 0, val diagnostic: String? = null) {
     val busy get() = phase in listOf(BackupPhase.Creating, BackupPhase.ChooseDestination, BackupPhase.Saving,
         BackupPhase.ChooseSource, BackupPhase.Reading, BackupPhase.Restoring)
 }
@@ -77,7 +77,7 @@ class BackupCoordinator(private val repository: BackupRepository, private val ga
             try {
                 if (uri != null) {
                     gateway.save(uri, value.path(), value.byteSize().toLong(), cancelled::get)
-                    mutable.value = BackupState(BackupPhase.Saved)
+                    mutable.value = BackupState(BackupPhase.Saved, pendingSyncItems = value.pendingSyncItems().toLong())
                 }
             } catch (_: CancellationException) { mutable.value = BackupState() }
             catch (error: Exception) { failed(error) }
@@ -136,7 +136,7 @@ class BackupCoordinator(private val repository: BackupRepository, private val ga
     fun acknowledge() {
         val current = mutable.value
         if (current.phase == BackupPhase.Saved || current.phase == BackupPhase.Restored ||
-            (current.phase == BackupPhase.Idle && current.error != null)) mutable.value = BackupState()
+            (current.phase == BackupPhase.Idle && current.error != null)) mutable.value = BackupState(diagnostic = current.diagnostic)
     }
     fun cancel() {
         cancelled.set(true)
@@ -146,7 +146,7 @@ class BackupCoordinator(private val repository: BackupRepository, private val ga
     }
     private fun failed(error: Exception) {
         if (error is LibraryFailure && error.reason == "CANCELLED") { mutable.value = BackupState(); return }
-        mutable.value = BackupState(error = when (error) {
+        mutable.value = BackupState(diagnostic = (error as? LibraryFailure)?.diagnostic, error = when (error) {
             is LibraryFailure -> error.reason
             is SecurityException -> "PERMISSION_DENIED"
             is java.io.IOException -> "IO"

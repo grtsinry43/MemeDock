@@ -57,7 +57,7 @@ impl RequestContext {
             .into_response(),
             Err(ApiError(kind)) => {
                 eprintln!("request_id={} error={}", self.id, kind.name());
-                (
+                let mut response = (
                     StatusCode::from_u16(kind.status())
                         .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                     Json(ApiEnvelope {
@@ -68,7 +68,18 @@ impl RequestContext {
                         meta,
                     }),
                 )
-                    .into_response()
+                    .into_response();
+                if matches!(
+                    kind,
+                    ApiErrorKind::TooManyRequests
+                        | ApiErrorKind::TransferQueueFull
+                        | ApiErrorKind::TransferBusy
+                ) {
+                    response
+                        .headers_mut()
+                        .insert("retry-after", axum::http::HeaderValue::from_static("5"));
+                }
+                response
             }
         }
     }

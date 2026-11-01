@@ -66,6 +66,7 @@ enum L10nKey: String {
     case syncTab, syncServer, syncToken, syncTokenHint, syncConnect, syncNow, syncPause, syncResume
     case syncDisconnect, syncDisconnectTitle, syncDisconnectHint, syncPending, syncBlocked, syncBlockedHint
     case syncLastSuccess, syncNever, syncReady, syncRunning, syncPaused, syncStatus, syncMergeHint
+    case syncDownloading, syncWaiting, syncRetryAt, syncDiagnostics, syncIncomplete, syncFailed, backupPendingSync
     case syncKeychainFailed, syncReauthorize
 }
 
@@ -224,6 +225,9 @@ enum L10n {
         .syncDisconnect: "Disconnect", .syncDisconnectTitle: "Disconnect sync?",
         .syncDisconnectHint: "Syncing will stop. Stickers on this Mac will not be affected.",
         .syncPending: "Pending", .syncBlocked: "Sync issues",
+        .syncDownloading: "Waiting for originals", .syncWaiting: "Waiting to retry", .syncRetryAt: "Retry allowed after",
+        .syncDiagnostics: "Diagnostic details", .syncIncomplete: "Sync pending", .syncFailed: "Sync needs attention",
+        .backupPendingSync: "Images still syncing, excluded from this backup",
         .syncBlockedHint: "Some changes could not be synced due to conflicts. Check the web console for details.",
         .syncLastSuccess: "Last synced", .syncNever: "Never", .syncReady: "Up to date",
         .syncRunning: "Syncing…", .syncPaused: "Paused", .syncStatus: "Sync status",
@@ -384,6 +388,9 @@ enum L10n {
         .syncDisconnect: "断开连接", .syncDisconnectTitle: "断开同步连接？",
         .syncDisconnectHint: "断开后将停止同步，本机已有的表情不会受影响。",
         .syncPending: "待同步", .syncBlocked: "未能同步",
+        .syncDownloading: "等待原图入库", .syncWaiting: "等待重试", .syncRetryAt: "下次允许重试",
+        .syncDiagnostics: "诊断详情", .syncIncomplete: "尚未同步完成", .syncFailed: "同步需要处理",
+        .backupPendingSync: "尚未同步入库、不包含在此备份中的图片",
         .syncBlockedHint: "部分内容因冲突未能同步，可在网页端查看详情。",
         .syncLastSuccess: "上次同步", .syncNever: "尚未同步", .syncReady: "已同步",
         .syncRunning: "正在同步…", .syncPaused: "已暂停", .syncStatus: "同步状态",

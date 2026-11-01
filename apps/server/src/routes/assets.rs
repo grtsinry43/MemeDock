@@ -50,13 +50,6 @@ fn hash(value: &str) -> Result<ContentHash, ApiError> {
         .parse()
         .map_err(|_| ApiError(ApiErrorKind::ParamsError))
 }
-fn budget(state: &AppState) -> Result<tokio::sync::OwnedSemaphorePermit, ApiError> {
-    state
-        .transfer_budget
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| ApiError(ApiErrorKind::TooManyRequests))
-}
 async fn store(state: &AppState) -> Result<FsBlobStore, ApiError> {
     let root = state.config.data_dir.join("originals");
     tokio::task::spawn_blocking(move || FsBlobStore::open(root))
@@ -77,9 +70,9 @@ async fn upload_inner(
     path: &str,
     request: Request,
 ) -> Result<memedock_api_contracts::AssetInfo, ApiError> {
-    auth::require_device(state, request.headers()).await?;
+    let device = auth::require_device(state, request.headers()).await?;
     let expected = hash(path)?;
-    let permit = budget(state)?;
+    let permit = state.transfer_budget.acquire(device.to_string()).await?;
     if request.headers().get(header::CONTENT_ENCODING).is_some() {
         return Err(ApiError(ApiErrorKind::ParamsError));
     }
@@ -167,8 +160,8 @@ pub async fn download(
     headers: HeaderMap,
 ) -> Response {
     let result = async {
-        auth::require_device(&state, &headers).await?;
-        original_response(&state, hash(&path)?, method).await
+        let device = auth::require_device(&state, &headers).await?;
+        original_response(&state, hash(&path)?, method, device.to_string()).await
     }
     .await;
     match result {
@@ -186,7 +179,7 @@ pub async fn admin_original(
 ) -> Response {
     let result = async {
         auth::require_admin(&state, &session).await?;
-        original_response(&state, hash(&path)?, method).await
+        original_response(&state, hash(&path)?, method, "admin".into()).await
     }
     .await;
     match result {
@@ -199,8 +192,24 @@ async fn original_response(
     state: &AppState,
     hash: ContentHash,
     method: Method,
+    device: String,
 ) -> Result<Response, ApiError> {
-    let permit = budget(state)?;
+    let permit = if method == Method::HEAD {
+        None
+    } else {
+        Some(state.transfer_budget.acquire(device).await?)
+    };
+    let _metadata = if method == Method::HEAD {
+        Some(
+            state
+                .metadata_budget
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| ApiError(ApiErrorKind::TooManyRequests))?,
+        )
+    } else {
+        None
+    };
     if state
         .db
         .server_sticker(hash)

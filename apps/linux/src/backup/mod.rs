@@ -23,6 +23,7 @@ struct Model {
     preview: Option<Arc<PreparedArchive>>,
     controller: Option<TaskController>,
     stop: Arc<AtomicBool>,
+    pending_sync_items: u64,
 }
 struct View {
     dialog: adw::Dialog,
@@ -86,6 +87,7 @@ pub fn present(host: Host) {
         cancel,
     });
     let model = Rc::new(RefCell::new(Model {
+        pending_sync_items: 0,
         file_cancel: gio::Cancellable::new(),
         phase: Phase::Idle,
         preview: None,
@@ -231,6 +233,7 @@ fn begin(host: &Host, model: &Rc<RefCell<Model>>, view: &View, phase: Phase) -> 
         return false;
     }
     model.borrow_mut().phase = phase;
+    model.borrow_mut().pending_sync_items = 0;
     model.borrow().stop.store(false, Ordering::Relaxed);
     model.borrow_mut().file_cancel = gio::Cancellable::new();
     host.maintenance.set(true);
@@ -257,6 +260,12 @@ fn finish(
     host.maintenance.set(false);
     view.phase(Phase::Idle);
     match result {
+        Ok(true) if model.borrow().pending_sync_items > 0 => view.label.set_text(&format!(
+            "{}\n{}: {}",
+            i18n::text(success),
+            i18n::text(Key::BackupPendingSync),
+            model.borrow().pending_sync_items
+        )),
         Ok(true) => i18n::bind(&view.label, "label", success),
         Ok(false) => i18n::bind(&view.label, "label", Key::BackupHint),
         Err(message) => view.label.set_text(&message),
@@ -270,6 +279,7 @@ async fn create_backup(
     let task = host.library.create_backup().map_err(error)?;
     model.borrow_mut().controller = Some(task.controller());
     let backup = task.wait().await.map_err(error)?;
+    model.borrow_mut().pending_sync_items = backup.pending_sync_items;
     let result = async {
         if model.borrow().stop.load(Ordering::Relaxed) {
             return Ok(false);

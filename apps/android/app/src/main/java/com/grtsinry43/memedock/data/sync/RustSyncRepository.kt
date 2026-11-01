@@ -21,6 +21,7 @@ class RustSyncRepository(private val session: LibrarySession) : SyncRepository {
     override suspend fun status(binding: LibraryBinding) = run { library(binding).syncStatus() }
     override suspend fun connect(binding: LibraryBinding, origin: String, token: String) = run { library(binding).connectSync(origin, token) }
     override suspend fun synchronize(binding: LibraryBinding, token: String) = run { library(binding).synchronize(token) }
+    override suspend fun retryDownloads(binding: LibraryBinding) = run { library(binding).retrySyncDownloads() }
     override suspend fun pause(binding: LibraryBinding, paused: Boolean) = run { library(binding).setSyncPaused(paused) }
 
     private suspend fun run(create: suspend () -> SyncStatusTask): SyncStatus = withContext(Dispatchers.IO) {
@@ -34,7 +35,7 @@ class RustSyncRepository(private val session: LibrarySession) : SyncRepository {
                     throw cancel
                 }
             }
-        } catch (error: BridgeException.Failure) { throw LibraryFailure(error.code.name) }
+        } catch (error: BridgeException.Failure) { throw LibraryFailure(error.code.name, error, error.detail) }
     }
     override fun observe(binding: LibraryBinding) = flow {
         val subscription = library(binding).subscribeSync()
@@ -46,5 +47,6 @@ class RustSyncRepository(private val session: LibrarySession) : SyncRepository {
     private fun com.grtsinry43.memedock.bridge.generated.SyncStatus.model() = SyncStatus(
         origin, deviceId, connected, paused, pending.toLong(), blocked.toLong(), cursor,
         lastSuccessMs, error, retryAfterMs.toLong(),
+        lastProgressMs, downloading.toLong(), waiting.toLong(), diagnostic, recentErrors, cooldownUntilMs,
     )
 }

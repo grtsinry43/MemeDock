@@ -1,6 +1,7 @@
 //! Versioned sync contracts only; no HTTP client, credentials or sync runtime.
-//! Protocol v1 first ships with MemeDock 0.2.0, the initial sync compatibility
-//! baseline. Application releases and wire protocol versions evolve separately.
+//! Protocol 2 first publicly ships with MemeDock 0.2.1.
+//! Application releases and wire protocol versions evolve separately.
+pub mod diagnostics;
 use crate::{
     asset::Asset,
     change::Operation,
@@ -77,7 +78,7 @@ impl OperationEnvelope {
         operation: Operation,
     ) -> Self {
         Self {
-            protocol_version: ProtocolVersion::V1,
+            protocol_version: ProtocolVersion::CURRENT,
             library_id,
             sync_epoch,
             device_id,
@@ -436,7 +437,7 @@ impl PullPage {
     ) -> Result<Self, DomainError> {
         let next_cursor = events.last().map_or(after, |event| event.seq.into());
         let page = Self::try_from(PullPageWire {
-            protocol_version: ProtocolVersion::V1,
+            protocol_version: ProtocolVersion::CURRENT,
             library_id,
             sync_epoch,
             next_cursor,

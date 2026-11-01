@@ -66,6 +66,7 @@ struct BackupSettings: View {
             }
             if let message = coordinator.failure {
                 Label(message, systemImage: "exclamationmark.triangle")
+                    .textSelection(.enabled)
                     .foregroundStyle(MemeDockPalette(scheme).error)
             } else if let restored = coordinator.restored {
                 Label(resultText(restored), systemImage: "checkmark.circle")

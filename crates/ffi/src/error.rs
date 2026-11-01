@@ -87,7 +87,10 @@ impl From<memedock_core::CoreError> for BridgeError {
     fn from(error: memedock_core::CoreError) -> Self {
         Self::Failure {
             code: error.code().into(),
-            detail: error.message().into(),
+            detail: error
+                .sync_diagnostic()
+                .map(|v| v.description())
+                .unwrap_or_else(|| error.message().into()),
         }
     }
 }

@@ -178,7 +178,7 @@ fn patch_contract_distinguishes_missing_null_false_and_empty_string() -> TestRes
 
 #[test]
 fn operation_envelope_matches_document_shape_and_rejects_wrong_version_or_identity() -> TestResult {
-    let value = json!({"protocol_version": 1, "library_id": ID, "sync_epoch": ID,
+    let value = json!({"protocol_version": 2, "library_id": ID, "sync_epoch": ID,
         "device_id": ID, "op_id": ID, "client_time_ms": 100,
         "operation": {"type": "patch_sticker", "sticker_id": HASH, "generation": 0,
             "patch": {"title": "无语猫"}}});
@@ -189,7 +189,7 @@ fn operation_envelope_matches_document_shape_and_rejects_wrong_version_or_identi
             .ensure_identity(SECOND_ID.parse()?, ID.parse()?, ID.parse()?)
             .is_err()
     );
-    for invalid_version in [0, 2, u32::MAX] {
+    for invalid_version in [0, 1, u32::MAX] {
         let mut invalid = value.clone();
         invalid["protocol_version"] = json!(invalid_version);
         assert!(serde_json::from_value::<OperationEnvelope>(invalid).is_err());
@@ -197,7 +197,7 @@ fn operation_envelope_matches_document_shape_and_rejects_wrong_version_or_identi
     let mut invalid = value;
     invalid["operation"]["patch"]["extra"] = json!("typo");
     assert!(serde_json::from_value::<OperationEnvelope>(invalid).is_err());
-    assert!(serde_json::from_value::<ProtocolVersion>(json!(2)).is_err());
+    assert!(serde_json::from_value::<ProtocolVersion>(json!(1)).is_err());
     Ok(())
 }
 
@@ -379,7 +379,7 @@ fn pull_event_contract_binds_entity_revision_to_event_and_last_returned_cursor()
     let event = json!({"seq": 9, "device_id": ID, "op_id": ID, "created_at": 100,
         "type": "sticker_patched", "entity": entity});
     let _: SyncEvent = golden(event.clone())?;
-    let page = json!({"protocol_version": 1, "library_id": ID, "sync_epoch": ID,
+    let page = json!({"protocol_version": 2, "library_id": ID, "sync_epoch": ID,
         "next_cursor": 9, "has_more": false, "events": [event.clone()]});
     let _: PullPage = golden(page.clone())?;
     let mut bad = page;

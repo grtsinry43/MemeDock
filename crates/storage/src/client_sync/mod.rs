@@ -1,4 +1,6 @@
 //! Owned sync persistence; contains no credentials or network client.
+pub mod diagnostics;
+pub mod transfers;
 use crate::{LibraryDatabase, Result, StorageError, transaction::WriteTransaction};
 use memedock_domain::{
     archive::ArchiveData,
@@ -24,6 +26,18 @@ pub struct Binding {
     pub canonical: ArchiveData,
     pub last_success_ms: Option<i64>,
     pub last_error: Option<String>,
+    #[serde(default)]
+    pub deferred: ArchiveData,
+    #[serde(default)]
+    pub cooldown_until_ms: i64,
+    #[serde(default)]
+    pub failures: u32,
+    #[serde(default)]
+    pub last_progress_ms: Option<i64>,
+    #[serde(default)]
+    pub diagnostic: Option<memedock_domain::sync::diagnostics::SyncDiagnostic>,
+    #[serde(default)]
+    pub recent_errors: Vec<memedock_domain::sync::diagnostics::SyncDiagnostic>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SyncJob {
@@ -223,6 +237,9 @@ impl WriteTransaction {
     }
     pub async fn reset_sync_jobs(&mut self) -> Result<()> {
         self.inner
+            .execute_unprepared("DELETE FROM client_sync_transfers")
+            .await?;
+        self.inner
             .execute_unprepared("DELETE FROM client_sync_jobs")
             .await?;
         Ok(())
@@ -267,6 +284,7 @@ impl WriteTransaction {
         view: Option<&ArchiveData>,
         maximum: u64,
     ) -> Result<()> {
+        let mut binding = binding.clone();
         if let Some(view) = view {
             view.validate()?;
             for asset in &view.assets {
@@ -276,6 +294,62 @@ impl WriteTransaction {
                         .await?;
                 }
             }
+            let mut published = view.clone();
+            let mut deferred = view.clone();
+            let mut missing = std::collections::HashSet::new();
+            for entity in &view.stickers {
+                if !entity.lifecycle().is_purged()
+                    && !self
+                        .local_asset(entity.id().content_hash())
+                        .await?
+                        .is_some_and(|v| {
+                            v.blob_status() == memedock_domain::local::BlobStatus::Ready
+                        })
+                {
+                    missing.insert(entity.id());
+                }
+            }
+            published.stickers.retain(|s| !missing.contains(&s.id()));
+            published
+                .collection_items
+                .retain(|r| !missing.contains(&r.sticker_id()));
+            published
+                .sticker_tags
+                .retain(|r| !missing.contains(&r.sticker_id()));
+            deferred.stickers.retain(|s| missing.contains(&s.id()));
+            deferred
+                .assets
+                .retain(|a| missing.contains(&a.sticker_id()));
+            deferred
+                .collection_items
+                .retain(|r| missing.contains(&r.sticker_id()));
+            deferred
+                .sticker_tags
+                .retain(|r| missing.contains(&r.sticker_id()));
+            deferred.tombstones.clear();
+            deferred.validate()?;
+            binding.deferred = deferred;
+            // Quarantine existing incomplete rows too. Metadata and relations
+            // remain durable in deferred, committed in this same transaction.
+            for id in missing {
+                for table in ["collection_items", "sticker_tags"] {
+                    self.inner
+                        .execute_raw(Statement::from_sql_and_values(
+                            DbBackend::Sqlite,
+                            format!("DELETE FROM {table} WHERE sticker_id=?"),
+                            [id.to_string().into()],
+                        ))
+                        .await?;
+                }
+                self.inner
+                    .execute_raw(Statement::from_sql_and_values(
+                        DbBackend::Sqlite,
+                        "DELETE FROM stickers WHERE id=?",
+                        [id.to_string().into()],
+                    ))
+                    .await?;
+            }
+            let view = &published;
             for entity in &view.stickers {
                 self.save_sticker(entity).await?;
             }
@@ -304,7 +378,7 @@ impl WriteTransaction {
                 self.save_tombstone(entity).await?;
             }
         }
-        self.set_sync_binding(binding, maximum).await?;
+        self.set_sync_binding(&binding, maximum).await?;
         if self.failed {
             return Err(StorageError::Conflict("failed sync transaction"));
         }

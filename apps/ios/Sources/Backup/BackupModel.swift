@@ -71,7 +71,11 @@ final class BackupModel {
         delivery = nil
         do {
             try await library.discardBackup(backup: value).awaitResult()
-            if saved { feedback.post(String(localized: "Backup Saved")) }
+            if saved {
+                let pending = value.pendingSyncItems()
+                let message = String(localized: "Backup Saved") + (pending > 0 ? "\n" + String(format: String(localized: "The backup excludes %lld images that are still syncing."), Int64(pending)) : "")
+                feedback.post(message)
+            }
             phase = .idle
         } catch { failed(error) }
     }

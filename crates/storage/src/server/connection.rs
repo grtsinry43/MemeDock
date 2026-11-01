@@ -60,7 +60,7 @@ impl ServerDatabase {
             super::schema::initialize(&tx).await?;
             super::migrations::v0_1_3_to_v0_2_0::apply(&tx).await?;
             super::migrations::v0_1_3_to_v0_2_0::add_monitoring(&tx).await?;
-        } else if application != super::schema::APPLICATION_ID || !(1..=4).contains(&version) {
+        } else if application != super::schema::APPLICATION_ID || !(1..=6).contains(&version) {
             return Err(StorageError::UnsupportedSchema);
         } else if version == 1 {
             super::migrations::v0_1_3_to_v0_2_0::apply(&tx).await?;
@@ -70,6 +70,11 @@ impl ServerDatabase {
         }
         if version < 4 {
             super::migrations::v0_1_3_to_v0_2_0::add_purge(&tx).await?;
+        }
+        if version < 5 {
+            super::migrations::v0_2_0_to_v0_2_1::apply(&tx).await?;
+        } else if version == 5 {
+            super::migrations::v0_2_0_to_v0_2_1::add_device_deletion(&tx).await?;
         }
         tx.commit().await?;
         Ok(Self { connection })
