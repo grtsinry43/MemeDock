@@ -3,7 +3,23 @@ name: Windows
 on:
   push:
     branches: [main]
+    paths:
+      - 'crates/**'
+      - 'apps/windows/**'
+      - 'tools/windows/**'
+      - 'packaging/windows/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
   pull_request:
+    paths:
+      - 'crates/**'
+      - 'apps/windows/**'
+      - 'tools/windows/**'
+      - 'packaging/windows/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
   workflow_dispatch:
     inputs:
       release:

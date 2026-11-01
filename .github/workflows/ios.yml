@@ -3,7 +3,25 @@ name: iOS
 on:
   push:
     branches: [main]
+    paths:
+      - 'crates/**'
+      - 'apps/ios/**'
+      - 'tools/ios/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'tools/ffi-fixtures/**'
+      - 'tools/uniffi-bindgen/**'
   pull_request:
+    paths:
+      - 'crates/**'
+      - 'apps/ios/**'
+      - 'tools/ios/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'tools/ffi-fixtures/**'
+      - 'tools/uniffi-bindgen/**'
   workflow_dispatch:
   workflow_call:
     inputs:
