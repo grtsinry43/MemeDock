@@ -20,7 +20,7 @@
     <ApplicationIcon>Assets\MemeDock.ico</ApplicationIcon>
     <!-- Single source for the version shown in Settings > About; the test compares
          it with [workspace.package] in Cargo.toml. -->
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="Assets\MemeDock.ico" CopyToOutputDirectory="PreserveNewest" />
