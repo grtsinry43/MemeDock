@@ -4,6 +4,7 @@
   import { createQuery } from '@tanstack/svelte-query';
   import type { LibraryFacet } from '#lib/generated/api.ts';
   import { facetsQuery } from '../queries.ts';
+  import Skeleton from '#lib/ui/common/Skeleton.svelte';
   import { i18n } from '#lib/shared/i18n/i18n.svelte.ts';
 
   let {
@@ -59,7 +60,13 @@
     <Combobox.Portal>
       <Combobox.Content class="popup min-w-44" sideOffset={6}>
         {#if query.isPending}
-          <p role="status" class="px-3 py-4 text-caption text-secondary">{i18n.t.library.facetLoading}</p>
+          <div aria-hidden="true">
+            {#each Array.from({ length: 3 }) as _, index (index)}
+              <div class="menu-item">
+                <Skeleton class="h-4 w-2/3 rounded-control" />
+              </div>
+            {/each}
+          </div>
         {/if}
         {#each query.data?.items ?? [] as item (item.id)}
           <Combobox.Item value={item.name} label={item.name} class="menu-item">

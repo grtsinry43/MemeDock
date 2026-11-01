@@ -11,6 +11,7 @@
   import QueryFeedback from '#lib/ui/common/QueryFeedback.svelte';
   import Pagination from '#lib/ui/common/Pagination.svelte';
   import ActivityList from './ActivityList.svelte';
+  import ActivitySkeleton from './ActivitySkeleton.svelte';
   import { i18n } from '#lib/shared/i18n/i18n.svelte.ts';
 
   const result = $derived(parseResult(route.url.searchParams.get('result')));
@@ -18,6 +19,16 @@
   const page = $derived(Math.max(1, Math.min(10_000, Number(route.url.searchParams.get('page')) || 1)));
   const activity = createQuery(() => activityQuery({ result, deviceId: device || undefined, page }));
   const devices = createQuery(() => devicesQuery());
+  let refreshing = $state(false);
+
+  async function refresh() {
+    refreshing = true;
+    try {
+      await activity.refetch();
+    } finally {
+      refreshing = false;
+    }
+  }
 
   function change(key: string, value: string) {
     const params = new URLSearchParams(route.url.searchParams.toString());
@@ -32,12 +43,12 @@
   {#snippet actions()}
     <IconButton
       label={i18n.t.activity.refreshLabel}
-      disabled={activity.isFetching}
-      onclick={() => activity.refetch()}
+      disabled={refreshing}
+      onclick={refresh}
     >
       <RefreshCw
         size={18}
-        class={activity.isFetching ? 'animate-spin motion-reduce:animate-none' : ''}
+        class={refreshing ? 'animate-spin motion-reduce:animate-none' : ''}
       />
     </IconButton>
   {/snippet}
@@ -74,26 +85,39 @@
   </label>
 </div>
 
-<QueryFeedback pending={activity.isPending} error={activity.error} retry={() => activity.refetch()} />
-<QueryFeedback pending={false} error={devices.error} retry={() => devices.refetch()} />
+<QueryFeedback error={activity.error} retry={() => activity.refetch()} />
+<QueryFeedback error={devices.error} retry={() => devices.refetch()} />
 
-{#if activity.data}
-  {#if activity.data.items.length}
-    <ActivityList items={activity.data.items} />
-  {:else}
-    <div class="grid justify-items-center gap-3 py-16 text-center">
-      <ListFilter size={32} class="text-secondary/60" />
-      <h2 class="text-section font-semibold">{i18n.t.activity.emptyTitle}</h2>
-      <p class="text-body text-secondary">{i18n.t.activity.emptyDesc}</p>
-    </div>
-  {/if}
-  <Pagination
-    {page}
-    limit={activity.data.limit}
-    total={activity.data.total}
-    busy={activity.isFetching}
-    onchange={value => change('page', String(value))}
-  />
+{#if activity.isPending}
+  <div aria-busy="true">
+    <span class="sr-only" role="status">{i18n.t.common.loading}</span>
+    <ActivitySkeleton />
+  </div>
+{:else if activity.data}
+  <div
+    class={`transition-opacity duration-180 ease-memedock ${activity.isPlaceholderData ? 'opacity-50' : ''}`}
+    aria-busy={activity.isPlaceholderData}
+  >
+    {#if activity.isPlaceholderData}
+      <span class="sr-only" role="status">{i18n.t.common.loading}</span>
+    {/if}
+    {#if activity.data.items.length}
+      <ActivityList items={activity.data.items} />
+    {:else}
+      <div class="grid justify-items-center gap-3 py-16 text-center">
+        <ListFilter size={32} class="text-secondary/60" />
+        <h2 class="text-section font-semibold">{i18n.t.activity.emptyTitle}</h2>
+        <p class="text-body text-secondary">{i18n.t.activity.emptyDesc}</p>
+      </div>
+    {/if}
+    <Pagination
+      {page}
+      limit={activity.data.limit}
+      total={activity.data.total}
+      busy={activity.isPlaceholderData}
+      onchange={value => change('page', String(value))}
+    />
+  </div>
 {/if}
 
 <p class="mt-6 text-caption leading-6 text-secondary">

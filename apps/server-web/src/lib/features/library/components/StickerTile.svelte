@@ -2,10 +2,12 @@
   import { ImageOff, Star } from '@lucide/svelte';
   import type { LibrarySticker } from '#lib/generated/api.ts';
   import { thumbnailUrl } from '../api.ts';
+  import Skeleton from '#lib/ui/common/Skeleton.svelte';
   import { i18n } from '#lib/shared/i18n/i18n.svelte.ts';
 
   let { sticker, onselect }: { sticker: LibrarySticker; onselect: () => void } = $props();
   let failed = $state(false);
+  let loaded = $state(false);
   let attempt = $state(0);
 </script>
 
@@ -21,12 +23,18 @@
         <ImageOff size={24} />{i18n.t.library.previewFailed}
       </span>
     {:else}
+      {#if !loaded}
+        <Skeleton class="absolute inset-0 rounded-control" />
+      {/if}
       <img
         src={`${thumbnailUrl(sticker.id)}${attempt ? `?retry=${attempt}` : ''}`}
         alt=""
         loading="lazy"
         decoding="async"
-        class="max-h-full max-w-full object-contain transition-transform duration-180 group-hover:scale-[1.035] motion-reduce:transform-none"
+        class={`max-h-full max-w-full object-contain transition-[opacity,scale] duration-180 ease-memedock group-hover:scale-[1.035] motion-reduce:group-hover:scale-100 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        onload={() => {
+          loaded = true;
+        }}
         onerror={() => {
           failed = true;
         }}
@@ -56,6 +64,7 @@
       onclick={() => {
         attempt += 1;
         failed = false;
+        loaded = false;
       }}
     >
       {i18n.t.library.reloadPreview}

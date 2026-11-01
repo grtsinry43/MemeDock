@@ -6,6 +6,7 @@
   import { adminQuery } from '../queries.ts';
   import { ApiError, errorMessage } from '#lib/shared/clients/api.ts';
   import AppShell from '#lib/ui/layout/AppShell.svelte';
+  import AppShellSkeleton from '#lib/ui/layout/AppShellSkeleton.svelte';
   import Sidebar from '#lib/ui/layout/Sidebar.svelte';
   import AccountMenu from './AccountMenu.svelte';
   import Button from '#lib/ui/primitives/Button.svelte';
@@ -43,5 +44,5 @@
     {@render children()}
   </AppShell>
 {:else}
-  <p role="status" class="p-8 text-secondary">{i18n.t.auth.checkingStatus}</p>
+  <AppShellSkeleton />
 {/if}

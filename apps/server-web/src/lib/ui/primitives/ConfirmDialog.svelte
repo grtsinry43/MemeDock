@@ -26,7 +26,7 @@
 
 <AlertDialog.Root bind:open>
   <AlertDialog.Portal>
-    <AlertDialog.Overlay class="fixed inset-0 z-40 bg-scrim" />
+    <AlertDialog.Overlay class="overlay-enter fixed inset-0 z-40 bg-scrim" />
     <AlertDialog.Content class="dialog-panel" escapeKeydownBehavior={busy ? 'ignore' : 'close'}>
       <AlertDialog.Title class="text-section font-semibold">{title}</AlertDialog.Title>
       <AlertDialog.Description class="mt-3 leading-6 text-secondary">{description}</AlertDialog.Description>

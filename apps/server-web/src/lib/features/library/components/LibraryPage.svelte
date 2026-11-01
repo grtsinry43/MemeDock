@@ -5,9 +5,11 @@
   import { libraryQuery } from '../queries.ts';
   import PageHeader from '#lib/ui/layout/PageHeader.svelte';
   import IconButton from '#lib/ui/primitives/IconButton.svelte';
+  import Checkbox from '#lib/ui/primitives/Checkbox.svelte';
   import QueryFeedback from '#lib/ui/common/QueryFeedback.svelte';
   import Pagination from '#lib/ui/common/Pagination.svelte';
   import FacetPicker from './FacetPicker.svelte';
+  import LibrarySkeleton from './LibrarySkeleton.svelte';
   import StickerTile from './StickerTile.svelte';
   import StickerDetail from './StickerDetail.svelte';
   import { i18n } from '#lib/shared/i18n/i18n.svelte.ts';
@@ -20,11 +22,21 @@
   let deleted = $state(false);
   let page = $state(1);
   let selected = $state<string | null>(null);
+  let refreshing = $state(false);
 
   const filtered = $derived(Boolean(search || collection || tag || starred || deleted));
   const library = createQuery(() =>
     libraryQuery({ q: search, collectionId: collection?.id, tagId: tag?.id, starred, deleted, page })
   );
+
+  async function refresh() {
+    refreshing = true;
+    try {
+      await library.refetch();
+    } finally {
+      refreshing = false;
+    }
+  }
 
   function reset() {
     draft = '';
@@ -41,12 +53,12 @@
   {#snippet actions()}
     <IconButton
       label={i18n.t.library.refreshLabel}
-      disabled={library.isFetching}
-      onclick={() => library.refetch()}
+      disabled={refreshing}
+      onclick={refresh}
     >
       <RefreshCw
         size={18}
-        class={library.isFetching ? 'animate-spin motion-reduce:animate-none' : ''}
+        class={refreshing ? 'animate-spin motion-reduce:animate-none' : ''}
       />
     </IconButton>
   {/snippet}
@@ -96,28 +108,22 @@
       }}
     />
   </div>
-  <label class="flex min-h-11 items-center gap-2 text-body">
-    <input
-      type="checkbox"
-      bind:checked={starred}
-      onchange={() => {
-        page = 1;
-      }}
-      class="size-4 accent-foreground"
-    />
+  <Checkbox
+    bind:checked={starred}
+    onchange={() => {
+      page = 1;
+    }}
+  >
     {i18n.t.library.starredOnly}
-  </label>
-  <label class="flex min-h-11 items-center gap-2 text-body">
-    <input
-      type="checkbox"
-      bind:checked={deleted}
-      onchange={() => {
-        page = 1;
-      }}
-      class="size-4 accent-foreground"
-    />
+  </Checkbox>
+  <Checkbox
+    bind:checked={deleted}
+    onchange={() => {
+      page = 1;
+    }}
+  >
     {i18n.t.library.deletedOnly}
-  </label>
+  </Checkbox>
   {#if filtered}
     <button class="action action-quiet gap-1 px-2" onclick={reset}>
       <X size={14} />{i18n.t.library.clearFilters}
@@ -125,48 +131,53 @@
   {/if}
 </div>
 
-<QueryFeedback
-  pending={library.isPending}
-  error={library.error}
-  retry={() => library.refetch()}
-  loading={i18n.t.library.loading}
-/>
+<QueryFeedback error={library.error} retry={() => library.refetch()} />
 
-{#if library.data}
-  <div class="mb-4 text-caption text-secondary" aria-live="polite">
-    {filtered
-      ? i18n.t.library.countFiltered(library.data.total)
-      : i18n.t.library.countAll(library.data.total)}
+{#if library.isPending}
+  <LibrarySkeleton />
+{:else if library.data}
+  <div
+    class={`transition-opacity duration-180 ease-memedock ${library.isPlaceholderData ? 'opacity-50' : ''}`}
+    aria-busy={library.isPlaceholderData}
+  >
+    {#if library.isPlaceholderData}
+      <span class="sr-only" role="status">{i18n.t.common.loading}</span>
+    {/if}
+    <div class="mb-4 text-caption text-secondary" aria-live="polite">
+      {filtered
+        ? i18n.t.library.countFiltered(library.data.total)
+        : i18n.t.library.countAll(library.data.total)}
+    </div>
+    {#if library.data.items.length}
+      <div class="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {#each library.data.items as sticker (sticker.id)}
+          <StickerTile {sticker} onselect={() => { selected = sticker.id; }} />
+        {/each}
+      </div>
+    {:else}
+      <div class="flex flex-col items-center py-20 text-center">
+        <Images size={36} class="mb-5 text-secondary/60" />
+        <h2 class="text-section font-semibold">
+          {filtered ? i18n.t.library.emptyFilteredTitle : i18n.t.library.emptyTitle}
+        </h2>
+        <p class="mt-3 max-w-sm text-body leading-6 text-secondary">
+          {filtered ? i18n.t.library.emptyFilteredDesc : i18n.t.library.emptyDesc}
+        </p>
+        {#if !filtered}
+          <a href="/devices" class="action action-secondary mt-5">{i18n.t.library.connectDeviceAction}</a>
+        {/if}
+      </div>
+    {/if}
+    <Pagination
+      {page}
+      limit={library.data.limit}
+      total={library.data.total}
+      busy={library.isPlaceholderData}
+      onchange={value => {
+        page = value;
+      }}
+    />
   </div>
-  {#if library.data.items.length}
-    <div class="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-      {#each library.data.items as sticker (sticker.id)}
-        <StickerTile {sticker} onselect={() => { selected = sticker.id; }} />
-      {/each}
-    </div>
-  {:else}
-    <div class="flex flex-col items-center py-20 text-center">
-      <Images size={36} class="mb-5 text-secondary/60" />
-      <h2 class="text-section font-semibold">
-        {filtered ? i18n.t.library.emptyFilteredTitle : i18n.t.library.emptyTitle}
-      </h2>
-      <p class="mt-3 max-w-sm text-body leading-6 text-secondary">
-        {filtered ? i18n.t.library.emptyFilteredDesc : i18n.t.library.emptyDesc}
-      </p>
-      {#if !filtered}
-        <a href="/devices" class="action action-secondary mt-5">{i18n.t.library.connectDeviceAction}</a>
-      {/if}
-    </div>
-  {/if}
-  <Pagination
-    {page}
-    limit={library.data.limit}
-    total={library.data.total}
-    busy={library.isFetching}
-    onchange={value => {
-      page = value;
-    }}
-  />
 {/if}
 
 <StickerDetail bind:id={selected} />

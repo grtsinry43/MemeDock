@@ -7,29 +7,45 @@
   import IconButton from '#lib/ui/primitives/IconButton.svelte';
   import QueryFeedback from '#lib/ui/common/QueryFeedback.svelte';
   import DeviceProgress from './DeviceProgress.svelte';
+  import MonitoringSkeleton from './MonitoringSkeleton.svelte';
   import { i18n } from '#lib/shared/i18n/i18n.svelte.ts';
 
   const overview = createQuery(() => overviewQuery());
+  let refreshing = $state(false);
+
+  async function refresh() {
+    refreshing = true;
+    try {
+      await overview.refetch();
+    } finally {
+      refreshing = false;
+    }
+  }
 </script>
 
 <PageHeader title={i18n.t.monitoring.title} description={i18n.t.monitoring.description}>
   {#snippet actions()}
     <IconButton
       label={i18n.t.monitoring.refreshLabel}
-      disabled={overview.isFetching}
-      onclick={() => overview.refetch()}
+      disabled={refreshing}
+      onclick={refresh}
     >
       <RefreshCw
         size={18}
-        class={overview.isFetching ? 'animate-spin motion-reduce:animate-none' : ''}
+        class={refreshing ? 'animate-spin motion-reduce:animate-none' : ''}
       />
     </IconButton>
   {/snippet}
 </PageHeader>
 
-<QueryFeedback pending={overview.isPending} error={overview.error} retry={() => overview.refetch()} />
+<QueryFeedback error={overview.error} retry={() => overview.refetch()} />
 
-{#if overview.data}
+{#if overview.isPending}
+  <div aria-busy="true">
+    <span class="sr-only" role="status">{i18n.t.common.loading}</span>
+    <MonitoringSkeleton />
+  </div>
+{:else if overview.data}
   {@const data = overview.data}
   <dl class="grid grid-cols-2 gap-x-6 gap-y-7 border-b border-separator pb-8 sm:grid-cols-4">
     {#each [

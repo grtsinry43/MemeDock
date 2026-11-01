@@ -7,7 +7,7 @@
   import Menu from '#lib/ui/primitives/DropdownMenu.svelte';
 </script>
 
-<main class="relative flex min-h-dvh items-center justify-center px-5 py-12">
+<main class="page-enter relative flex min-h-dvh items-center justify-center px-5 py-12">
   <div class="absolute right-4 top-4">
     <Menu label={i18n.t.login.switchLanguage}>
       {#snippet trigger()}

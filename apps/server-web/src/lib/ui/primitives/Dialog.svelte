@@ -11,7 +11,7 @@
 <Dialog.Root bind:open>
   {#if trigger}<Dialog.Trigger class="action action-primary">{@render trigger()}</Dialog.Trigger>{/if}
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-40 bg-scrim" />
+    <Dialog.Overlay class="overlay-enter fixed inset-0 z-40 bg-scrim" />
     <Dialog.Content class="dialog-panel" escapeKeydownBehavior={dismissible ? 'close' : 'ignore'} interactOutsideBehavior={dismissible ? 'close' : 'ignore'}>
       <Dialog.Title class="pr-8 text-section font-semibold">{title}</Dialog.Title>
       <Dialog.Description class="mt-2 text-body leading-6 text-secondary">{description}</Dialog.Description>
