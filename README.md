@@ -46,6 +46,12 @@ Prebuilt packages and `SHA256SUMS` manifests are available on [GitHub Releases](
 - **iOS (`arm64`, iOS 18+)**: Download `MemeDock-<version>-ios-arm64-unsigned.ipa`, sign it with your own Apple signing credentials, and sideload it onto your device.
 - **Windows (`x64`)**: Run `MemeDock-<version>-windows-x64-setup.exe` for a per-user install, or extract `MemeDock-<version>-windows-x64.zip` for the portable build.
 - **Arch Linux (`x86_64`)**: Build from `packaging/arch/memedock-bin` (prebuilt) or `packaging/arch/memedock-git` (from source) via `makepkg -si`.
+- **Ubuntu 26.04+ / Fedora 44+ (`x86_64`)**: Install the DEB or RPM. Both require `gtk4 >= 4.22` and `libadwaita >= 1.9`:
+  ```sh
+  sudo apt install ./MemeDock-*-linux-x86_64.deb
+  sudo dnf install ./MemeDock-*-linux-x86_64.rpm
+  ```
+- **AppImage (`x86_64`)**: Download, mark executable, and run. It bundles GTK4 and libadwaita, so the host only needs a compatible glibc.
 - **Linux Bundle (`x86_64`)**: Requires `gtk4 >= 4.22` and `libadwaita >= 1.9`:
   ```sh
   sudo tar --zstd -xf MemeDock-*-linux-x86_64.tar.zst -C /

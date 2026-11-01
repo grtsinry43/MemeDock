@@ -46,6 +46,12 @@ MemeDock 是一款本地优先的跨平台表情管理工具。它基于共享�
 - **iOS (`arm64`，iOS 18+)**：下载 `MemeDock-<version>-ios-arm64-unsigned.ipa`，使用自己的 Apple 签名凭据签名后侧载到设备。
 - **Windows (`x64`)**：运行 `MemeDock-<version>-windows-x64-setup.exe` 按用户安装，或解压 `MemeDock-<version>-windows-x64.zip` 使用便携版。
 - **Arch Linux (`x86_64`)**：在 `packaging/arch/memedock-bin`（预编译）或 `packaging/arch/memedock-git`（源码）目录下执行 `makepkg -si`。
+- **Ubuntu 26.04+ / Fedora 44+ (`x86_64`)**：安装 DEB 或 RPM。两者都需要 `gtk4 >= 4.22` 与 `libadwaita >= 1.9`：
+  ```sh
+  sudo apt install ./MemeDock-*-linux-x86_64.deb
+  sudo dnf install ./MemeDock-*-linux-x86_64.rpm
+  ```
+- **AppImage (`x86_64`)**：下载后赋予执行权限并运行。它自带 GTK4 与 libadwaita，宿主只需要兼容的 glibc。
 - **通用 Linux (`x86_64`)**：需 `gtk4 >= 4.22` 与 `libadwaita >= 1.9`：
   ```sh
   sudo tar --zstd -xf MemeDock-*-linux-x86_64.tar.zst -C /

@@ -80,6 +80,8 @@ jobs:
           # above merges them into this directory, so the release checksums are
           # regenerated here from the assets that are actually uploaded.
           assets=(./*.apk ./*.pkg.tar.zst ./*.tar.gz ./MemeDock-*-linux-x86_64.tar.zst
+                  ./MemeDock-*-linux-x86_64.deb ./MemeDock-*-linux-x86_64.rpm
+                  ./MemeDock-*-linux-x86_64.AppImage
                   ./MemeDock-*-macos-arm64.zip ./MemeDock-*-macos-arm64.dmg
                   ./MemeDock-*-ios-arm64-unsigned.ipa ./MemeDock-*-windows-x64.zip
                   ./MemeDock-*-windows-x64-setup.exe
