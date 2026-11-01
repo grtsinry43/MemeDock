@@ -108,10 +108,35 @@ if (( ios )); then
   rm -rf "$work/rlottie" "$work/webp" "$work/vpx" "$work/ffmpeg" "$prefix"
 fi
 fetch() {
-  local name=$1 url=$2 hash=$3 archive="$base/sources/$1.archive"
+  local name=$1 hash=$2 archive="$base/sources/$1.archive"
+  shift 2
+  # A cached archive that no longer matches the pin is replaced, not trusted.
+  if [[ -f "$archive" && $(sha256sum "$archive" | cut -d ' ' -f 1) != "$hash" ]]; then
+    echo "Discarding corrupt native source: $name" >&2
+    rm -f "$archive"
+  fi
   if [[ ! -f "$archive" ]]; then
-    curl --fail --location --connect-timeout 15 --max-time 300 --retry 2 "$url" -o "$archive.partial"
-    mv "$archive.partial" "$archive"
+    local url
+    # Try mirrors in order. The pinned hash is the authority: a mirror is only
+    # accepted when it serves the same bytes. --speed-limit aborts a stalled
+    # transfer instead of holding CI for the full --max-time.
+    for url in "$@"; do
+      if curl --fail --location --connect-timeout 15 --max-time 300 \
+          --retry 2 --retry-delay 1 --retry-all-errors \
+          --speed-limit 1024 --speed-time 30 "$url" -o "$archive.partial"; then
+        if [[ $(sha256sum "$archive.partial" | cut -d ' ' -f 1) == "$hash" ]]; then
+          mv "$archive.partial" "$archive"
+          break
+        fi
+        echo "Native source checksum mismatch from $url: $name" >&2
+      else
+        echo "Native source download failed from $url: $name" >&2
+      fi
+      rm -f "$archive.partial"
+    done
+  fi
+  if [[ ! -f "$archive" ]]; then
+    echo "Native source unavailable: $name" >&2; exit 1
   fi
   if [[ $(sha256sum "$archive" | cut -d ' ' -f 1) != "$hash" ]]; then
     echo "Native source checksum mismatch: $name" >&2; exit 1
@@ -124,10 +149,15 @@ fetch() {
 }
 # Serialize source extraction across ABIs and concurrent Cargo build scripts.
 lock_acquire "$base/sources.lock" 8
-fetch rlottie https://codeload.github.com/msrd0/rlottie-telegram/tar.gz/f435c0a4f364ce39f7e4eee9ddc7118573da9bf9 7cfcd8fad8d245d58b41631c7f9b45042a8dc80d3221541293612723f0b84f79
-fetch webp https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564
-fetch vpx https://codeload.github.com/webmproject/libvpx/tar.gz/refs/tags/v1.17.0 1020f184046187baa2985dbde38e0691f49c44088bca7a1842b0236c6081dc0a
-fetch ffmpeg https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635
+fetch rlottie 7cfcd8fad8d245d58b41631c7f9b45042a8dc80d3221541293612723f0b84f79 https://codeload.github.com/msrd0/rlottie-telegram/tar.gz/f435c0a4f364ce39f7e4eee9ddc7118573da9bf9
+fetch webp e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564 https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz
+fetch vpx 1020f184046187baa2985dbde38e0691f49c44088bca7a1842b0236c6081dc0a https://codeload.github.com/webmproject/libvpx/tar.gz/refs/tags/v1.17.0
+# ffmpeg.org is intermittently unreachable from hosted CI. Fossies mirrors the
+# exact release tarball, so the same pinned hash verifies either URL; the
+# official source stays first for local builds and both can be overridden.
+ffmpeg_url=${MEMEDOCK_FFMPEG_URL:-https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz}
+ffmpeg_mirror=${MEMEDOCK_FFMPEG_MIRROR:-https://fossies.org/linux/misc/ffmpeg-9.0.1.tar.xz}
+fetch ffmpeg cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635 "$ffmpeg_url" "$ffmpeg_mirror"
 lock_release "$base/sources.lock" 8
 cmake_args=()
 ffmpeg_args=()

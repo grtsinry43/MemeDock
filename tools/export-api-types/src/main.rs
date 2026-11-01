@@ -34,6 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SyncOverview::decl(&cfg),
         ActivityEntry::decl(&cfg),
         ActivityPage::decl(&cfg),
+        VersionInfo::decl(&cfg),
     ];
     if let Some(parent) = destination.parent() {
         std::fs::create_dir_all(parent)?;

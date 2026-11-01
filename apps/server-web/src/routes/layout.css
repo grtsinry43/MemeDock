@@ -113,6 +113,7 @@
 }
 @utility page-enter { animation: page-in 200ms var(--ease-memedock-rebound) both; }
 @utility overlay-enter { animation: overlay-in 180ms var(--ease-memedock) both; }
+@utility egg-in { animation: egg-in 240ms var(--ease-memedock-rebound) both; }
 @keyframes page-in {
   0% { opacity: 0; transform: translateY(12px); }
   70% { opacity: 1; transform: translateY(-1px); }
@@ -129,10 +130,15 @@
   70% { opacity: 1; scale: 1.003; translate: 0 0; }
   100% { opacity: 1; scale: 1; translate: 0 0; }
 }
+@keyframes egg-in {
+  0% { opacity: 0; transform: translateY(10px) scale(.97); }
+  70% { opacity: 1; transform: translateY(-1px) scale(1.003); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
 @keyframes skeleton-breathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 @utility skeleton { @apply bg-skeleton; animation: skeleton-breathe 1800ms ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
   .skeleton { animation: none !important; opacity: 1; }
-  .page-enter, .overlay-enter, .popup, .dialog-panel[data-state='open'] { animation: none !important; }
+  .page-enter, .overlay-enter, .popup, .dialog-panel[data-state='open'], .egg-in { animation: none !important; }
 }

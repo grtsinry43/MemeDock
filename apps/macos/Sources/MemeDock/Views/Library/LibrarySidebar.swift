@@ -10,6 +10,7 @@ struct LibrarySidebar: View {
     @ObservedObject private var browser: StickerBrowser
     @ObservedObject private var collections: CollectionCatalog
     @ObservedObject private var tags: TagCatalog
+    @EnvironmentObject private var eggs: EasterEggController
 
     /// Which name the alert edits. Creating and renaming differ only in what
     /// they do with the typed name, so one alert serves both.
@@ -69,6 +70,8 @@ struct LibrarySidebar: View {
                     .font(MemeDockTypography.sectionTitle)
                     .padding(.horizontal, 10)
                     .padding(.bottom, 16)
+                    .contentShape(Rectangle())
+                    .onTapGesture { eggs.tap() }
                 Group {
                     sectionRow(.all, .all, "square.grid.2x2")
                     sectionRow(.starred, .starred, "star")

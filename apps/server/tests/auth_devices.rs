@@ -343,6 +343,19 @@ async fn changing_password_invalidates_all_sessions_but_preserves_device_credent
 }
 
 #[tokio::test]
+async fn version_endpoint_reports_the_running_build() -> TestResult {
+    let server = Server::start().await?;
+    let response = Client::new().get(server.url("/version")).send().await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await?;
+    assert_eq!(body["code"], 0);
+    assert_eq!(body["data"]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(body["data"]["protocolVersion"], 2);
+    assert_eq!(body["data"]["debug"], cfg!(debug_assertions));
+    Ok(())
+}
+
+#[tokio::test]
 async fn production_origin_requires_https() -> TestResult {
     let config = ServerConfig {
         data_dir: "/unused".into(),

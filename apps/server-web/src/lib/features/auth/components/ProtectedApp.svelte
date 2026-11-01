@@ -4,6 +4,7 @@
   import { page } from '$app/state';
   import type { Snippet } from 'svelte';
   import { adminQuery } from '../queries.ts';
+  import { versionQuery } from '#lib/features/meta/queries.ts';
   import { ApiError, errorMessage } from '#lib/shared/clients/api.ts';
   import AppShell from '#lib/ui/layout/AppShell.svelte';
   import AppShellSkeleton from '#lib/ui/layout/AppShellSkeleton.svelte';
@@ -15,6 +16,7 @@
   let { children }: { children: Snippet } = $props();
   const client = useQueryClient();
   const admin = createQuery(() => adminQuery());
+  const version = createQuery(() => versionQuery());
   let redirecting = false;
 
   $effect(() => {
@@ -37,7 +39,7 @@
 {:else if admin.data}
   <AppShell>
     {#snippet navigation()}
-      <Sidebar pathname={page.url.pathname}>
+      <Sidebar pathname={page.url.pathname} version={version.data?.version ?? null}>
         {#snippet account()}<AccountMenu account={admin.data!} />{/snippet}
       </Sidebar>
     {/snippet}

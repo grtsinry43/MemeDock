@@ -3,6 +3,7 @@
   import LanguageSettings from './LanguageSettings.svelte';
   import ThemeSettings from './ThemeSettings.svelte';
   import PasswordForm from './PasswordForm.svelte';
+  import AboutPanel from '#lib/features/meta/components/AboutPanel.svelte';
   import { i18n } from '#lib/shared/i18n/i18n.svelte.ts';
 </script>
 
@@ -11,4 +12,5 @@
   <LanguageSettings />
   <ThemeSettings />
   <PasswordForm />
+  <AboutPanel />
 </div>

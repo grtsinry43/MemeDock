@@ -59,6 +59,7 @@ enum L10nKey: String {
     case open, backUp, backupSavedTo, restoreHintShort, chooseFile, restoreMode, discard
     case checkpointHint, create, space, cleanUp, clean, cleanExportsHint, locations
     case version, licenses, mitLicense, quicksandFont, openFontLicense, view, idCopied
+    case eggFoundTitle, eggFoundMessage
     case importFromFiles, importFromTelegramPack, useSavedToken, change, packPlaceholder, stickerCount
     case largerStickers, smallerStickers, defaultStickerSize
     case nothingToPaste, quickLookUnavailable
@@ -211,6 +212,7 @@ enum L10n {
         .version: "Version %@", .licenses: "Licenses", .mitLicense: "MIT License",
         .quicksandFont: "Quicksand typeface", .openFontLicense: "SIL Open Font License", .view: "View",
         .idCopied: "Copied to the clipboard",
+        .eggFoundTitle: "Found it", .eggFoundMessage: "Meow — you found me.",
         .importFromFiles: "Import from files…", .importFromTelegramPack: "Import Telegram sticker pack…",
         .useSavedToken: "Using the saved token", .change: "Change",
         .packPlaceholder: "Pack name or t.me/addstickers/… link", .stickerCount: "%d stickers",
@@ -374,6 +376,7 @@ enum L10n {
         .version: "版本 %@", .licenses: "许可", .mitLicense: "MIT 许可证",
         .quicksandFont: "Quicksand 字体", .openFontLicense: "SIL 开放字体许可证", .view: "查看",
         .idCopied: "已复制到剪贴板",
+        .eggFoundTitle: "小秘密", .eggFoundMessage: "喵，你找到我了。",
         .importFromFiles: "从文件导入…", .importFromTelegramPack: "从 Telegram 贴纸包导入…",
         .useSavedToken: "使用已保存的 Token", .change: "更换",
         .packPlaceholder: "贴纸包名称或 t.me/addstickers/… 链接", .stickerCount: "%d 张贴纸",

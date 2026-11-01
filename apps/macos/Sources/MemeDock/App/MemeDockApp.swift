@@ -17,6 +17,7 @@ struct MemeDockApp: App {
             RootView(
                 session: delegate.session,
                 status: delegate.status,
+                eggs: delegate.eggs,
                 clipboard: delegate.clipboard,
                 navigation: delegate.navigation,
                 telegram: delegate.telegram
@@ -48,6 +49,7 @@ struct MemeDockApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let session = LibrarySession(paths: .standard())
     let status = StatusCenter()
+    let eggs = EasterEggController()
     /// Shared because the settings window reaches the library through it.
     let navigation = LibraryNavigation()
     private(set) lazy var clipboard = ClipboardGuard(session: session)

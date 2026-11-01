@@ -53,6 +53,14 @@ test('browse real synced content, inspect progress and rejection receipts', asyn
   await page.screenshot({ path: 'test-results/library-detail-mobile.png' });
   await page.getByRole('button', { name: '关闭详情' }).click();
   await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(page.locator('aside').getByText(/^v\d+\.\d+\.\d+$/)).toBeVisible();
+  await page.getByRole('link', { name: '设置', exact: true }).click();
+  const about = page.locator('section', {
+    has: page.getByRole('heading', { name: '关于', exact: true }),
+  });
+  await expect(about.getByText(/^v\d+\.\d+\.\d+$/)).toBeVisible();
+  await expect(about.getByText('同步协议', { exact: true })).toBeVisible();
+  await expect(about.getByText('项目主页', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: '同步状态', exact: true }).click();
   await expect(page.getByRole('link', { name: '同步状态', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByText('已追平云端', { exact: true })).toBeVisible();

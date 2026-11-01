@@ -1,9 +1,13 @@
 <script lang="ts">
   import { Images, Laptop, Settings, ArrowRightLeft, History } from '@lucide/svelte';
   import type { Snippet } from 'svelte';
+  import EggToast from '#lib/ui/common/EggToast.svelte';
+  import { TapSequence } from '#lib/shared/eggs/tap-sequence.ts';
   import { i18n } from '#lib/shared/i18n/i18n.svelte.ts';
 
-  let { pathname, account }: { pathname: string; account: Snippet } = $props();
+  let { pathname, account, version = null }: { pathname: string; account: Snippet; version?: string | null } = $props();
+  let eggOpen = $state(false);
+  const brandTaps = new TapSequence();
 
   const navItems = [
     { href: '/library', label: () => i18n.t.nav.library, icon: Images },
@@ -15,7 +19,13 @@
 </script>
 
 <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center md:contents">
-  <a href="/library" class="order-1 flex min-w-0 items-center gap-3 px-2 py-3 font-semibold">
+  <a
+    href="/library"
+    class="order-1 flex min-w-0 items-center gap-3 px-2 py-3 font-semibold"
+    onclick={() => {
+      if (brandTaps.tap()) eggOpen = true;
+    }}
+  >
     <span class="flex size-10 shrink-0 items-center justify-center rounded-control bg-foreground text-on-inverse">
       <Images size={22} />
     </span>
@@ -44,5 +54,9 @@
   </nav>
   <div class="order-2 min-w-0 md:order-3 md:mt-auto md:border-t md:border-separator md:pt-3">
     {@render account()}
+    {#if version}
+      <p class="mt-1 hidden px-2 text-caption text-secondary md:block">v{version}</p>
+    {/if}
   </div>
 </div>
+<EggToast bind:open={eggOpen} />

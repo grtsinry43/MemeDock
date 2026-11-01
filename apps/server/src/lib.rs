@@ -30,6 +30,7 @@ pub fn router(state: AppState) -> Result<Router, String> {
         .with_same_site(SameSite::Strict)
         .with_expiry(Expiry::OnInactivity(time::Duration::days(7)));
     Ok(Router::new()
+        .route("/api/v1/version", get(routes::meta::version))
         .route("/api/v1/admin/login", post(routes::auth::login))
         .route("/api/v1/admin/me", get(routes::auth::me))
         .route("/api/v1/admin/logout", post(routes::auth::logout))

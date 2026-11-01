@@ -5,8 +5,10 @@ import SwiftUI
 /// is visible instead of showing an empty grid.
 struct RootView: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var session: LibrarySession
     @ObservedObject var status: StatusCenter
+    @ObservedObject var eggs: EasterEggController
     /// Handed to the library window, which is the only view that can answer what
     /// the settings window asks it to show.
     let navigation: LibraryNavigation
@@ -20,12 +22,14 @@ struct RootView: View {
     init(
         session: LibrarySession,
         status: StatusCenter,
+        eggs: EasterEggController,
         clipboard: ClipboardGuard,
         navigation: LibraryNavigation,
         telegram: TelegramCoordinator
     ) {
         _session = ObservedObject(wrappedValue: session)
         _status = ObservedObject(wrappedValue: status)
+        _eggs = ObservedObject(wrappedValue: eggs)
         self.navigation = navigation
         self.telegram = telegram
         _model = StateObject(
@@ -40,8 +44,18 @@ struct RootView: View {
             .tint(MemeDockPalette(scheme).text)
             .buttonStyle(MemeDockButtonStyle())
             .background(MemeDockPalette(scheme).canvas)
+            .environmentObject(eggs)
             .frame(minWidth: 720, minHeight: 480)
-            .overlay(alignment: .bottom) { StatusBanner(status: status) }
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 12) {
+                    if eggs.found {
+                        EasterEggToast(onClose: eggs.dismiss)
+                            .padding(.bottom, status.message == nil ? 16 : 0)
+                    }
+                    StatusBanner(status: status)
+                }
+                .animation(reduceMotion ? nil : MemeDockMotion.panel, value: eggs.found)
+            }
             .task { await session.start() }
     }
 
