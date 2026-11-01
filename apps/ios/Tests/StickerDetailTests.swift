@@ -61,7 +61,8 @@ final class StickerDetailTests: XCTestCase {
             ).awaitResult()
             model.scheduleReload()
             await model.waitUntilLoaded()
-            XCTAssertEqual(model.detail?.sticker.title, updated.title)
+            // The session also schedules a reload when it observes the sticker change.
+            try await eventually { model.detail?.sticker.title == updated.title }
             XCTAssertTrue(model.playback.frame === image)
             await session.shutdown()
             XCTAssertEqual(model.phase, .closed)
@@ -77,24 +78,22 @@ final class StickerDetailTests: XCTestCase {
             let model = try XCTUnwrap(session.makeDetail(for: StickerDetailRoute(item)))
             model.setPresentation(active: true, reduceMotion: true)
             await model.load(pixels: 100)
-            XCTAssertEqual(model.playback.state, .paused)
-            XCTAssertNotNil(model.playback.frame)
+            // A session notification may schedule a second load; wait for the stable state.
+            try await eventually { model.playback.state == .paused && model.playback.frame != nil }
             await model.playback.toggle()
-            XCTAssertEqual(model.playback.state, .playing)
+            try await eventually { model.playback.state == .playing }
             await model.playback.toggle()
-            XCTAssertEqual(model.playback.state, .paused)
-            XCTAssertNotNil(model.playback.frame)
+            try await eventually { model.playback.state == .paused && model.playback.frame != nil }
             model.setPresentation(active: false, reduceMotion: true)
             XCTAssertNil(model.playback.frame)
             model.setPresentation(active: true, reduceMotion: true)
             await model.playback.waitUntilPrepared()
-            XCTAssertEqual(model.playback.state, .paused)
-            XCTAssertNotNil(model.playback.frame)
+            try await eventually { model.playback.state == .paused && model.playback.frame != nil }
             await model.playback.toggle()
             try await eventually { model.playback.state == .finished }
             XCTAssertNotNil(model.playback.frame)
             await model.playback.toggle()
-            XCTAssertEqual(model.playback.state, .playing)
+            try await eventually { model.playback.state == .playing }
             model.suspend()
             XCTAssertNil(model.playback.frame)
         }

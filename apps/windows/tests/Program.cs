@@ -3084,7 +3084,8 @@ internal static class Program
         string? error = null,
         ulong retry = 20)
         => new(origin, connected ? "device-under-test" : null, connected, paused, pending, blocked,
-            cursor, lastSuccess, error, retry);
+            cursor, lastSuccess, error, retry,
+            null, 0, 0, null, Array.Empty<string>(), null);
 
     private static async Task WaitForAsync(Func<bool> condition, string message, int timeoutMilliseconds = 3000)
     {

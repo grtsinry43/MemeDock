@@ -438,7 +438,7 @@ async fn two_real_devices_upload_merge_pull_and_recover_after_process_crash() ->
     let staging = directory.path().join("originals/staging");
     let mut partial =
         tokio::net::TcpStream::connect(server.origin.trim_start_matches("http://")).await?;
-    partial.write_all(format!("PUT /api/v1{path} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {a}\r\nContent-Length: 1000000\r\n\r\nabc", server.origin.trim_start_matches("http://")).as_bytes()).await?;
+    partial.write_all(format!("PUT /api/v1{path} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {a}\r\nx-memedock-sync-protocol: 2\r\nContent-Length: 1000000\r\n\r\nabc", server.origin.trim_start_matches("http://")).as_bytes()).await?;
     for _ in 0..100 {
         if std::fs::read_dir(&staging)?.next().is_some() {
             break;
@@ -456,7 +456,7 @@ async fn two_real_devices_upload_merge_pull_and_recover_after_process_crash() ->
     assert!(std::fs::read_dir(&staging)?.next().is_none());
     let mut partial =
         tokio::net::TcpStream::connect(server.origin.trim_start_matches("http://")).await?;
-    partial.write_all(format!("PUT /api/v1{path} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {a}\r\nContent-Length: 1000000\r\n\r\nabc", server.origin.trim_start_matches("http://")).as_bytes()).await?;
+    partial.write_all(format!("PUT /api/v1{path} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {a}\r\nx-memedock-sync-protocol: 2\r\nContent-Length: 1000000\r\n\r\nabc", server.origin.trim_start_matches("http://")).as_bytes()).await?;
     for _ in 0..100 {
         if std::fs::read_dir(&staging)?.next().is_some() {
             break;
