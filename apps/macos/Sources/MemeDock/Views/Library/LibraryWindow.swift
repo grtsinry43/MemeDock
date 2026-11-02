@@ -34,7 +34,6 @@ struct LibraryWindow: View {
             .focusedSceneValue(\.librarySearchFocus, { searchFocused = true })
             .focusedSceneValue(\.libraryFile, fileActions)
             .toolbar(removing: .sidebarToggle)
-            .toolbar { sidebarToolbar }
             .toolbarBackground(.hidden, for: .windowToolbar)
             // What makes ⌘C and ⌘A land on the library instead of nowhere.
             .background { LibraryResponderInstaller(model: model) }
@@ -139,14 +138,23 @@ struct LibraryWindow: View {
         reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity)
     }
 
-    @ToolbarContentBuilder
-    private var sidebarToolbar: some ToolbarContent {
-        if #available(macOS 26.0, *) {
-            ToolbarItem(placement: .navigation) { sidebarToggle }
-                .sharedBackgroundVisibility(.hidden)
-        } else {
-            ToolbarItem(placement: .navigation) { sidebarToggle }
+    /// Settings is application-wide rather than about the sticker on screen, so
+    /// it closes the header row instead of sitting among the search, sort and
+    /// add controls. It keeps the row's plain icon treatment: `SettingsLink` is
+    /// the system's own way to open the settings scene, so no action is needed
+    /// and there is only ever one settings window.
+    private var settingsButton: some View {
+        SettingsLink {
+            Label(L10n.text(.settings), systemImage: "gearshape")
+                .labelStyle(.iconOnly)
+                .frame(width: MemeDockGeometry.controlHeight, height: MemeDockGeometry.controlHeight)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .foregroundStyle(MemeDockPalette(scheme).secondary)
+        .fixedSize()
+        .help(L10n.text(.settings))
+        .accessibilityLabel(L10n.text(.settings))
     }
 
     private var search: Binding<String> {
@@ -175,6 +183,15 @@ struct LibraryWindow: View {
 
     private var header: some View {
         HStack(spacing: 12) {
+            // The window has no title bar, so the row that already holds the
+            // search field is the one the traffic lights sit beside. Keeping the
+            // toggle and the title here puts them on that line instead of on a
+            // toolbar strip of their own above it.
+            sidebarToggle
+            Text(L10n.text(.app))
+                .font(MemeDockTypography.control)
+                .foregroundStyle(MemeDockPalette(scheme).secondary)
+                .fixedSize()
             searchField
             if browser.filter == .deleted {
                 Button(L10n.text(.emptyTrash), role: .destructive) { Task { await model.requestEmptyTrash() } }
@@ -235,9 +252,13 @@ struct LibraryWindow: View {
             .fixedSize()
             .disabled(imports.isRunning)
             .help(L10n.text(.importAction))
+            // Kept out of the toolbar: with no title bar, a lone primary action
+            // there is laid out beside the sidebar toggle instead of at the
+            // trailing edge, so the row that already ends on the right owns it.
+            settingsButton
         }
         .padding(.horizontal, MemeDockGeometry.pageInset)
-        .padding(.top, 12)
+        .padding(.top, 2)
         .padding(.bottom, 12)
         .background(MemeDockPalette(scheme).canvas)
     }

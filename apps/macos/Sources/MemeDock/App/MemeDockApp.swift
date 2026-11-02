@@ -24,6 +24,12 @@ struct MemeDockApp: App {
             )
         }
         .defaultSize(width: 1080, height: 720)
+        // The library draws its own sidebar material, and a title bar on top of
+        // it reads as a second, lighter strip that the traffic lights sit in.
+        // Hiding it lets the material run to the window's top edge instead, so
+        // the light row and the sidebar are one surface. The sidebar carries the
+        // top inset that keeps its first row clear of the lights.
+        .windowStyle(.hiddenTitleBar)
         .commands {
             LibraryCommands()
         }
