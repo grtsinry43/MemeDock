@@ -39,6 +39,9 @@ enum L10nKey: String {
     case exportOriginal, exportCompatiblePng, exportWhiteBackground, exportSmallJpeg, exportCompatibleGif
     case exportOriginalHint, exportCompatiblePngHint, exportWhiteBackgroundHint, exportSmallJpegHint, exportCompatibleGifHint
     case exportPreset, export
+    case exportCollection, exportCollectionRunning, exportCollectionDone, exportCollectionPartial
+    case exportIssueMissing, exportIssueCorrupt, exportIssueTooLarge, exportIssueUnreadable, listSeparator
+    case exportCollections, exportCollectionsHint, exportAllFileName, allCollections
     case errorNetwork, errorTimeout, errorUnauthorized, errorRateLimited, errorInvalidInput
     case errorUnsupportedFormat, errorUnsupportedColorProfile, errorInvalidImage, errorResourceLimit
     case errorAlreadyOpen, errorClosed, errorBusy, errorCancelled, errorNotFound, errorEntityDeleted
@@ -162,6 +165,17 @@ enum L10n {
         .exportCompatibleGif: "Compatible GIF",
         .exportCompatibleGifHint: "Animated GIF up to 512 px; colors and transparent edges may change",
         .exportPreset: "Format", .export: "Export",
+        .exportCollection: "Export Collection…",
+        .exportCollectionRunning: "Exporting “%@”…",
+        .exportCollectionDone: "Exported %d stickers",
+        .exportCollectionPartial: "Exported %d, skipped %d: %@",
+        .exportIssueMissing: "%d missing", .exportIssueCorrupt: "%d damaged",
+        .exportIssueTooLarge: "%d too large", .exportIssueUnreadable: "%d unreadable",
+        .listSeparator: ", ",
+        .exportCollections: "Export collections",
+        .exportCollectionsHint: "Originals only, one folder per collection, not restorable as a backup.",
+        .exportAllFileName: "MemeDock-Collections.zip",
+        .allCollections: "All collections",
         .errorNetwork: "The network is unavailable", .errorTimeout: "The request timed out",
         .errorUnauthorized: "Credentials are missing or rejected", .errorRateLimited: "Too many requests",
         .errorInvalidInput: "The input is not valid", .errorUnsupportedFormat: "This format is not supported",
@@ -353,6 +367,17 @@ enum L10n {
         .exportCompatibleGif: "兼容 GIF",
         .exportCompatibleGifHint: "保留动画，最长边 512 像素；颜色和透明边缘可能变化",
         .exportPreset: "格式", .export: "导出",
+        .exportCollection: "导出合集…",
+        .exportCollectionRunning: "正在导出「%@」…",
+        .exportCollectionDone: "已导出 %d 张表情",
+        .exportCollectionPartial: "已导出 %d 张，跳过 %d 张：%@",
+        .exportIssueMissing: "原图缺失 %d 张", .exportIssueCorrupt: "校验未通过 %d 张",
+        .exportIssueTooLarge: "超出大小限制 %d 张", .exportIssueUnreadable: "无法读取 %d 张",
+        .listSeparator: "、",
+        .exportCollections: "导出合集",
+        .exportCollectionsHint: "导出的是原图，每个合集一个文件夹，不能用来恢复备份。",
+        .exportAllFileName: "MemeDock-合集.zip",
+        .allCollections: "全部合集",
         .errorNetwork: "网络不可用", .errorTimeout: "请求超时",
         .errorUnauthorized: "凭据缺失或无效", .errorRateLimited: "请求过于频繁",
         .errorInvalidInput: "输入不合法", .errorUnsupportedFormat: "不支持该格式",

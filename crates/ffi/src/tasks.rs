@@ -269,3 +269,9 @@ task_handle!(
         .map(TryInto::try_into)
         .collect()
 );
+task_handle!(
+    CollectionExportTask,
+    memedock_core::CollectionExportSummary,
+    crate::CollectionExportSummary,
+    TryInto::try_into
+);

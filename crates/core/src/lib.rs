@@ -27,6 +27,9 @@ pub use memedock_domain::archive::{RestoreMode, RestoreSummary};
 pub use memedock_storage::db::LibraryIdentity;
 pub use memedock_storage::queries::{StickerQuery, StickerSort};
 pub use use_cases::archive_restore::RestoreResult;
+pub use use_cases::export_collection::{
+    CollectionExportSummary, ExportIssue, ExportIssueReason, ExportScope,
+};
 pub use use_cases::import::{ImportInput, ImportOptions, ImportOutcome, ImportStatus};
 pub use use_cases::maintenance::VerifiedOriginal;
 pub use use_cases::purge::TrashTarget;
