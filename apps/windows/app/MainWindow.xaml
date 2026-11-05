@@ -23,6 +23,7 @@
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="OnFocusSearch" />
             <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OnImportShortcut" />
+            <KeyboardAccelerator Key="V" Modifiers="Control" Invoked="OnPasteShortcut" />
             <KeyboardAccelerator Key="A" Modifiers="Control" Invoked="OnSelectAllShortcut" />
             <KeyboardAccelerator Key="C" Modifiers="Control" Invoked="OnCopyShortcut" />
             <KeyboardAccelerator Key="Delete" Invoked="OnDeleteShortcut" />
@@ -105,7 +106,8 @@
                         </Grid>
                     </SplitView.Pane>
 
-                    <Grid x:Name="LibraryContent">
+                    <Grid x:Name="LibraryContent" Background="Transparent" AllowDrop="True"
+                          DragOver="OnImportDragOver" Drop="OnImportDrop">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />

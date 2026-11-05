@@ -274,7 +274,6 @@ public sealed partial class MainWindow : Window
         if (Navigation.SettingsItem is NavigationViewItem settingsItem) settingsItem.IsEnabled = !blocked;
 
         ImportButton.Visibility = ToVisibility(!trash);
-        ImportButton.IsEnabled = ViewModel.IsReady && !ViewModel.IsImporting && !_stopping && !blocked;
         Search.IsEnabled = ViewModel.IsReady && !_stopping && !blocked;
         SortButton.IsEnabled = ViewModel.IsReady && ViewModel.Filter.Scope != LibraryScope.Recent && !blocked;
         SortButton.Label = ViewModel.Filter.Scope == LibraryScope.Recent ? Strings["filter_recent"] : ViewModel.Sort switch
@@ -323,13 +322,14 @@ public sealed partial class MainWindow : Window
         if (!ViewModel.Filter.AllowsCollectionOrder || ViewModel.Filter.Id != _reorderCollection
             || searching || ViewModel.Sort != StickerSort.CollectionOrder) _reordering = false;
         var reorder = ViewModel.Filter.AllowsCollectionOrder && !ViewModel.HasMore && !ViewModel.IsLoading
-            && !searching && !blocked && ViewModel.Output?.IsBusy != true;
+            && !searching && !blocked && !ViewModel.IsImporting && ViewModel.Output?.IsBusy != true;
         ReorderMenu.IsEnabled = reorder;
         ReorderMenu.Visibility = ReorderSeparator.Visibility = ToVisibility(ViewModel.Filter.AllowsCollectionOrder);
         ReorderMenu.IsChecked = _reordering;
         ReorderDone.Visibility = ToVisibility(_reordering);
         Gallery.CanDragItems = _reordering && reorder || CanDragOut;
         Gallery.CanReorderItems = Gallery.AllowDrop = _reordering && reorder;
+        ImportButton.IsEnabled = ViewModel.CanImport && !_stopping && !_reordering;
         Batch.SetLoadedOnly(ViewModel.HasMore);
         UpdateSyncStatus();
         Details.SetActive(_windowActive && Inspector.IsPaneOpen && !_settingsVisible && Details.Visibility == Visibility.Visible);
@@ -1154,6 +1154,48 @@ public sealed partial class MainWindow : Window
 
     // ---- Import ----
 
+    private bool CanReceiveImport => !_stopping && !_settingsVisible && !_reordering && _dialog is null
+        && _importing.IsCompleted && ViewModel.CanImport;
+
+    private async void OnPasteShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (EditingText || !CanReceiveImport) return;
+        args.Handled = true;
+        await StartImportAsync(token => StickerImportService.ReadAsync(Clipboard.GetContent(), token));
+    }
+
+    private void OnImportDragOver(object sender, DragEventArgs args)
+    {
+        // Leave GridView's native reorder gesture alone. Outgoing sticker drags
+        // carry a marker so dropping them back here cannot import their export.
+        if (_reordering) return;
+        args.Handled = true;
+        var data = args.DataView;
+        args.AcceptedOperation = CanReceiveImport && !data.Contains(StickerImportService.InternalDragFormat)
+            && data.Contains(StandardDataFormats.StorageItems)
+            && (args.AllowedOperations & DataPackageOperation.Copy) != 0
+            ? DataPackageOperation.Copy : DataPackageOperation.None;
+        if (args.AcceptedOperation == DataPackageOperation.Copy)
+            args.DragUIOverride.Caption = Strings["desktop_import_drop"];
+    }
+
+    private async void OnImportDrop(object sender, DragEventArgs args)
+    {
+        if (_reordering) return;
+        args.Handled = true;
+        args.AcceptedOperation = DataPackageOperation.None;
+        if (!CanReceiveImport || args.DataView.Contains(StickerImportService.InternalDragFormat)
+            || !args.DataView.Contains(StandardDataFormats.StorageItems)
+            || (args.AllowedOperations & DataPackageOperation.Copy) == 0) return;
+        var deferral = args.GetDeferral();
+        try
+        {
+            args.AcceptedOperation = DataPackageOperation.Copy;
+            await StartImportAsync(token => StickerImportService.ReadAsync(args.DataView, token));
+        }
+        finally { deferral.Complete(); }
+    }
+
     private async void OnImportShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         if (!ImportButton.IsEnabled || ImportButton.Visibility != Visibility.Visible || _settingsVisible) return;
@@ -1165,30 +1207,41 @@ public sealed partial class MainWindow : Window
 
     private Task StartImportAsync()
     {
-        if (_stopping || !_importing.IsCompleted || !ViewModel.IsReady) return Task.CompletedTask;
-        return _importing = PickAndImportAsync();
-    }
-
-    private async Task PickAndImportAsync()
-    {
-        try
+        return StartImportAsync(async token =>
         {
             var picker = new FileOpenPicker(AppWindow.Id);
             foreach (var extension in new[] { ".png", ".jpg", ".jpeg", ".gif", ".webp" }) picker.FileTypeFilter.Add(extension);
             var files = await picker.PickMultipleFilesAsync();
-            if (_stopping || files.Count == 0) return;
-            await ViewModel.ImportAsync(files.Select(file => file.Path).ToArray());
-            if (_stopping) return;
+            token.ThrowIfCancellationRequested();
+            if (files.Count == 0) throw new OperationCanceledException();
+            return files.Select(file => StickerImportSource.FromPath(file.Path)).ToArray();
+        });
+    }
+
+    private Task StartImportAsync(Func<CancellationToken, Task<IReadOnlyList<StickerImportSource>>> prepare)
+    {
+        if (!CanReceiveImport) return Task.CompletedTask;
+        return _importing = ImportAsync(prepare);
+    }
+
+    private async Task ImportAsync(Func<CancellationToken, Task<IReadOnlyList<StickerImportSource>>> prepare)
+    {
+        try
+        {
+            await ViewModel.ImportAsync(prepare);
+            if (_stopping || ViewModel.ImportMessageKey is null) return;
             // The import keeps its outcome as a message key; it is announced once here.
             var severity = ViewModel.ImportMessageKey switch
             {
                 "import_done" or "import_done_reused" or "import_done_existing" => InfoBarSeverity.Success,
                 "import_restore_required" => InfoBarSeverity.Warning,
+                "desktop_import_empty" => InfoBarSeverity.Informational,
                 null => InfoBarSeverity.Informational,
                 _ => InfoBarSeverity.Error
             };
             Notice.Show(ViewModel.ImportText, severity);
         }
+        catch (OperationCanceledException) { }
         catch (Exception error)
         {
             Trace.WriteLine(error);
@@ -1425,6 +1478,7 @@ public sealed partial class MainWindow : Window
         var package = new DataPackage();
         var dispatcher = DispatcherQueue;
         args.Data.RequestedOperation = DataPackageOperation.Copy;
+        args.Data.SetData(StickerImportService.InternalDragFormat, true);
         // ListViewBase owns the pointer gesture. Its event has no GetDeferral;
         // the data provider keeps asynchronous file preparation out of selection.
         var preparation = output.PrepareDragAsync(target, package);

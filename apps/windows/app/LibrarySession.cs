@@ -84,7 +84,16 @@ internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorage
             return await request.AwaitResult().ConfigureAwait(false);
         });
 
-    public Task<ImportOutcome> ImportAsync(string source, string? collectionId, CancellationToken cancellation) => Task.Run(async () =>
+    public Task<ImportOutcome> ImportAsync(string source, string? collectionId, CancellationToken cancellation)
+        => ImportAsync(Path.GetFileName(source), token =>
+        {
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult<Stream>(new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read,
+                65536, FileOptions.Asynchronous | FileOptions.SequentialScan));
+        }, collectionId, cancellation);
+
+    internal Task<ImportOutcome> ImportAsync(string originalName, Func<CancellationToken, Task<Stream>> openRead,
+        string? collectionId, CancellationToken cancellation) => Task.Run(async () =>
     {
         cancellation.ThrowIfCancellationRequested();
         using var create = _library.CreateImportInput();
@@ -92,8 +101,7 @@ internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorage
         var submitted = false;
         try
         {
-            await using (var reader = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read,
-                65536, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            await using (var reader = await openRead(cancellation).ConfigureAwait(false))
             await using (var writer = new FileStream(input.Path(), FileMode.Truncate, FileAccess.Write,
                 FileShare.None, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
@@ -110,7 +118,7 @@ internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorage
                 await writer.FlushAsync(cancellation).ConfigureAwait(false);
             }
             cancellation.ThrowIfCancellationRequested();
-            using var request = _library.ImportStaged(input, new ImportOptions(Path.GetFileName(source), null, collectionId));
+            using var request = _library.ImportStaged(input, new ImportOptions(originalName, null, collectionId));
             submitted = true;
             using var registration = cancellation.Register(() => request.Cancel());
             return await request.AwaitResult().ConfigureAwait(false);

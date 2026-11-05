@@ -620,30 +620,42 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         catch (OperationCanceledException) { }
     }
 
-    public async Task ImportAsync(IReadOnlyList<string> paths)
+    public Task ImportAsync(IReadOnlyList<string> paths) => ImportAsync(_ =>
+        Task.FromResult<IReadOnlyList<StickerImportSource>>(paths.Select(StickerImportSource.FromPath).ToArray()));
+
+    internal bool CanImport => IsReady && _session is not null && !_stopping && !IsImporting && !IsRestoring
+        && !IsTrashing && !IsTrash && Batch?.IsRunning != true;
+
+    internal async Task ImportAsync(Func<CancellationToken, Task<IReadOnlyList<StickerImportSource>>> prepare)
     {
         // IsReady is false while a replace rebuilds the page and after a failed adopt, so an
         // import cannot slip into a half-bound session even if it bypasses the disabled UI.
-        if (!IsReady || _session is null || _stopping || IsImporting || paths.Count == 0) return;
-        if (paths.Count > 200)
-        {
-            ImportMessageKey = "failure_batch";
-            NotifyState();
-            return;
-        }
+        if (!CanImport || _session is not { } session) return;
         IsImporting = true;
-        ImportTotal = paths.Count;
+        ImportMessageKey = "import_preparing";
+        ImportTotal = 0;
         ImportCompleted = 0;
         _importCreated = _importExisting = 0;
         var collection = Filter.Scope == LibraryScope.Collection ? Filter.Id : null;
         try
         {
-            for (var index = 0; index < paths.Count; index++)
+            // Hold IsImporting before reading delayed clipboard/drag data so a
+            // restore cannot replace the session while the source is resolving.
+            NotifyState();
+            var sources = await prepare(_lifetime.Token);
+            _lifetime.Token.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(_session, session))
+                throw new BridgeException.Failure(ErrorCode.Conflict, "Import session changed.");
+            if (sources.Count == 0) { ImportMessageKey = "desktop_import_empty"; return; }
+            if (sources.Count > 200) { ImportMessageKey = "failure_batch"; return; }
+            ImportTotal = sources.Count;
+            for (var index = 0; index < sources.Count; index++)
             {
                 ImportMessageKey = "import_running_progress";
                 ImportCompleted = index + 1;
                 NotifyState();
-                var outcome = await _session.ImportAsync(paths[index], collection, _lifetime.Token);
+                var source = sources[index];
+                var outcome = await session.ImportAsync(source.Name, source.OpenRead, collection, _lifetime.Token);
                 if (outcome.Status == ImportStatus.RestoreRequired)
                 {
                     ImportMessageKey = "import_restore_required";
@@ -655,7 +667,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
             ImportMessageKey = _importExisting == 0 ? "import_done"
                 : _importCreated == 0 ? "import_done_existing" : "import_done_reused";
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { ImportMessageKey = null; }
         catch (Exception error) { Trace.WriteLine(error); ImportMessageKey = strings.ErrorKey(error); }
         finally
         {

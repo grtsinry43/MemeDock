@@ -36,6 +36,7 @@ internal sealed class StickerOutputService(LibrarySession session, IOutputDefaul
             cancellation.ThrowIfCancellationRequested();
             package.SetStorageItems(new IStorageItem[] { file }, readOnly: true);
             package.RequestedOperation = DataPackageOperation.Copy;
+            if (drag) package.SetData(StickerImportService.InternalDragFormat, true);
             package.Properties.Title = detail.Sticker.Title;
             if (!drag && kind != StickerOutputKind.OriginalFile && !artifact.Animated && artifact.Mime == "image/png")
                 package.SetBitmap(RandomAccessStreamReference.CreateFromFile(file));

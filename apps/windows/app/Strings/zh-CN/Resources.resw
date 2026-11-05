@@ -22,6 +22,8 @@
   <data name="starred_empty" xml:space="preserve"><value>暂无星标表情</value></data>
   <data name="retry_thumbnail" xml:space="preserve"><value>重新加载</value></data>
   <data name="import_preparing" xml:space="preserve"><value>正在处理…</value></data>
+  <data name="desktop_import_drop" xml:space="preserve"><value>拖入图片即可导入</value></data>
+  <data name="desktop_import_empty" xml:space="preserve"><value>没有可导入的图片文件或剪贴板图片，文件夹会被跳过。</value></data>
   <data name="import_running_progress" xml:space="preserve"><value>正在添加 {0} / {1}</value></data>
   <data name="import_done" xml:space="preserve"><value>已添加 {0} 张表情</value></data>
   <data name="import_restore_required" xml:space="preserve"><value>该表情已在回收站中</value></data>

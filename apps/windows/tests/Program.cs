@@ -1658,7 +1658,8 @@ internal static class Program
             ["desktop_library_empty_hint"] = "libraryEmptyHint", ["desktop_starred_empty_hint"] = "starredEmptyHint",
             ["desktop_collection_empty_hint"] = "collectionEmptyHint", ["desktop_tag_empty_hint"] = "tagEmptyHint",
             ["desktop_selection_hint"] = "selectionHint", ["desktop_storage"] = "storage",
-            ["desktop_output_drag_hint"] = "outputDragHint"
+            ["desktop_output_drag_hint"] = "outputDragHint",
+            ["desktop_import_drop"] = "importDropHere"
         };
         // Windows-only copy for the desktop settings page. Mobile has no drag
         // hand-off, a GIF preset, or a device identity panel, so these keys have no
@@ -1673,7 +1674,9 @@ internal static class Program
             "desktop_backup_file_type", "desktop_backup_exists", "desktop_backup_too_large",
             "desktop_checkpoint", "desktop_checkpoint_created",
             // Windows shortcuts and the system color page have no mobile counterpart.
-            "output_copy_hint", "settings_windows_colors"
+            "output_copy_hint", "settings_windows_colors",
+            // One message covers both file drops and clipboard image input.
+            "desktop_import_empty"
         };
         var macos = File.ReadAllText(Path.Combine(root, "apps/macos/Sources/MemeDock/Support/Localization.swift"));
         var split = macos.IndexOf("private static let chinese:", StringComparison.Ordinal);
