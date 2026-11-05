@@ -36,6 +36,8 @@ public sealed partial class StickerDetailView : UserControl
     private string? _placeholderId;
     private string _chipSignature = "";
     private BitmapImage? _image;
+    private WebpPlayback? _webpPlayback;
+    private string? _previewErrorKey;
     private CancellationTokenSource? _previewCancellation;
     private ContentDialog? _previewDialog;
     public event EventHandler? CloseRequested;
@@ -352,6 +354,39 @@ public sealed partial class StickerDetailView : UserControl
         _play = true;
         _fallback = detail.OriginalPath is null;
         _previewCancellation = new CancellationTokenSource();
+        if (detail.Asset.Animated && detail.Asset.Mime == "image/webp" && detail.OriginalPath is { } path)
+        {
+            var playback = new WebpPlayback(path, DispatcherQueue);
+            _webpPlayback = playback;
+            playback.FramePresented += () =>
+            {
+                if (!ReferenceEquals(_webpPlayback, playback)) return;
+                _image?.Stop();
+                _image = null;
+                Preview.Source = playback.Source;
+                Placeholder.Source = null;
+                _fallback = false;
+                PreviewRetry.Visibility = Visibility.Collapsed;
+                UpdatePlayback();
+            };
+            playback.Failed += error =>
+            {
+                if (!ReferenceEquals(_webpPlayback, playback)) return;
+                _previewErrorKey = error is WebpDecodeLimitException ? "failure_limit" : "preview_unavailable";
+                _fallback = true;
+                _play = false;
+                _ = LoadPreviewAsync(detail, _previewCancellation.Token, thumbnail: true);
+                UpdatePlayback();
+            };
+            playback.Completed += () =>
+            {
+                if (!ReferenceEquals(_webpPlayback, playback)) return;
+                _play = false;
+                UpdatePlayback();
+            };
+            playback.SetRunning(_active && _play);
+            return;
+        }
         _ = LoadPreviewAsync(detail, _previewCancellation.Token, _fallback);
     }
 
@@ -370,8 +405,7 @@ public sealed partial class StickerDetailView : UserControl
                 if (cancellation.IsCancellationRequested || _image != image) return;
                 // The original now covers the square, so the stand-in can go.
                 Placeholder.Source = null;
-                PreviewRetry.Visibility = Visibility.Collapsed;
-                PreviewHint.Text = detail.Asset.Animated && (!image.IsAnimatedBitmap || thumbnail) ? _strings!["apng_first_frame"] : "";
+                PreviewRetry.Visibility = MainWindow.ToVisibility(_previewErrorKey is not null);
                 if (_active && _play && image.IsAnimatedBitmap) image.Play();
                 UpdatePlayback();
                 UpdateState();
@@ -381,6 +415,7 @@ public sealed partial class StickerDetailView : UserControl
                 if (cancellation.IsCancellationRequested || _image != image) return;
                 if (!thumbnail)
                 {
+                    _previewErrorKey = "preview_unavailable";
                     _fallback = true;
                     await LoadPreviewAsync(detail, cancellation, thumbnail: true);
                 }
@@ -388,7 +423,8 @@ public sealed partial class StickerDetailView : UserControl
                 {
                     Preview.Source = null;
                     PreviewRetry.Visibility = Visibility.Visible;
-                    PreviewHint.Text = _strings!["preview_unavailable"];
+                    _previewErrorKey ??= "preview_unavailable";
+                    UpdatePlayback();
                 }
             };
             // The image sits above the stand-in and stays transparent until it has decoded.
@@ -400,20 +436,23 @@ public sealed partial class StickerDetailView : UserControl
             if (cancellation.IsCancellationRequested) return;
             Trace.WriteLine(error);
             PreviewRetry.Visibility = Visibility.Visible;
-            PreviewHint.Text = _strings!["preview_unavailable"];
+            _previewErrorKey ??= "preview_unavailable";
+            UpdatePlayback();
         }
     }
 
     private void OnPlayback(object sender, RoutedEventArgs args)
     {
         _play = !_play;
+        _webpPlayback?.SetRunning(_play && _active);
         if (_play && _active) _image?.Play(); else _image?.Stop();
         UpdatePlayback();
     }
 
     private void UpdatePlayback()
     {
-        Playback.Visibility = MainWindow.ToVisibility(_image?.IsAnimatedBitmap == true && !_fallback);
+        Playback.Visibility = MainWindow.ToVisibility(_webpPlayback is { HasFailed: false }
+            || _image?.IsAnimatedBitmap == true && !_fallback);
         PlaybackGlyph.Glyph = _play ? "\uE769" : "\uE768";
         if (_strings is not null)
         {
@@ -421,18 +460,24 @@ public sealed partial class StickerDetailView : UserControl
             PlaybackLabel.Text = label;
             AutomationProperties.SetName(Playback, label);
         }
-        if (_model?.Detail?.Asset.Animated == true && (_fallback || _image?.IsAnimatedBitmap == false) && _strings is not null)
-            PreviewHint.Text = _strings["apng_first_frame"];
+        if (_strings is not null)
+            PreviewHint.Text = _previewErrorKey is { } error ? _strings[error]
+                : _webpPlayback is null && _model?.Detail?.Asset.Animated == true
+                    && (_fallback || _image?.IsAnimatedBitmap == false) ? _strings["apng_first_frame"] : "";
     }
 
     public void SetActive(bool active)
     {
         _active = active;
+        _webpPlayback?.SetRunning(active && _play);
         if (active && _play && _image?.IsAnimatedBitmap == true) _image.Play(); else _image?.Stop();
     }
 
     private void StopPreview(bool keepPlaceholder = false)
     {
+        _webpPlayback?.Dispose();
+        _webpPlayback = null;
+        _previewErrorKey = null;
         _previewCancellation?.Cancel();
         _previewCancellation?.Dispose();
         _previewCancellation = null;
@@ -454,8 +499,9 @@ public sealed partial class StickerDetailView : UserControl
 
     public async Task ShowPreviewAsync()
     {
-        if (_image is null || _previewDialog is not null || _strings is null || _model?.Detail is null) return;
-        var image = new Image { Source = _image, Stretch = Stretch.Uniform };
+        if (Preview.Source is null || _previewDialog is not null || _strings is null || _model?.Detail is null) return;
+        // Both views share the same source so WebP frames also update the zoomed preview.
+        var image = new Image { Source = Preview.Source, Stretch = Stretch.Uniform };
         _previewDialog = new ContentDialog
         {
             XamlRoot = XamlRoot, Title = _model.Detail.Sticker.Title, CloseButtonText = _strings["message_dismiss"],
