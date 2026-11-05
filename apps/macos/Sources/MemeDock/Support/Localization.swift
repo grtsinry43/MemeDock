@@ -310,7 +310,7 @@ enum L10n {
         .libraryEmpty: "暂无表情", .libraryEmptyHint: "导入图片来建立素材库",
         .starredEmpty: "没有已收藏的表情", .starredEmptyHint: "给表情加星标后会显示在这里",
         .tagEmpty: "没有使用该标签的表情", .tagEmptyHint: "给表情添加该标签后会显示在这里",
-        .trashEmpty: "回收站是空的", .trashEmptyHint: "删除的表情会留在这里，直到你恢复",
+        .trashEmpty: "回收站是空的", .trashEmptyHint: "删除的表情会留在这里回收站，直到你进行操作",
         .collectionEmpty: "该合集是空的", .collectionEmptyHint: "选择表情后加入该合集",
         .noMatchesHint: "换个关键词试试",
         .selectItems: "选择", .selectAll: "全选", .selectedCount: "已选 %d 张",

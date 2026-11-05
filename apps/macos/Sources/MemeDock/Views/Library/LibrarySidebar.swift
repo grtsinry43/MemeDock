@@ -87,10 +87,16 @@ struct LibrarySidebar: View {
                     }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 16)
+            .padding(.top, 35)
+            .padding(.bottom, 16)
         }
+        // The window has no title bar, so the sidebar owns the space beside the
+        // traffic lights. Its content ignores the top safe area and pays for it
+        // with the inset above instead, which is what keeps the first row clear
+        // of the lights without leaving the empty band a second inset would.
+        .ignoresSafeArea(edges: .top)
         .font(MemeDockTypography.body)
-        .background(MemeDockGlass(sidebar: true))
+        .background { MemeDockGlass(sidebar: true).ignoresSafeArea(edges: .top) }
         .alert(L10n.text(naming?.title ?? .rename), isPresented: namingPresented) {
             TextField(L10n.text(naming?.prompt ?? .collections), text: $draft)
             Button(L10n.text(.cancel), role: .cancel) { naming = nil }
@@ -217,8 +223,18 @@ struct LibrarySidebar: View {
 
     private func createRow(_ target: Naming, _ title: L10nKey) -> some View {
         Button { begin(target) } label: {
-            Label(L10n.text(title), systemImage: "plus")
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                // `navigationRow` insets its content by 10 and centres an
+                // 18-point symbol; the quiet style insets by 8 instead, so the
+                // two extra points keep this + on the same vertical line as the
+                // symbols above it.
+                Image(systemName: "plus")
+                    .frame(width: 18)
+                Text(L10n.text(title))
+                Spacer(minLength: 4)
+            }
+            .padding(.leading, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(MemeDockButtonStyle(kind: .quiet))
         .foregroundStyle(MemeDockPalette(scheme).secondary)
