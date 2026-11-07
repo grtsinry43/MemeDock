@@ -14,7 +14,7 @@ actor InputAnchorResolver {
     private struct Target {
         let snapshot: Snapshot
         let app: AXUIElement
-        let field: AXUIElement
+        let field: AXUIElement?
         let window: AXUIElement?
     }
 
@@ -26,34 +26,56 @@ actor InputAnchorResolver {
               !Task.isCancelled, AXIsProcessTrusted() else { return nil }
         let app = AXUIElementCreateApplication(processIdentifier)
         AXUIElementSetMessagingTimeout(app, 0.1)
-        guard let value = attribute(app, kAXFocusedUIElementAttribute),
-              CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
-        let focused = value as! AXUIElement
-        AXUIElementSetMessagingTimeout(focused, 0.1)
-        guard let role = attribute(focused, kAXRoleAttribute) as? String,
-              [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole].contains(role),
-              attribute(focused, kAXSubroleAttribute) as? String != kAXSecureTextFieldSubrole,
-              attribute(focused, kAXEnabledAttribute) as? Bool != false else { return nil }
-        let windowValue = attribute(focused, kAXWindowAttribute)
-        let window = windowValue.flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
+        let focused = element(app, kAXFocusedUIElementAttribute)
+        if let focused { AXUIElementSetMessagingTimeout(focused, 0.1) }
+        let role = focused.flatMap { attribute($0, kAXRoleAttribute) as? String }
+        let subrole = focused.flatMap { attribute($0, kAXSubroleAttribute) as? String }
+        guard subrole != kAXSecureTextFieldSubrole,
+              focused.flatMap({ attribute($0, kAXEnabledAttribute) as? Bool }) != false else { return nil }
+        let editable = role.map { [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole].contains($0) } ?? false
+        let window = focused.flatMap { element($0, kAXWindowAttribute) }
+            ?? element(app, kAXFocusedWindowAttribute)
+        // Custom editors (including WeChat) may expose only AXWindow. Window
+        // restoration still permits normal Cmd-V; missing field geometry must
+        // not prevent pasting. Without either target, fail rather than guess.
+        guard editable || window != nil else { return nil }
         if let window { AXUIElementSetMessagingTimeout(window, 0.1) }
-        let snapshot = Snapshot(id: UUID(), processIdentifier: processIdentifier, bounds: geometry(focused),
-                                isSearchField: attribute(focused, kAXSubroleAttribute) as? String == kAXSearchFieldSubrole)
-        target = Target(snapshot: snapshot, app: app, field: focused, window: window)
+        let field = editable ? focused : nil
+        let snapshot = Snapshot(id: UUID(), processIdentifier: processIdentifier, bounds: field.flatMap(geometry),
+                                isSearchField: subrole == kAXSearchFieldSubrole)
+        target = Target(snapshot: snapshot, app: app, field: field, window: window)
         return snapshot
     }
 
     func restore(_ snapshot: Snapshot) -> Bool {
         guard !Task.isCancelled, AXIsProcessTrusted(), let target, target.snapshot.id == snapshot.id else { return false }
         if let window = target.window { _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString) }
-        _ = AXUIElementSetAttributeValue(target.field, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        if let field = target.field {
+            _ = AXUIElementSetAttributeValue(field, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        }
         return isFocused(snapshot)
     }
 
     func isFocused(_ snapshot: Snapshot) -> Bool {
-        guard !Task.isCancelled, let target, target.snapshot.id == snapshot.id,
-              let current = attribute(target.app, kAXFocusedUIElementAttribute) else { return false }
-        return CFEqual(current, target.field)
+        guard !Task.isCancelled, let target, target.snapshot.id == snapshot.id else { return false }
+        if let field = target.field {
+            guard let current = element(target.app, kAXFocusedUIElementAttribute) else { return false }
+            return CFEqual(current, field)
+        }
+        guard let window = target.window,
+              let currentWindow = element(target.app, kAXFocusedWindowAttribute),
+              CFEqual(currentWindow, window) else { return false }
+        if let focused = element(target.app, kAXFocusedUIElementAttribute) {
+            let subrole = attribute(focused, kAXSubroleAttribute) as? String
+            guard subrole != kAXSecureTextFieldSubrole, subrole != kAXSearchFieldSubrole,
+                  attribute(focused, kAXEnabledAttribute) as? Bool != false else { return false }
+        }
+        return true
+    }
+
+    private func element(_ parent: AXUIElement, _ name: String) -> AXUIElement? {
+        guard let value = attribute(parent, name), CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
     }
 
     private func geometry(_ focused: AXUIElement) -> CGRect? {
