@@ -72,7 +72,8 @@ swift_args+=(-Xlinker -rpath -Xlinker "@executable_path/../Frameworks")
 swift build "${swift_args[@]}"
 
 echo "==> App bundle"
-binary=$(swift build "${swift_args[@]}" --show-bin-path)/MemeDock
+swift_products=$(swift build "${swift_args[@]}" --show-bin-path)
+binary="$swift_products/MemeDock"
 bundle="$apps/Bundle/MemeDock.app"
 rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Frameworks" "$bundle/Contents/Resources"
@@ -81,6 +82,11 @@ echo "==> App icon"
 # rather than a macOS-only copy of it.
 bash "$root/tools/macos/make-icns.sh" "$bundle/Contents/Resources/AppIcon.icns"
 cp "$binary" "$bundle/Contents/MacOS/MemeDock"
+# SwiftPM resolves this module's resources inside Bundle.main.resourceURL in
+# packaged apps. Copy it as well as the executable, so the recorder works away
+# from the build tree and retains its localized labels.
+cp -R "$swift_products/KeyboardShortcuts_KeyboardShortcuts.bundle" "$bundle/Contents/Resources/"
+cp "$apps/.build/checkouts/KeyboardShortcuts/license" "$bundle/Contents/Resources/KeyboardShortcuts-LICENSE.txt"
 cp "$work/libmemedock_ffi.dylib" "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"
 # Reuse the existing variable Latin font and its license. Chinese text cascades
 # to macOS PingFang rather than bundling the Android Chinese font.

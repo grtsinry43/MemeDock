@@ -33,6 +33,17 @@ struct AboutSettings: View {
             } header: {
                 SettingsHeader(.licenses)
             }
+            Section {
+                LabeledContent("KeyboardShortcuts") {
+                    HStack(spacing: 12) {
+                        Text(L10n.text(.mitLicense)).foregroundStyle(.secondary)
+                        Button(L10n.text(.view)) {
+                            if let url = Self.shortcutLicense { NSWorkspace.shared.open(url) }
+                        }
+                        .disabled(Self.shortcutLicense == nil)
+                    }
+                }
+            }
         }
     }
 
@@ -99,5 +110,9 @@ struct AboutSettings: View {
     /// Copied into the bundle next to the font by tools/macos/build.sh.
     private static var fontLicense: URL? {
         Bundle.main.url(forResource: "Quicksand-OFL", withExtension: "txt")
+    }
+
+    private static var shortcutLicense: URL? {
+        Bundle.main.url(forResource: "KeyboardShortcuts-LICENSE", withExtension: "txt")
     }
 }

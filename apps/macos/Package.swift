@@ -12,6 +12,9 @@ let package = Package(
     products: [
         .executable(name: "MemeDock", targets: ["MemeDock"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", exact: "3.1.0")
+    ],
     targets: [
         .systemLibrary(name: "MemeDockBridgeFFI", path: "Generated/FFI"),
         .target(
@@ -21,7 +24,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "MemeDock",
-            dependencies: ["MemeDockBridge"],
+            dependencies: ["MemeDockBridge", "KeyboardShortcuts"],
             path: "Sources/MemeDock",
             linkerSettings: [
                 .linkedLibrary("memedock_ffi")
