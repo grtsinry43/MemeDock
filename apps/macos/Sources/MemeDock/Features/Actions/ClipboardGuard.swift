@@ -27,8 +27,9 @@ final class ClipboardGuard: ObservableObject {
 
     /// Publishes `write` on the general pasteboard and records the reference.
     /// A failed write aborts the pin instead of leaving it dangling.
-    func install(lease: ArtifactLeaseHandle, write: (NSPasteboard) throws -> Void) async throws {
-        guard !closing else { return }
+    @discardableResult
+    func install(lease: ArtifactLeaseHandle, write: (NSPasteboard) throws -> Void) async throws -> Int {
+        guard !closing else { throw AppFailure(.errorClosed) }
         let library = try session.requireLibrary()
         let reference = try await library.protectClipboard(lease: lease).awaitResult()
         let pasteboard = NSPasteboard.general
@@ -38,10 +39,14 @@ final class ClipboardGuard: ObservableObject {
             _ = try? await library.abortClipboard(reference: reference).awaitResult()
             throw error
         }
-        observedChange = pasteboard.changeCount
+        let writtenChange = pasteboard.changeCount
         _ = try? await library.reconcileClipboard(observed: reference).awaitResult()
-        entry = Entry(lease: lease, reference: reference)
-        startWatching()
+        if !closing, pasteboard.changeCount == writtenChange {
+            observedChange = writtenChange
+            entry = Entry(lease: lease, reference: reference)
+            startWatching()
+        }
+        return writtenChange
     }
 
     func beginShutdown() {

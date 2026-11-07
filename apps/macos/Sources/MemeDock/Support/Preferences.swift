@@ -72,9 +72,24 @@ final class Preferences: ObservableObject {
         static let sharePreset = "sharePreset"
         static let dragPreset = "dragPreset"
         static let tileSize = "tileSize"
+        static let showDockIcon = "showDockIcon"
+        static let anchorToInput = "anchorToInput"
+        static let shortcutHintDismissed = "shortcutHintDismissed"
     }
 
     private let defaults: UserDefaults
+    @Published var shortcutHintDismissed: Bool {
+        didSet { defaults.set(shortcutHintDismissed, forKey: Key.shortcutHintDismissed) }
+    }
+    @Published var anchorToInput: Bool {
+        didSet { defaults.set(anchorToInput, forKey: Key.anchorToInput) }
+    }
+    @Published var showDockIcon: Bool {
+        didSet {
+            defaults.set(showDockIcon, forKey: Key.showDockIcon)
+            NSApp.setActivationPolicy(showDockIcon ? .regular : .accessory)
+        }
+    }
     @Published var appearance: AppearanceMode {
         didSet {
             persist()
@@ -131,6 +146,9 @@ final class Preferences: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.shortcutHintDismissed = defaults.bool(forKey: Key.shortcutHintDismissed)
+        self.showDockIcon = defaults.object(forKey: Key.showDockIcon) as? Bool ?? true
+        self.anchorToInput = defaults.object(forKey: Key.anchorToInput) as? Bool ?? true
         self.appearance = AppearanceMode(rawValue: defaults.string(forKey: Key.appearance) ?? "") ?? .system
         self.language = LanguageMode(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
         OutputDefaultsV0_1_0ToV0_1_2.migrate(defaults)

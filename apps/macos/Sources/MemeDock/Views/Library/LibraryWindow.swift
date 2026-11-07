@@ -41,17 +41,17 @@ struct LibraryWindow: View {
             // forward, and what lets it ask for anything at all.
             .background { HostWindowReader(host: navigation.library) }
             .onChange(of: navigation.request) { _, request in
-                guard let request else { return }
-                switch request.target {
-                case let .section(section): model.select(section)
-                case .telegramImport: showTelegram = true
-                }
+                guard let request, let target = navigation.consume(request) else { return }
+                handle(target)
             }
             .sheet(isPresented: $showTelegram) {
                 TelegramImportView(coordinator: telegram)
                     .presentationCornerRadius(MemeDockGeometry.dialog)
             }
-            .task { await model.start() }
+            .task {
+                await model.start()
+                if let request = navigation.request, let target = navigation.consume(request) { handle(target) }
+            }
             .alert(L10n.text(.purge), isPresented: $model.confirmingPurge) {
                 Button(L10n.text(.cancel), role: .cancel) { }
                 Button(L10n.text(.purge), role: .destructive) { Task { await model.confirmPurge() } }
@@ -59,6 +59,16 @@ struct LibraryWindow: View {
                 Text(L10n.text(.purgeConfirmation, model.purgeTargets.count))
             }
             .onDisappear { model.shutdown() }
+    }
+
+    private func handle(_ target: LibraryNavigation.Target) {
+        switch target {
+        case let .section(section): model.select(section)
+        case .telegramImport: showTelegram = true
+        case .importFiles: imports.presentPicker(collectionId: model.importCollectionId)
+        case let .sticker(id):
+            Task { await detail.load(id: id) }
+        }
     }
 
     /// What the File menu offers for this window: the two ways in and the way

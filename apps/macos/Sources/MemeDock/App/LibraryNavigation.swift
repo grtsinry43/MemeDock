@@ -15,6 +15,8 @@ final class LibraryNavigation: ObservableObject {
         /// The Telegram sheet belongs to the library window, where what it
         /// imports appears.
         case telegramImport
+        case importFiles
+        case sticker(String)
     }
 
     struct Request: Equatable {
@@ -28,16 +30,26 @@ final class LibraryNavigation: ObservableObject {
     let library = HostWindow()
 
     private var sequence = 0
+    var openLibrary: (() -> Void)?
 
     func show(_ target: Target) {
         sequence += 1
         request = Request(target: target, sequence: sequence)
     }
 
+    func consume(_ request: Request) -> Target? {
+        guard self.request?.sequence == request.sequence else { return nil }
+        self.request = nil
+        return request.target
+    }
+
     /// Brings the library forward. A window behind the settings, or one that was
     /// minimised while they were open, has to come back: answering in a window
     /// nobody can see is not the same as doing what was asked.
     func bringForward() {
+        if library.window == nil || library.window?.isVisible == false {
+            openLibrary?()
+        }
         NSApp.activate(ignoringOtherApps: true)
         // Ordering a miniaturised window front also brings it back from the Dock.
         library.window?.makeKeyAndOrderFront(nil)

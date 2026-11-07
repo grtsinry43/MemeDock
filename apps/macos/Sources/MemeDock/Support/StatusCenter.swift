@@ -9,10 +9,11 @@ final class StatusCenter: ObservableObject {
 
     private var dismissal: Task<Void, Never>?
 
-    func show(_ text: String, isFailure: Bool = false) {
+    func show(_ text: String, isFailure: Bool = false, persistent: Bool = false) {
         message = text
         self.isFailure = isFailure
         dismissal?.cancel()
+        guard !persistent else { return }
         dismissal = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard !Task.isCancelled else { return }

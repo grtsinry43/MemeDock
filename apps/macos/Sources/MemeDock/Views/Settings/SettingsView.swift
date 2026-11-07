@@ -60,6 +60,7 @@ struct SettingsView: View {
     let navigation: LibraryNavigation
     @ObservedObject var telegram: TelegramCoordinator
     @ObservedObject var sync: SyncCoordinator
+    @ObservedObject var integration: SystemIntegration
     @ObservedObject private var preferences = Preferences.shared
 
     @StateObject private var backups: BackupCoordinator
@@ -73,13 +74,15 @@ struct SettingsView: View {
         status: StatusCenter,
         navigation: LibraryNavigation,
         telegram: TelegramCoordinator,
-        sync: SyncCoordinator
+        sync: SyncCoordinator,
+        integration: SystemIntegration
     ) {
         _session = ObservedObject(wrappedValue: session)
         _status = ObservedObject(wrappedValue: status)
         self.navigation = navigation
         _telegram = ObservedObject(wrappedValue: telegram)
         _sync = ObservedObject(wrappedValue: sync)
+        _integration = ObservedObject(wrappedValue: integration)
         _backups = StateObject(wrappedValue: BackupCoordinator(session: session, status: status))
     }
 
@@ -101,6 +104,14 @@ struct SettingsView: View {
         .frame(minHeight: 480, idealHeight: 560, maxHeight: 800)
         .overlay(alignment: .bottom) { StatusBanner(status: status) }
         .background { HostWindowReader(host: host) }
+        .onAppear { applyRequestedTab() }
+        .onChange(of: integration.requestedSettingsTab) { _, _ in applyRequestedTab() }
+    }
+
+    private func applyRequestedTab() {
+        guard let requested = integration.requestedSettingsTab else { return }
+        tab = requested
+        integration.requestedSettingsTab = nil
     }
 
     // MARK: - Sidebar
@@ -197,7 +208,7 @@ struct SettingsView: View {
         } else {
             switch tab {
             case .general:
-                GeneralSettings(preferences: preferences)
+                GeneralSettings(preferences: preferences, integration: integration)
             case .output:
                 OutputSettings(preferences: preferences)
             case .importing:

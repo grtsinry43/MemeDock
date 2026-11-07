@@ -70,16 +70,20 @@ final class StickerActions: ObservableObject {
         }
     }
 
-    func copyImage(_ item: StickerItem, firstFrame: Bool = false) async throws {
+    @discardableResult
+    func copyImage(_ item: StickerItem, firstFrame: Bool = false) async throws -> Int {
+        var changeCount: Int?
         try await run {
             let lease = try await self.export(item, preset: self.copyPreset(for: item), firstFrame: firstFrame)
             let artifact = try lease.metadata()
-            try await self.clipboard.install(lease: lease) { pasteboard in
+            changeCount = try await self.clipboard.install(lease: lease) { pasteboard in
                 try Self.write(artifact: artifact, representation: .image, to: pasteboard)
             }
             try await self.record(item.id, .copyImage)
             self.status.show(.imageCopied)
         }
+        guard let changeCount else { throw AppFailure(.errorIo) }
+        return changeCount
     }
 
     func copyFile(_ item: StickerItem) async throws {
@@ -163,6 +167,19 @@ final class StickerActions: ObservableObject {
     func cancelDragPreparation(for item: StickerItem) {
         let key = dragPreparationKey(for: item)
         if dragPromptKey != key { drag.cancel(key: key) }
+    }
+
+    func cancelPendingDrag() {
+        drag.invalidate()
+    }
+
+    /// The quick picker keeps this lease until AppKit reports the end of the
+    /// drag. Export first, then publish a real file, even on a cold first drag.
+    func prepareDragFile(_ item: StickerItem) async throws -> ArtifactLeaseHandle {
+        guard !busy else { throw AppFailure(.errorBusy) }
+        busy = true
+        defer { busy = false }
+        return try await export(item, preset: dragPreset(for: item), firstFrame: false)
     }
 
     private enum Representation {

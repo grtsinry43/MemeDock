@@ -112,11 +112,11 @@ final class LibraryModel: ObservableObject {
     private var subscriptions: Set<AnyCancellable> = []
     private var started = false
 
-    init(session: LibrarySession, status: StatusCenter, clipboard: ClipboardGuard) {
+    init(session: LibrarySession, status: StatusCenter, clipboard: ClipboardGuard, imports: ImportCoordinator) {
         self.session = session
         self.status = status
         actions = StickerActions(session: session, clipboard: clipboard, status: status)
-        imports = ImportCoordinator(session: session, status: status)
+        self.imports = imports
         browser = StickerBrowser(session: session)
         collections = CollectionCatalog(session: session)
         tags = TagCatalog(session: session)

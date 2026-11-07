@@ -14,9 +14,13 @@ final class ThumbnailStore: ObservableObject {
     private let session: LibrarySession
     private var inFlight: Set<String> = []
     private var paths: [String: String] = [:]
+    private var generation = 0
+    private let capacity: Int?
+    private var order: [String] = []
 
-    init(session: LibrarySession) {
+    init(session: LibrarySession, capacity: Int? = nil) {
         self.session = session
+        self.capacity = capacity
     }
 
     func image(for item: StickerItem) -> NSImage? {
@@ -50,13 +54,16 @@ final class ThumbnailStore: ObservableObject {
         images[stickerId] = nil
         paths[stickerId] = nil
         failed.remove(stickerId)
+        order.removeAll { $0 == stickerId }
     }
 
     func clear() {
+        generation += 1
         images.removeAll()
         paths.removeAll()
         failed.removeAll()
         inFlight.removeAll()
+        order.removeAll()
     }
 
     private func decode(_ stickerId: String, path: String) {
@@ -66,17 +73,29 @@ final class ThumbnailStore: ObservableObject {
         }
         paths[stickerId] = path
         images[stickerId] = image
+        order.removeAll { $0 == stickerId }
+        order.append(stickerId)
+        if let capacity {
+            while order.count > capacity, let oldest = order.first {
+                order.removeFirst()
+                images[oldest] = nil
+                paths[oldest] = nil
+            }
+        }
     }
 
     private func generate(_ stickerId: String, priority: Priority) {
         inFlight.insert(stickerId)
+        let generation = self.generation
         Task { [weak self] in
             guard let self else { return }
-            defer { self.inFlight.remove(stickerId) }
+            defer { if self.generation == generation { self.inFlight.remove(stickerId) } }
             do {
                 let path = try await self.session.requestThumbnail(stickerId, priority: priority)
+                guard self.generation == generation else { return }
                 self.decode(stickerId, path: path)
             } catch {
+                guard self.generation == generation else { return }
                 self.failed.insert(stickerId)
             }
         }

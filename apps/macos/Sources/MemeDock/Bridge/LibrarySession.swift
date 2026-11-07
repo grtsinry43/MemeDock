@@ -40,13 +40,25 @@ final class LibrarySession: ObservableObject {
 
     private var subscription: SubscriptionHandle?
     private var feed: Task<Void, Never>?
+    private var opening: Task<Void, Never>?
 
     init(paths: AppPaths) {
         self.paths = paths
     }
 
     func start() async {
+        if let opening {
+            await opening.value
+            return
+        }
         guard library == nil else { return }
+        let task = Task { await self.open() }
+        opening = task
+        await task.value
+        opening = nil
+    }
+
+    private func open() async {
         phase = .opening
         do {
             try paths.prepare()
@@ -70,6 +82,9 @@ final class LibrarySession: ObservableObject {
     }
 
     func shutdown() async {
+        // Opening cannot be abandoned: it may already own a database. Wait for
+        // its result and close that instance, including during application quit.
+        await opening?.value
         feed?.cancel()
         feed = nil
         if let subscription {

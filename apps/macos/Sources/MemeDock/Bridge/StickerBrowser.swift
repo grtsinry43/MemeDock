@@ -22,7 +22,7 @@ enum LibraryFilter: Equatable, Hashable {
 /// a superseded request are dropped instead of overwriting newer results.
 @MainActor
 final class StickerBrowser: ObservableObject {
-    private static let pageSize: UInt32 = 80
+    private let pageSize: UInt32
 
     @Published var filter: LibraryFilter = .all {
         didSet { if filter != oldValue { restart() } }
@@ -46,8 +46,9 @@ final class StickerBrowser: ObservableObject {
     private var pageWork: Task<Void, Never>?
     private var searchWork: Task<Void, Never>?
 
-    init(session: LibrarySession) {
+    init(session: LibrarySession, pageSize: UInt32 = 80) {
         self.session = session
+        self.pageSize = pageSize
     }
 
     var effectiveSort: StickerSort {
@@ -80,6 +81,23 @@ final class StickerBrowser: ObservableObject {
         load(more: true)
     }
 
+    /// A transient browser stops querying while hidden. Invalidate the request
+    /// before cancellation so late results cannot repopulate a closed panel.
+    func suspend() {
+        activeRequest = nil
+        searchWork?.cancel()
+        searchWork = nil
+        pageWork?.cancel()
+        pageWork = nil
+        _ = pageTask?.cancel()
+        pageTask = nil
+        cursor = nil
+        items = []
+        hasMore = false
+        isLoading = false
+        isLoadingMore = false
+    }
+
     /// Applies a library change to the items already on screen.
     func apply(_ event: SessionEvent) {
         switch event {
@@ -98,6 +116,12 @@ final class StickerBrowser: ObservableObject {
 
     private func scheduleSearch() {
         searchWork?.cancel()
+        // The old rows may stay visible during debounce, but are no longer the
+        // result of the current query. Reject late pages immediately.
+        activeRequest = nil
+        pageWork?.cancel()
+        _ = pageTask?.cancel()
+        isLoading = true
         searchWork = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled, let self else { return }
@@ -127,7 +151,7 @@ final class StickerBrowser: ObservableObject {
             starred: filter == .starred ? true : nil,
             deleted: filter == .deleted,
             sort: effectiveSort,
-            pageSize: Self.pageSize,
+            pageSize: pageSize,
             cursor: more ? cursor : nil
         )
         pageWork?.cancel()

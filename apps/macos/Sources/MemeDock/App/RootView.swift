@@ -25,7 +25,8 @@ struct RootView: View {
         eggs: EasterEggController,
         clipboard: ClipboardGuard,
         navigation: LibraryNavigation,
-        telegram: TelegramCoordinator
+        telegram: TelegramCoordinator,
+        imports: ImportCoordinator
     ) {
         _session = ObservedObject(wrappedValue: session)
         _status = ObservedObject(wrappedValue: status)
@@ -33,7 +34,7 @@ struct RootView: View {
         self.navigation = navigation
         self.telegram = telegram
         _model = StateObject(
-            wrappedValue: LibraryModel(session: session, status: status, clipboard: clipboard)
+            wrappedValue: LibraryModel(session: session, status: status, clipboard: clipboard, imports: imports)
         )
     }
 
@@ -56,7 +57,6 @@ struct RootView: View {
                 }
                 .animation(reduceMotion ? nil : MemeDockMotion.panel, value: eggs.found)
             }
-            .task { await session.start() }
     }
 
     @ViewBuilder

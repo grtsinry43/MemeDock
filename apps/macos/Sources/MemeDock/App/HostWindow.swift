@@ -19,18 +19,21 @@ final class HostWindow {
 /// coming to the front when it has been asked to show something.
 struct HostWindowReader: NSViewRepresentable {
     let host: HostWindow
+    var onResolve: ((NSWindow) -> Void)? = nil
 
     func makeNSView(context: Context) -> NSView {
-        Reporter(host: host)
+        Reporter(host: host, onResolve: onResolve)
     }
 
     func updateNSView(_ view: NSView, context: Context) {}
 
     private final class Reporter: NSView {
         private let host: HostWindow
+        private let onResolve: ((NSWindow) -> Void)?
 
-        init(host: HostWindow) {
+        init(host: HostWindow, onResolve: ((NSWindow) -> Void)?) {
             self.host = host
+            self.onResolve = onResolve
             super.init(frame: .zero)
         }
 
@@ -42,6 +45,14 @@ struct HostWindowReader: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             host.window = window
+            if let window {
+                // Views can attach after the window's first key notification.
+                // Defer published-state work until this layout update ends.
+                DispatchQueue.main.async { [weak self, weak window] in
+                    guard let self, let window, self.window === window else { return }
+                    self.onResolve?(window)
+                }
+            }
         }
     }
 }

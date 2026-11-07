@@ -35,9 +35,11 @@ extension ErrorCode {
 
 /// Failures raised inside the app layer also only surface as message keys.
 struct AppFailure: LocalizedError {
+    let key: L10nKey
     let message: String
 
     init(_ key: L10nKey) {
+        self.key = key
         self.message = L10n.text(key)
     }
 
