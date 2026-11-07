@@ -47,7 +47,7 @@ env:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: macos-15
     timeout-minutes: 90
     defaults:
       run:
@@ -57,6 +57,17 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Select Swift compiler and classic UI SDK
+        run: |
+          # KeyboardShortcuts needs Swift 6.2+, while the app deliberately
+          # links against a pre-Tahoe SDK to retain the classic native UI.
+          developer=/Applications/Xcode_26.3.app/Contents/Developer
+          sdk=$(DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer \
+            xcrun --sdk macosx --show-sdk-path)
+          test -d "$developer"
+          test -d "$sdk"
+          echo "DEVELOPER_DIR=$developer" >> "$GITHUB_ENV"
+          echo "MEMEDOCK_MACOS_SDK_PATH=$sdk" >> "$GITHUB_ENV"
       - name: Read and validate version
         id: version
         run: |
@@ -80,7 +91,11 @@ jobs:
       - name: Identify Apple toolchain
         id: toolchain
         run: |
-          key=$({ uname -m; xcodebuild -version; xcrun --sdk macosx --show-sdk-version; } | shasum -a 256 | cut -d ' ' -f 1)
+          xcodebuild -version
+          swift --version
+          sdk_version=$(/usr/libexec/PlistBuddy -c 'Print :Version' "$MEMEDOCK_MACOS_SDK_PATH/SDKSettings.plist")
+          echo "UI SDK: $sdk_version ($MEMEDOCK_MACOS_SDK_PATH)"
+          key=$({ uname -m; xcodebuild -version; swift --version; echo "$sdk_version"; } | shasum -a 256 | cut -d ' ' -f 1)
           echo "key=$key" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         name: Cache native media
@@ -136,6 +151,8 @@ jobs:
       - name: macOS platform tests
         if: inputs.release != true
         run: |
+          # Test frameworks come from the compiler's Xcode. The distributable
+          # bundle above is separately built and verified against the UI SDK.
           work="$GITHUB_WORKSPACE/target/aarch64-apple-darwin/debug"
           swift test --package-path apps/macos -c debug \
             -Xlinker "-L$work" -Xlinker -rpath -Xlinker "$work" \
@@ -146,6 +163,16 @@ jobs:
           plutil -lint "$bundle/Contents/Info.plist"
           test "$(lipo -archs "$bundle/Contents/MacOS/MemeDock")" = arm64
           test "$(lipo -archs "$bundle/Contents/Frameworks/libmemedock_ffi.dylib")" = arm64
+          # Check the final executable, not only the selected SDK: this is the
+          # linked SDK version used for native UI compatibility decisions.
+          linked_sdk=$(xcrun vtool -show-build "$bundle/Contents/MacOS/MemeDock" \
+            | awk '$1 == "sdk" { print $2; exit }')
+          expected_sdk=$(/usr/libexec/PlistBuddy -c 'Print :Version' "$MEMEDOCK_MACOS_SDK_PATH/SDKSettings.plist")
+          echo "Application linked SDK: $linked_sdk"
+          if [[ $linked_sdk != "$expected_sdk" ]] || (( ${linked_sdk%%.*} >= 26 )); then
+            echo "Expected linked SDK $expected_sdk for the classic UI" >&2
+            exit 1
+          fi
           # `ld` and `dyld` reject an image whose LINKEDIT string pool is not
           # pointer aligned, and the linker emits it unaligned whenever the
           # indirect symbol table has an odd number of entries. Not every dyld

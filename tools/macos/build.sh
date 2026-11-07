@@ -66,6 +66,24 @@ mv "$generated/Bridge/MemeDockBridgeFFI.h" "$generated/FFI/MemeDockBridgeFFI.h"
 
 echo "==> Swift build"
 swift_args=(-c "$configuration" --package-path "$apps")
+if [[ -n ${MEMEDOCK_MACOS_SDK_PATH:-} ]]; then
+  # Use the current Swift compiler with a separately selected UI SDK. The
+  # compiler version required by dependencies does not determine UI styling.
+  test -d "$MEMEDOCK_MACOS_SDK_PATH"
+  # The native SwiftPM backend honors external SDK paths consistently; the
+  # newer Swift Build backend can resolve them back to Xcode's bundled SDK.
+  swift_args+=(--build-system native --sdk "$MEMEDOCK_MACOS_SDK_PATH")
+  # Framework macros belong to the compiler's Xcode, not the older SDK.
+  plugins="$(xcrun --sdk macosx --show-sdk-platform-path)/Developer/usr/lib/swift/host/plugins"
+  plugin_server="$(dirname "$(xcrun --find swiftc)")/swift-plugin-server"
+  swift_args+=(-Xswiftc -external-plugin-path -Xswiftc "$plugins#$plugin_server")
+  sdk_version=$(/usr/libexec/PlistBuddy -c 'Print :Version' "$MEMEDOCK_MACOS_SDK_PATH/SDKSettings.plist")
+  minimum_version=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$apps/Bundle/Info.plist")
+  # Match the Mach-O compatibility record to the SDK actually used above,
+  # rather than letting the newer compiler's linker infer its bundled SDK.
+  swift_args+=(-Xlinker -platform_version -Xlinker macos
+               -Xlinker "$minimum_version" -Xlinker "$sdk_version")
+fi
 swift_args+=(-Xlinker "-L$work")
 swift_args+=(-Xlinker -rpath -Xlinker "$work")
 swift_args+=(-Xlinker -rpath -Xlinker "@executable_path/../Frameworks")
