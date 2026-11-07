@@ -173,7 +173,102 @@ final class PlatformTransferTests: XCTestCase {
         XCTAssertNil(LibraryResponder.stage(source))
     }
 
+    // MARK: - Unsupported image paste regressions
+
+    @MainActor
+    func testPlainTextInputRejectsPNGAndPreservesTextAndClipboard() throws {
+        _ = NSApplication.shared
+        let pasteboard = NSPasteboard(name: .init("MemeDockTests-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let png = makePNG()
+        XCTAssertTrue(pasteboard.setData(png, forType: .png))
+        let changeCount = pasteboard.changeCount
+        let editor = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        editor.isRichText = false
+        editor.importsGraphics = false
+        editor.string = "Keep this text"
+        editor.setSelectedRange(NSRange(location: 5, length: 4))
+
+        // Use the normal type-negotiating entry point. Forcing the PNG type
+        // bypasses normal paste validation and would not reproduce this case.
+        XCTAssertFalse(editor.readSelection(from: pasteboard))
+        XCTAssertEqual(editor.string, "Keep this text")
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 5, length: 4))
+        XCTAssertEqual(pasteboard.changeCount, changeCount)
+        XCTAssertEqual(pasteboard.data(forType: .png), png)
+    }
+
+    @MainActor
+    func testSelfPasteIsRejectedBeforeHidingOrCheckingClipboard() async {
+        _ = NSApplication.shared
+        let session = InputPasteSession()
+        _ = await session.capture(.current)
+        var hidden = false
+        do {
+            // Deliberately not a real clipboard revision: self-target refusal
+            // must happen before clipboard checks, permissions or event posting.
+            try await session.paste(changeCount: -1) { hidden = true }
+            XCTFail("Pasting an image into MemeDock's plain-text inputs must be refused")
+        } catch let error as AppFailure {
+            XCTAssertEqual(error.key, .pasteUnsupportedInput)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        XCTAssertFalse(hidden)
+        XCTAssertFalse(session.inProgress)
+        let target = await InputAnchorResolver().capture(processIdentifier: ProcessInfo.processInfo.processIdentifier)
+        XCTAssertNil(target)
+    }
+
+    @MainActor
+    func testUnsupportedPasteKeepsPickerOpenAndReportsSuccessfulCopyInBothLanguages() {
+        let originalLanguage = L10n.language
+        defer { L10n.language = originalLanguage }
+        for language in [Language.chinese, .english] {
+            L10n.language = language
+            let model = makeInactivePicker()
+            defer { model.shutdown() }
+            model.present()
+            var dismissed = false
+            model.copied = { dismissed = true }
+
+            model.reportOutputFailure(AppFailure(.pasteUnsupportedInput), copiedChangeCount: 42, currentChangeCount: 42)
+
+            XCTAssertTrue(model.isPresented)
+            XCTAssertFalse(dismissed)
+            XCTAssertFalse(model.status.isFailure)
+            XCTAssertEqual(model.status.message, "\(L10n.text(.imageCopied))\n\(L10n.text(.pasteUnsupportedInput))")
+        }
+    }
+
+    @MainActor
+    func testUnsupportedPasteAfterClipboardReplacementDoesNotClaimCopyIsAvailable() {
+        let model = makeInactivePicker()
+        defer { model.shutdown() }
+        model.present()
+
+        model.reportOutputFailure(AppFailure(.pasteUnsupportedInput), copiedChangeCount: 42, currentChangeCount: 43)
+
+        XCTAssertTrue(model.isPresented)
+        XCTAssertTrue(model.status.isFailure)
+        XCTAssertTrue(model.status.message?.hasPrefix(L10n.text(.pasteCancelled)) == true)
+        XCTAssertFalse(model.status.message?.contains(L10n.text(.imageCopied)) == true)
+    }
+
     // MARK: - Helpers
+
+    @MainActor
+    private func makeInactivePicker() -> QuickPickerModel {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("MemeDockTests-\(UUID().uuidString)")
+        // No start(), database, user library, permissions or general pasteboard
+        // are needed to exercise presentation of a failed image insertion.
+        let session = LibrarySession(paths: AppPaths(
+            data: root.appendingPathComponent("library"),
+            cache: root.appendingPathComponent("cache"),
+            export: root.appendingPathComponent("exports")
+        ))
+        return QuickPickerModel(session: session, clipboard: ClipboardGuard(session: session), loadsCollections: false)
+    }
 
     private func makePNG() -> Data {
         let bitmap = NSBitmapImageRep(
