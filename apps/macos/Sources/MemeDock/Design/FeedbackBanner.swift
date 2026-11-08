@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A bounded message surface: long errors scroll without moving the close button
-/// or changing the size of the containing panel.
+/// A compact overlay whose height follows its message rather than reserving
+/// an empty row. Full error details remain available in the help tooltip.
 struct FeedbackBanner: View {
     let message: String
     let isFailure: Bool
@@ -14,17 +14,17 @@ struct FeedbackBanner: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: isFailure ? "exclamationmark.circle" : "checkmark.circle")
                 .frame(width: 18, height: 24)
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(message)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if let actionTitle, let action {
-                        Button(actionTitle, action: action).buttonStyle(.plain)
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(message)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(message)
+                if let actionTitle, let action {
+                    Button(actionTitle, action: action).buttonStyle(.plain)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Button(action: dismiss) {
                 Image(systemName: "xmark")
                     .frame(width: 24, height: 24)
@@ -36,7 +36,7 @@ struct FeedbackBanner: View {
         .font(MemeDockTypography.caption)
         .foregroundStyle(isFailure ? MemeDockPalette(scheme).error : MemeDockPalette(scheme).secondary)
         .padding(8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(.regularMaterial,
                     in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
     }
