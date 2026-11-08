@@ -59,6 +59,9 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
     internal BackupViewModel? Backup { get; private set; }
     public SyncCoordinator? Sync { get; private set; }
     internal ThumbnailLoader? Thumbnails { get; private set; }
+    internal QuickPickerViewModel? Picker { get; private set; }
+    internal QuickPickerViewModel? Recents { get; private set; }
+    internal TelegramImportViewModel? Telegram { get; private set; }
 
     private LibrarySession? _session;
     private string? _root;
@@ -68,6 +71,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
     private SubscriptionHandle? _subscription;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _queryCancellation;
+    private CancellationTokenSource? _importCancellation;
     private readonly SemaphoreSlim _queries = new(1);
     private readonly BrowseRequestState _requests = new();
     private Task _observer = Task.CompletedTask;
@@ -115,6 +119,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         Catalog?.Relocalize();
         TrashGroups?.Relocalize();
         Output?.Relocalize();
+        Telegram?.Relocalize();
         foreach (var property in new[] { nameof(Heading), nameof(EmptyHeading), nameof(CountText), nameof(SelectionText),
             nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText), nameof(IsTrash) }) OnPropertyChanged(property);
     }
@@ -158,6 +163,11 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         Catalog = new CatalogViewModel(session, strings, RefreshCatalogsAsync);
         TrashGroups ??= new TrashGroupsViewModel(session, strings, RefreshCatalogsAsync);
         Output = new StickerOutputViewModel(session, strings, outputDefaults);
+        Picker = new QuickPickerViewModel(session, strings);
+        Recents = new QuickPickerViewModel(session, strings, maximum: 8);
+        Telegram = new TelegramImportViewModel(new TelegramWorkspace(session), new TelegramTokenStore(), strings,
+            async () => { await RefreshCatalogsAsync(); await RefreshAsync(preserveLoaded: true); ContentChanged?.Invoke(this, null); });
+        Telegram.PropertyChanged += (_, _) => OnPropertyChanged(nameof(Telegram));
         Storage ??= new StorageViewModel(session, strings);
         Backup ??= new BackupViewModel(session, session, _backupDestinationPicker!, _archiveSourcePicker!,
             this, strings);
@@ -173,8 +183,11 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         if (IsImporting || IsTrashing) return false;
         if (Batch is { IsRunning: true } || Catalog is { IsBusy: true } || TrashGroups is { IsBusy: true }) return false;
         if (Output is { IsBusy: true } || Details is { IsSaving: true } || Storage is { IsCleaning: true }) return false;
+        if (Telegram?.Busy == true) return false;
 
         IsRestoring = true;
+        Picker?.Suspend();
+        Recents?.Suspend();
         OnPropertyChanged(nameof(IsRestoring));
         _requests.Invalidate();
         _queryCancellation?.Cancel();
@@ -331,6 +344,9 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         TrashGroups?.RequestStop();
         Storage?.RequestStop();
         await ShutdownRun.SequenceAsync(
+            () => Picker is null ? Task.CompletedTask : Picker.DisposeAsync().AsTask(),
+            () => Recents is null ? Task.CompletedTask : Recents.DisposeAsync().AsTask(),
+            () => Telegram is null ? Task.CompletedTask : Telegram.DisposeAsync().AsTask(),
             () => Sync is null ? Task.CompletedTask : Sync.DisposeAsync().AsTask(),
             () => Output is null ? Task.CompletedTask : Output.DisposeAsync().AsTask(),
             () => Details is null ? Task.CompletedTask : Details.DisposeAsync().AsTask(),
@@ -343,6 +359,9 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
             () => _observer);
 
         Sync = null;
+        Picker = null;
+        Recents = null;
+        Telegram = null;
         Output = null;
         Details = null;
         Batch = null;
@@ -624,26 +643,44 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         Task.FromResult<IReadOnlyList<StickerImportSource>>(paths.Select(StickerImportSource.FromPath).ToArray()));
 
     internal bool CanImport => IsReady && _session is not null && !_stopping && !IsImporting && !IsRestoring
-        && !IsTrashing && !IsTrash && Batch?.IsRunning != true;
+        && !IsTrashing && !IsTrash && Batch?.IsRunning != true && Telegram?.Busy != true;
 
-    internal async Task ImportAsync(Func<CancellationToken, Task<IReadOnlyList<StickerImportSource>>> prepare)
+    internal Task ImportIntoLibraryAsync(Func<CancellationToken, Task<IReadOnlyList<StickerImportSource>>> prepare)
+        => ImportAsync(prepare, libraryWide: true);
+
+    internal void CancelImport()
+    {
+        if (!IsImporting) return;
+        ImportMessageKey = "import_cancelling";
+        _importCancellation?.Cancel();
+        NotifyState();
+    }
+
+    internal Task ImportAsync(Func<CancellationToken, Task<IReadOnlyList<StickerImportSource>>> prepare)
+        => ImportAsync(prepare, libraryWide: false);
+
+    private async Task ImportAsync(Func<CancellationToken, Task<IReadOnlyList<StickerImportSource>>> prepare, bool libraryWide)
     {
         // IsReady is false while a replace rebuilds the page and after a failed adopt, so an
         // import cannot slip into a half-bound session even if it bypasses the disabled UI.
-        if (!CanImport || _session is not { } session) return;
+        if ((!CanImport && !(libraryWide && IsReady && !_stopping && !IsImporting && !IsRestoring
+            && !IsTrashing && Batch?.IsRunning != true && Telegram?.Busy != true)) || _session is not { } session) return;
         IsImporting = true;
+        using var importCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _importCancellation = importCancellation;
+        var token = importCancellation.Token;
         ImportMessageKey = "import_preparing";
         ImportTotal = 0;
         ImportCompleted = 0;
         _importCreated = _importExisting = 0;
-        var collection = Filter.Scope == LibraryScope.Collection ? Filter.Id : null;
+        var collection = !libraryWide && Filter.Scope == LibraryScope.Collection ? Filter.Id : null;
         try
         {
             // Hold IsImporting before reading delayed clipboard/drag data so a
             // restore cannot replace the session while the source is resolving.
             NotifyState();
-            var sources = await prepare(_lifetime.Token);
-            _lifetime.Token.ThrowIfCancellationRequested();
+            var sources = await prepare(token);
+            token.ThrowIfCancellationRequested();
             if (!ReferenceEquals(_session, session))
                 throw new BridgeException.Failure(ErrorCode.Conflict, "Import session changed.");
             if (sources.Count == 0) { ImportMessageKey = "desktop_import_empty"; return; }
@@ -655,7 +692,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
                 ImportCompleted = index + 1;
                 NotifyState();
                 var source = sources[index];
-                var outcome = await session.ImportAsync(source.Name, source.OpenRead, collection, _lifetime.Token);
+                var outcome = await session.ImportAsync(source.Name, source.OpenRead, collection, token);
                 if (outcome.Status == ImportStatus.RestoreRequired)
                 {
                     ImportMessageKey = "import_restore_required";
@@ -667,10 +704,11 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
             ImportMessageKey = _importExisting == 0 ? "import_done"
                 : _importCreated == 0 ? "import_done_existing" : "import_done_reused";
         }
-        catch (OperationCanceledException) { ImportMessageKey = null; }
+        catch (OperationCanceledException) { ImportMessageKey = _stopping ? null : "import_cancelled"; }
         catch (Exception error) { Trace.WriteLine(error); ImportMessageKey = strings.ErrorKey(error); }
         finally
         {
+            _importCancellation = null;
             IsImporting = false;
             NotifyState();
             if (!_stopping) await RefreshAsync(preserveLoaded: true);
@@ -748,6 +786,9 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
     public void RequestStop()
     {
         _stopping = true;
+        Picker?.Suspend();
+        Recents?.Suspend();
+        Telegram?.Cancel();
         // The deleted catalog owns its own query lifetime, so it has to be
         // cancelled here: DisposeAsync only reaches it after the other children,
         // and a closing window must not keep a catalog query alive meanwhile.
@@ -790,6 +831,9 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
             // Assigned through a local: ??= would skip the whole cleanup sequence
             // when a background task already failed.
             var cleanup = await ShutdownRun.SequenceAsync(
+                () => Picker is null ? Task.CompletedTask : Picker.DisposeAsync().AsTask(),
+                () => Recents is null ? Task.CompletedTask : Recents.DisposeAsync().AsTask(),
+                () => Telegram is null ? Task.CompletedTask : Telegram.DisposeAsync().AsTask(),
                 () => Sync is null ? Task.CompletedTask : Sync.DisposeAsync().AsTask(),
                 () => Output is null ? Task.CompletedTask : Output.DisposeAsync().AsTask(),
                 () => Details is null ? Task.CompletedTask : Details.DisposeAsync().AsTask(),

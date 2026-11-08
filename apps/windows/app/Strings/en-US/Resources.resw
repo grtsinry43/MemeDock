@@ -179,7 +179,7 @@
   <data name="sync_reauthorize" xml:space="preserve"><value>Update token</value></data>
   <data name="sync_disconnect" xml:space="preserve"><value>Disconnect</value></data>
   <data name="sync_disconnect_hint" xml:space="preserve"><value>Syncing will stop. Stickers on this device will not be affected.</value></data>
-  <data name="sync_lifecycle_hint" xml:space="preserve"><value>Sync runs automatically while the app is running. It stops when syncing is paused or the app is closed.</value></data>
+  <data name="sync_lifecycle_hint" xml:space="preserve"><value>Closing the window keeps syncing in the system tray. Pausing sync or quitting MemeDock stops it.</value></data>
   <data name="sync_merge_hint" xml:space="preserve"><value>Connecting for the first time merges stickers on this device with the server. Deletions also sync across devices.</value></data>
   <data name="sync_blocked_hint" xml:space="preserve"><value>Some changes could not be synced due to conflicts. Check the web console for details.</value></data>
   <data name="sync_failure_unauthorized" xml:space="preserve"><value>Device token expired or invalid. Please enter a new token.</value></data>
@@ -265,4 +265,85 @@
   <data name="desktop_output_drag_hint" xml:space="preserve"><value>Files dragged into other apps</value></data>
   <data name="output_copy_hint" xml:space="preserve"><value>The Copy button, the context menu and Ctrl+C</value></data>
   <data name="settings_windows_colors" xml:space="preserve"><value>Windows color settings</value></data>
+  <data name="picker_title" xml:space="preserve"><value>Sticker Panel</value></data>
+  <data name="picker_search" xml:space="preserve"><value>Search stickers</value></data>
+  <data name="picker_choose" xml:space="preserve"><value>Choose a Sticker</value></data>
+  <data name="picker_library" xml:space="preserve"><value>Library</value></data>
+  <data name="picker_open_library" xml:space="preserve"><value>Show in Library</value></data>
+  <data name="picker_hint" xml:space="preserve"><value>↩ Paste</value></data>
+  <data name="picker_filters" xml:space="preserve"><value>Sticker filter</value></data>
+  <data name="picker_more" xml:space="preserve"><value>Load more</value></data>
+  <data name="picker_more_actions" xml:space="preserve"><value>More</value></data>
+  <data name="picker_empty" xml:space="preserve"><value>No stickers yet</value></data>
+  <data name="picker_paste" xml:space="preserve"><value>Paste</value></data>
+  <data name="picker_copy" xml:space="preserve"><value>Copy Only</value></data>
+  <data name="picker_copy_file" xml:space="preserve"><value>Copy file</value></data>
+  <data name="picker_close" xml:space="preserve"><value>Close</value></data>
+  <data name="picker_paste_missing" xml:space="preserve"><value>Couldn’t return to the original input field.</value></data>
+  <data name="picker_paste_changed" xml:space="preserve"><value>The active app changed.</value></data>
+  <data name="picker_clipboard_changed" xml:space="preserve"><value>Clipboard contents changed; nothing was pasted.</value></data>
+  <data name="picker_paste_unsupported" xml:space="preserve"><value>This field doesn’t accept images. Paste into a chat instead.</value></data>
+  <data name="picker_paste_blocked" xml:space="preserve"><value>Copied. Paste manually.</value></data>
+  <data name="picker_loading_library" xml:space="preserve"><value>Opening library…</value></data>
+  <data name="picker_restoring" xml:space="preserve"><value>Restoring library…</value></data>
+  <data name="picker_set_shortcut" xml:space="preserve"><value>Set Shortcut…</value></data>
+  <data name="picker_shortcut" xml:space="preserve"><value>Open Sticker Panel</value></data>
+  <data name="picker_shortcut_conflict" xml:space="preserve"><value>This shortcut is unavailable. Choose another combination.</value></data>
+  <data name="picker_record_shortcut" xml:space="preserve"><value>Press a key combination</value></data>
+  <data name="picker_clear_shortcut" xml:space="preserve"><value>Clear shortcut</value></data>
+  <data name="picker_anchor" xml:space="preserve"><value>Show Near Input Field</value></data>
+  <data name="picker_anchor_hint" xml:space="preserve"><value>If the input field can’t be located, the panel appears near the pointer.</value></data>
+  <data name="picker_paste_hint" xml:space="preserve"><value>MemeDock locates the input field without reading your text. If automatic paste is unavailable, copy and paste manually.</value></data>
+  <data name="desktop_show_taskbar" xml:space="preserve"><value>Show Icon in Taskbar</value></data>
+  <data name="desktop_launch_login" xml:space="preserve"><value>Open at Login</value></data>
+  <data name="desktop_resident_hint" xml:space="preserve"><value>MemeDock stays in the system tray when you close the window.</value></data>
+  <data name="desktop_startup_settings" xml:space="preserve"><value>Open Startup Apps Settings…</value></data>
+  <data name="desktop_startup_failed" xml:space="preserve"><value>Couldn’t update the login startup setting.</value></data>
+  <data name="desktop_preferences_failed" xml:space="preserve"><value>Couldn’t save settings. Please try again.</value></data>
+  <data name="desktop_quit" xml:space="preserve"><value>Quit MemeDock</value></data>
+  <data name="desktop_import_files" xml:space="preserve"><value>From Files…</value></data>
+  <data name="desktop_import_clipboard" xml:space="preserve"><value>From Clipboard</value></data>
+  <data name="tg_title" xml:space="preserve"><value>Import from Telegram</value></data>
+  <data name="tg_token" xml:space="preserve"><value>Bot token</value></data>
+  <data name="tg_token_hint" xml:space="preserve"><value>Create a bot with @BotFather and paste its token here</value></data>
+  <data name="tg_remember" xml:space="preserve"><value>Remember in Windows Credential Manager</value></data>
+  <data name="tg_forget" xml:space="preserve"><value>Forget the saved token</value></data>
+  <data name="tg_token_failed" xml:space="preserve"><value>The token could not be read from or written to Windows Credential Manager</value></data>
+  <data name="tg_token_invalid" xml:space="preserve"><value>Telegram rejected this token</value></data>
+  <data name="tg_pack_missing" xml:space="preserve"><value>That sticker pack was not found</value></data>
+  <data name="tg_pack" xml:space="preserve"><value>Sticker pack</value></data>
+  <data name="tg_pack_placeholder" xml:space="preserve"><value>Pack name or t.me/addstickers/… link</value></data>
+  <data name="tg_load" xml:space="preserve"><value>Load stickers</value></data>
+  <data name="tg_loading" xml:space="preserve"><value>Loading sticker pack…</value></data>
+  <data name="tg_select_new" xml:space="preserve"><value>Select the new ones</value></data>
+  <data name="tg_import" xml:space="preserve"><value>Import selected</value></data>
+  <data name="tg_cancel" xml:space="preserve"><value>Cancel import</value></data>
+  <data name="tg_selected" xml:space="preserve"><value>{0} selected</value></data>
+  <data name="tg_progress" xml:space="preserve"><value>Importing {0} of {1}…</value></data>
+  <data name="tg_import_stopped" xml:space="preserve"><value>Stopped after {0} sticker(s)</value></data>
+  <data name="tg_import_partial" xml:space="preserve"><value>Imported {0}, {1} failed</value></data>
+  <data name="tg_import_restore" xml:space="preserve"><value>{0} waiting to be restored</value></data>
+  <data name="tg_import_done" xml:space="preserve"><value>Imported {0}, reused {1}</value></data>
+  <data name="tg_added" xml:space="preserve"><value>Imported</value></data>
+  <data name="tg_existing" xml:space="preserve"><value>Already in the library</value></data>
+  <data name="tg_restore" xml:space="preserve"><value>In the trash</value></data>
+  <data name="tg_failed" xml:space="preserve"><value>Import failed</value></data>
+  <data name="tg_pending" xml:space="preserve"><value>Waiting</value></data>
+  <data name="tg_missing_original" xml:space="preserve"><value>Original missing; can download again</value></data>
+  <data name="tg_available" xml:space="preserve"><value>Available</value></data>
+  <data name="picker_save" xml:space="preserve"><value>Save as</value></data>
+  <data name="picker_saved" xml:space="preserve"><value>Saved</value></data>
+  <data name="picker_recent" xml:space="preserve"><value>Recently Used</value></data>
+  <data name="picker_starred" xml:space="preserve"><value>Favorites</value></data>
+  <data name="picker_all" xml:space="preserve"><value>All</value></data>
+  <data name="picker_collections" xml:space="preserve"><value>Collections</value></data>
+  <data name="picker_view_all" xml:space="preserve"><value>View All</value></data>
+  <data name="picker_no_results" xml:space="preserve"><value>No stickers found</value></data>
+  <data name="tg_import_added" xml:space="preserve"><value>Imported {0} sticker(s)</value></data>
+  <data name="desktop_integration" xml:space="preserve"><value>System integration</value></data>
+  <data name="desktop_resident_group" xml:space="preserve"><value>Startup and residency</value></data>
+  <data name="picker_loading" xml:space="preserve"><value>Loading…</value></data>
+  <data name="picker_shortcut_record_hint" xml:space="preserve"><value>Press a shortcut with Ctrl, Alt, Shift, or Windows. Use Tab to move to Save or Cancel.</value></data>
+  <data name="picker_shortcut_save" xml:space="preserve"><value>Save</value></data>
+  <data name="picker_shortcut_record_failed" xml:space="preserve"><value>Could not start shortcut recording. Please try again.</value></data>
 </root>

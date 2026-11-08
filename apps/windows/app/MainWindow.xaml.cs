@@ -115,6 +115,7 @@ public sealed partial class MainWindow : Window
         _updatingNavigation = true;
         Navigation.SelectedItem = AllNavigation;
         _updatingNavigation = false;
+        InitializeDesktop();
     }
 
     public static Visibility ToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
@@ -150,7 +151,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnAppearanceChanged(AppearanceMode mode) => ApplyAppearance(mode);
+    private void OnAppearanceChanged(AppearanceMode mode)
+    {
+        ApplyAppearance(mode);
+        _desktop?.ApplyAppearance(mode);
+    }
 
     private async void OnLoaded(object sender, RoutedEventArgs args)
     {
@@ -159,6 +164,7 @@ public sealed partial class MainWindow : Window
         Motion.ConfigureConnectedAnimations(Root);
         _initialization = InitializeAsync();
         await _initialization;
+        if (!_stopping && _desktop?.CanReside == true && Environment.GetCommandLineArgs().Contains("--background")) AppWindow.Hide();
     }
 
     private async Task InitializeAsync()
@@ -218,6 +224,7 @@ public sealed partial class MainWindow : Window
         RestoreButton.Label = Strings["restore"];
         PurgeButton.Label = Strings["purge_title"];
         Settings.Relocalize();
+        TelegramNavigation.Content = Strings["tg_title"];
         Details.Relocalize();
         Batch.Relocalize();
         TrashGroupsPanel.Relocalize();
@@ -1271,6 +1278,12 @@ public sealed partial class MainWindow : Window
         if (_stopping) return;
         if (ViewModel.Details is { } detail && !await detail.CommitAsync()) return;
         if (_stopping) return;
+        if (ResidentLifetime.ShouldHide(_quitRequested, _desktop?.CanReside == true))
+        {
+            _desktop?.Dismiss(false);
+            AppWindow.Hide();
+            return;
+        }
         _stopping = true;
         _dialog?.Hide();
         Notice.Hide();
@@ -1292,6 +1305,7 @@ public sealed partial class MainWindow : Window
                 () => _searching,
                 () => _importing,
                 () => Settings.PendingSave,
+                () => _desktop is null ? Task.CompletedTask : _desktop.DisposeAsync().AsTask(),
                 () => ViewModel.DisposeAsync().AsTask());
             if (failure is not null) Trace.WriteLine($"Library shutdown: {failure}");
         }

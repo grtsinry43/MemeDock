@@ -24,7 +24,7 @@ public sealed partial class SettingsView : UserControl
     private bool _confirming;
     private bool _closed;
     private Task _saving = Task.CompletedTask;
-    public Task PendingSave => _saving;
+    public Task PendingSave => Task.WhenAll(_saving, _desktopSaving);
 
     /// <summary>
     /// Raised before the change is written so the window can repaint immediately;
@@ -116,6 +116,8 @@ public sealed partial class SettingsView : UserControl
     /// </summary>
     public void ShutdownStorage()
     {
+        if (_desktop is not null) _desktop.SettingsChanged -= RelocalizeDesktop;
+        _shortcutDialog?.Hide();
         _closed = true;
         _storage = null;
     }
@@ -133,6 +135,7 @@ public sealed partial class SettingsView : UserControl
     public void Relocalize()
     {
         if (_strings is null || _preferences is null) return;
+        RelocalizeDesktop();
         _updating = true;
         try
         {
