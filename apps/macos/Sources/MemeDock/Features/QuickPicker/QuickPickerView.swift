@@ -44,7 +44,6 @@ struct QuickPickerView: View {
                             actionTitle: needsAccess ? L10n.text(.grantAccessibility) : nil,
                             action: needsAccess ? requestAccess : nil
                         )
-                        .frame(height: needsAccess ? 88 : 64)
                         .padding(.horizontal, 12).padding(.bottom, 8)
                     }
                 }

@@ -175,6 +175,12 @@ final class QuickPickerModel: ObservableObject {
     /// Distinguish it from a changed clipboard and from failure before copying.
     func reportOutputFailure(_ error: Error, copiedChangeCount: Int?, currentChangeCount: Int) {
         let clipboardChanged = copiedChangeCount.map { currentChangeCount != $0 } ?? false
+        if copiedChangeCount != nil, !clipboardChanged, (error as? AppFailure)?.key == .pasteTargetMissing {
+            // A failed focus handoff leaves the copied image available for
+            // manual paste. Do not interrupt browsing with a target warning.
+            status.clear()
+            return
+        }
         let unsupported = (error as? AppFailure)?.key == .pasteUnsupportedInput
         if copiedChangeCount != nil, unsupported, !clipboardChanged {
             status.show("\(L10n.text(.imageCopied))\n\(describe(error))", persistent: true)

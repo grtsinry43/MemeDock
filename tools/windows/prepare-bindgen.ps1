@@ -18,6 +18,9 @@ function Invoke-Git {
 
 if (!(Test-Path -LiteralPath $source)) {
     Invoke-Git @('clone', '--no-checkout', $origin, $source)
+    # A pinned PR commit may no longer be reachable from the default clone's
+    # branch refs. Fetch the exact object before checking out the fixed version.
+    Invoke-Git @('-C', $source, 'fetch', 'origin', $revision)
     Invoke-Git @('-C', $source, 'checkout', '--detach', $revision)
 }
 $actualRevision = & git -C $source rev-parse HEAD

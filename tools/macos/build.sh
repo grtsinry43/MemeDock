@@ -115,6 +115,11 @@ cp "$root/apps/android/app/src/main/assets/font_licenses/quicksand-OFL.txt" \
 # Cargo records the absolute build path as the dylib's install name, so the
 # copied executable would keep loading from target/ and ignore the bundled
 # copy. Repoint both sides at the rpath the linker settings already provide.
+# Remove build signatures before changing load commands. In particular, older
+# install_name_tool rejects the signature layout of a padded Release dylib.
+# Both images are aligned and signed again after all bundle edits below.
+codesign --remove-signature "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"
+codesign --remove-signature "$bundle/Contents/MacOS/MemeDock"
 linked=$(otool -L "$bundle/Contents/MacOS/MemeDock" | awk '/libmemedock_ffi\.dylib/ {print $1; exit}')
 install_name_tool -id @rpath/libmemedock_ffi.dylib "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"
 install_name_tool -change "$linked" @rpath/libmemedock_ffi.dylib "$bundle/Contents/MacOS/MemeDock"

@@ -214,7 +214,6 @@ struct MenuBarFeedback: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
             } else if let message = source.message {
                 FeedbackBanner(message: message, isFailure: source.isFailure, dismiss: source.clear)
-                    .frame(height: 64)
             }
         }
     }
