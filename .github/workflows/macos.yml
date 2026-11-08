@@ -139,7 +139,7 @@ jobs:
         if: inputs.release != true
         run: |
           work="$GITHUB_WORKSPACE/target/aarch64-apple-darwin/debug"
-          swift test --package-path apps/macos -c debug --build-system swiftbuild \
+          swift test --package-path apps/macos -c debug \
             -Xlinker "-L$work" -Xlinker -rpath -Xlinker "$work" \
             -Xlinker -rpath -Xlinker '@executable_path/../Frameworks'
       - name: Verify the bundle

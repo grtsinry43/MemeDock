@@ -60,9 +60,22 @@ mv "$generated/Bridge/MemeDockBridgeFFI.modulemap" "$generated/FFI/module.module
 mv "$generated/Bridge/MemeDockBridgeFFI.h" "$generated/FFI/MemeDockBridgeFFI.h"
 
 echo "==> Swift build"
-# Use the same backend across Swift versions. The native backend's resource
-# accessor only searches the app root and build tree, not Contents/Resources.
-swift_args=(-c "$configuration" --package-path "$apps" --build-system swiftbuild)
+# Keep the pinned dependency's localization lookup compatible with a signed
+# macOS app. SwiftPM's native Bundle.module accessor misses Contents/Resources.
+swift package --package-path "$apps" resolve
+shortcuts="$apps/.build/checkouts/KeyboardShortcuts"
+resource_patch="$root/tools/macos/keyboardshortcuts-resources.patch"
+if [[ $(git -C "$shortcuts" rev-parse HEAD) != 772133d9dbe800fdac0473226822994c5c162c58 ]]; then
+  echo "KeyboardShortcuts resource patch requires the pinned 3.1.0 revision." >&2
+  exit 1
+fi
+if git -C "$shortcuts" apply --check "$resource_patch" 2>/dev/null; then
+  git -C "$shortcuts" apply "$resource_patch"
+elif ! git -C "$shortcuts" apply --reverse --check "$resource_patch"; then
+  echo "KeyboardShortcuts resource patch does not match the checkout." >&2
+  exit 1
+fi
+swift_args=(-c "$configuration" --package-path "$apps")
 swift_args+=(-Xlinker "-L$work")
 swift_args+=(-Xlinker -rpath -Xlinker "$work")
 swift_args+=(-Xlinker -rpath -Xlinker "@executable_path/../Frameworks")
@@ -79,9 +92,8 @@ echo "==> App icon"
 # rather than a macOS-only copy of it.
 bash "$root/tools/macos/make-icns.sh" "$bundle/Contents/Resources/AppIcon.icns"
 cp "$binary" "$bundle/Contents/MacOS/MemeDock"
-# SwiftPM resolves this module's resources inside Bundle.main.resourceURL in
-# packaged apps. Copy it as well as the executable, so the recorder works away
-# from the build tree and retains its localized labels.
+# The localization patch above loads this bundle from Contents/Resources in
+# packaged apps, retaining SwiftPM's normal lookup for development executables.
 cp -R "$swift_products/KeyboardShortcuts_KeyboardShortcuts.bundle" "$bundle/Contents/Resources/"
 cp "$apps/.build/checkouts/KeyboardShortcuts/license" "$bundle/Contents/Resources/KeyboardShortcuts-LICENSE.txt"
 cp "$work/libmemedock_ffi.dylib" "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"
