@@ -1,0 +1,75 @@
+<Window x:Class="MemeDock.Windows.Views.TrayPanelWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:views="using:MemeDock.Windows.Views">
+    <ScrollViewer Background="Transparent" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid x:Name="Root" Padding="16" RowSpacing="12" AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop" SizeChanged="OnContentSizeChanged">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="MemeDock" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center"/>
+                <Button x:Name="More" Grid.Column="1" Style="{StaticResource SubtleButtonStyle}" Padding="8">
+                    <FontIcon Glyph="&#xE712;" FontSize="16"/>
+                    <Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="SyncNow" Click="OnSync"/><MenuFlyoutItem x:Name="Quit" Click="OnQuit"/></MenuFlyout></Button.Flyout>
+                </Button>
+            </Grid>
+            <Grid x:Name="ActivityRegion" Grid.Row="1" RowSpacing="6">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Button x:Name="Status" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Style="{StaticResource SubtleButtonStyle}" Padding="0,4" Click="OnStatus"/>
+                    <Button x:Name="CancelActivity" Grid.Column="1" Click="OnCancelActivity" Style="{StaticResource SubtleButtonStyle}" Padding="6">
+                        <FontIcon Glyph="&#xE711;" FontSize="12"/>
+                    </Button>
+                </Grid>
+                <ProgressBar x:Name="ImportProgress" Grid.Row="1"/>
+            </Grid>
+            <Grid Grid.Row="2" ColumnSpacing="4">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <!-- Normal buttons take part in layout; CommandBar's open labels overlay
+                     adjacent rows and disappear when its light-dismiss state closes. -->
+                <Button x:Name="Choose" Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="4,10" Click="OnChoose">
+                    <StackPanel Spacing="8">
+                        <FontIcon Glyph="&#xE76E;" FontSize="22" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="ChooseLabel" Style="{StaticResource CaptionTextBlockStyle}" TextAlignment="Center" TextWrapping="Wrap" MaxLines="2" MinHeight="32"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="Import" Grid.Column="1" Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="4,10">
+                    <StackPanel Spacing="8">
+                        <FontIcon Glyph="&#xE896;" FontSize="22" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="ImportLabel" Style="{StaticResource CaptionTextBlockStyle}" TextAlignment="Center" TextWrapping="Wrap" MaxLines="2" MinHeight="32"/>
+                    </StackPanel>
+                    <Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="Files" Click="OnFiles"/><MenuFlyoutItem x:Name="FromClipboard" Click="OnClipboard"/><MenuFlyoutItem x:Name="Telegram" Click="OnTelegram"/></MenuFlyout></Button.Flyout>
+                </Button>
+                <Button x:Name="Library" Grid.Column="2" Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="4,10" Click="OnLibrary">
+                    <StackPanel Spacing="8">
+                        <FontIcon Glyph="&#xE80A;" FontSize="22" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="LibraryLabel" Style="{StaticResource CaptionTextBlockStyle}" TextAlignment="Center" TextWrapping="Wrap" MaxLines="2" MinHeight="32"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="Settings" Grid.Column="3" Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="4,10" Click="OnSettings">
+                    <StackPanel Spacing="8">
+                        <FontIcon Glyph="&#xE713;" FontSize="22" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="SettingsLabel" Style="{StaticResource CaptionTextBlockStyle}" TextAlignment="Center" TextWrapping="Wrap" MaxLines="2" MinHeight="32"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+            <Grid Grid.Row="3" RowSpacing="8">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="RecentsHeading" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center"/>
+                    <Button x:Name="ViewAll" Grid.Column="1" Style="{StaticResource SubtleButtonStyle}" Padding="6,2" Click="OnLibrary"/>
+                </Grid>
+                <views:StickerPickerView x:Name="Picker" Grid.Row="1"/>
+            </Grid>
+            <Grid x:Name="ShortcutFooter" Grid.Row="4" ColumnSpacing="8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Button x:Name="ShortcutHint" HorizontalAlignment="Left" Style="{StaticResource SubtleButtonStyle}" Padding="0,4" Click="OnSettings"/>
+                <views:ShortcutKeys x:Name="ShortcutValue" Grid.Column="1" VerticalAlignment="Center"/>
+                <Button x:Name="DismissHint" Grid.Column="1" Style="{StaticResource SubtleButtonStyle}" Padding="6" Click="OnDismissHint">
+                    <FontIcon Glyph="&#xE711;" FontSize="12"/>
+                </Button>
+            </Grid>
+        </Grid>
+    </ScrollViewer>
+</Window>

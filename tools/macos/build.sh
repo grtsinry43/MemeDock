@@ -42,14 +42,9 @@ bash "$root/tools/native-media/build.sh" "$target"
 echo "==> Rust cdylib ($configuration)"
 cargo_args=(build --locked --target "$target" -p memedock-ffi -p memedock-bindgen)
 if [[ "$configuration" == release ]]; then cargo_args+=(--release); fi
-(cd "$root" && cargo "${cargo_args[@]}")
-
-echo "==> LINKEDIT string pool alignment"
-# The linker starts the string pool right after the indirect symbol table, so
-# an odd number of indirect symbols leaves the pool four bytes off a pointer
-# boundary; `ld` and `dyld` then both reject the image. Re-emit the padding the
-# linker left out before anything links against or loads the dylib.
-"$python" "$root/tools/macos/align-string-pool.py" "$work/libmemedock_ffi.dylib"
+# Avoid the Mach-O stripping bug tracked in rust-lang/rust#157750.
+(cd "$root" && CARGO_PROFILE_DEV_STRIP=none CARGO_PROFILE_RELEASE_STRIP=none \
+  cargo "${cargo_args[@]}")
 
 echo "==> UniFFI Swift bindings"
 rm -rf "$generated/FFI" "$generated/Bridge"
@@ -66,24 +61,6 @@ mv "$generated/Bridge/MemeDockBridgeFFI.h" "$generated/FFI/MemeDockBridgeFFI.h"
 
 echo "==> Swift build"
 swift_args=(-c "$configuration" --package-path "$apps")
-if [[ -n ${MEMEDOCK_MACOS_SDK_PATH:-} ]]; then
-  # Use the current Swift compiler with a separately selected UI SDK. The
-  # compiler version required by dependencies does not determine UI styling.
-  test -d "$MEMEDOCK_MACOS_SDK_PATH"
-  # The native SwiftPM backend honors external SDK paths consistently; the
-  # newer Swift Build backend can resolve them back to Xcode's bundled SDK.
-  swift_args+=(--build-system native --sdk "$MEMEDOCK_MACOS_SDK_PATH")
-  # Framework macros belong to the compiler's Xcode, not the older SDK.
-  plugins="$(xcrun --sdk macosx --show-sdk-platform-path)/Developer/usr/lib/swift/host/plugins"
-  plugin_server="$(dirname "$(xcrun --find swiftc)")/swift-plugin-server"
-  swift_args+=(-Xswiftc -external-plugin-path -Xswiftc "$plugins#$plugin_server")
-  sdk_version=$(/usr/libexec/PlistBuddy -c 'Print :Version' "$MEMEDOCK_MACOS_SDK_PATH/SDKSettings.plist")
-  minimum_version=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$apps/Bundle/Info.plist")
-  # Match the Mach-O compatibility record to the SDK actually used above,
-  # rather than letting the newer compiler's linker infer its bundled SDK.
-  swift_args+=(-Xlinker -platform_version -Xlinker macos
-               -Xlinker "$minimum_version" -Xlinker "$sdk_version")
-fi
 swift_args+=(-Xlinker "-L$work")
 swift_args+=(-Xlinker -rpath -Xlinker "$work")
 swift_args+=(-Xlinker -rpath -Xlinker "@executable_path/../Frameworks")
@@ -115,11 +92,6 @@ cp "$root/apps/android/app/src/main/assets/font_licenses/quicksand-OFL.txt" \
 # Cargo records the absolute build path as the dylib's install name, so the
 # copied executable would keep loading from target/ and ignore the bundled
 # copy. Repoint both sides at the rpath the linker settings already provide.
-# Remove build signatures before changing load commands. In particular, older
-# install_name_tool rejects the signature layout of a padded Release dylib.
-# Both images are aligned and signed again after all bundle edits below.
-codesign --remove-signature "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"
-codesign --remove-signature "$bundle/Contents/MacOS/MemeDock"
 linked=$(otool -L "$bundle/Contents/MacOS/MemeDock" | awk '/libmemedock_ffi\.dylib/ {print $1; exit}')
 install_name_tool -id @rpath/libmemedock_ffi.dylib "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"
 install_name_tool -change "$linked" @rpath/libmemedock_ffi.dylib "$bundle/Contents/MacOS/MemeDock"
@@ -130,10 +102,6 @@ if otool -l "$bundle/Contents/MacOS/MemeDock" | grep -qF "path $work (offset"; t
 fi
 sed "s/__VERSION__/$version/g" "$apps/Bundle/Info.plist" > "$bundle/Contents/Info.plist"
 printf 'APPL????' > "$bundle/Contents/PkgInfo"
-# The executable is linked by the same toolchain, so give it the same string
-# pool check before the bundle is signed.
-"$python" "$root/tools/macos/align-string-pool.py" \
-  "$bundle/Contents/MacOS/MemeDock" "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"
 if command -v codesign >/dev/null 2>&1; then
   codesign --force --sign - "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"
   codesign --force --sign - "$bundle"

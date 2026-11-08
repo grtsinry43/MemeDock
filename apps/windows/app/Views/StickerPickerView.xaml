@@ -1,0 +1,68 @@
+<UserControl x:Class="MemeDock.Windows.Views.StickerPickerView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:MemeDock.Windows" KeyDown="OnKeyDown">
+    <Grid x:Name="LayoutRoot" Background="Transparent" RowSpacing="8" Padding="12">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid x:Name="SearchHeader" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <AutoSuggestBox x:Name="Search" TextChanged="OnSearch" Loaded="OnSearchLoaded">
+                <AutoSuggestBox.QueryIcon><SymbolIcon Symbol="Find"/></AutoSuggestBox.QueryIcon>
+            </AutoSuggestBox>
+            <Button x:Name="OpenLibrary" Grid.Column="1" Click="OnOpenLibrary" Style="{StaticResource SubtleButtonStyle}" Padding="8">
+                <FontIcon Glyph="&#xE8A7;" FontSize="16"/>
+            </Button>
+        </Grid>
+        <Grid x:Name="FilterBar" Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <SelectorBar x:Name="Filters" SelectionChanged="OnFilter">
+                <SelectorBarItem x:Name="RecentFilter" Tag="recent" IsSelected="True"/>
+                <SelectorBarItem x:Name="StarredFilter" Tag="starred"/>
+                <SelectorBarItem x:Name="AllFilter" Tag="all"/>
+            </SelectorBar>
+            <DropDownButton x:Name="Collections" Grid.Column="1" VerticalAlignment="Center" MaxWidth="140">
+                <DropDownButton.Flyout><MenuFlyout x:Name="CollectionMenu" Opened="OnCollectionMenuOpened" Closed="OnCollectionMenuClosed"/></DropDownButton.Flyout>
+            </DropDownButton>
+        </Grid>
+        <Grid x:Name="GalleryRegion" Grid.Row="2">
+            <GridView x:Name="Gallery" Background="Transparent" Padding="0" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="OnItemClick"
+                SizeChanged="OnGallerySizeChanged" SelectionChanged="OnGallerySelectionChanged"
+                ContainerContentChanging="OnContainer" CanDragItems="True" DragItemsStarting="OnDragStarting" DragItemsCompleted="OnDragCompleted">
+                <GridView.ItemContainerStyle>
+                    <Style TargetType="GridViewItem">
+                        <Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/>
+                        <Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    </Style>
+                </GridView.ItemContainerStyle>
+                <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" ItemWidth="84" ItemHeight="84"/></ItemsPanelTemplate></GridView.ItemsPanel>
+                <GridView.ItemTemplate>
+                    <DataTemplate x:DataType="local:StickerCard">
+                        <Grid Height="76" Padding="6" ContextRequested="OnContextRequested">
+                            <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="Uniform" AutomationProperties.Name="{x:Bind Title, Mode=OneWay}" />
+                        </Grid>
+                    </DataTemplate>
+                </GridView.ItemTemplate>
+            </GridView>
+            <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="320">
+                <TextBlock x:Name="Empty" TextWrapping="Wrap" TextAlignment="Center"/>
+                <Button x:Name="Retry" Click="OnMore" HorizontalAlignment="Center"/>
+            </StackPanel>
+            <ProgressRing x:Name="Busy" Width="24" Height="24" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+            <InfoBar x:Name="Feedback" VerticalAlignment="Bottom" IsOpen="False" MaxHeight="110" />
+        </Grid>
+        <Grid x:Name="Footer" Grid.Row="3" MinHeight="28" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <ProgressRing x:Name="FooterProgress" Width="14" Height="14" IsActive="False"/>
+                <TextBlock x:Name="Activity" Style="{StaticResource CaptionTextBlockStyle}" VerticalAlignment="Center"/>
+            </StackPanel>
+            <Button x:Name="Paste" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource SubtleButtonStyle}" Click="OnPaste" Padding="6,2">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE751;" FontSize="12"/>
+                    <TextBlock x:Name="PasteLabel" Style="{StaticResource CaptionTextBlockStyle}"/>
+                </StackPanel>
+            </Button>
+        </Grid>
+    </Grid>
+</UserControl>

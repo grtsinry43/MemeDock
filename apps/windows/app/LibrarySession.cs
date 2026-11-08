@@ -66,6 +66,18 @@ internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorage
 
     public SubscriptionHandle Subscribe() => _library.Subscribe();
 
+    internal Task<ITelegramPack> LoadTelegramAsync(string token, string query, CancellationToken cancellation)
+        => Task.Run<ITelegramPack>(async () =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            using var request = _library.TelegramPack(token, query);
+            using var registration = cancellation.Register(() => request.Cancel());
+            var handle = await request.AwaitResult().ConfigureAwait(false);
+            if (cancellation.IsCancellationRequested) { handle.Dispose(); cancellation.ThrowIfCancellationRequested(); }
+            try { return new TelegramWorkspace.Pack(_library, handle); }
+            catch { handle.Dispose(); throw; }
+        });
+
     public Task<CollectionMetadata[]> CollectionsAsync(CancellationToken cancellation, bool deleted = false)
         => Task.Run(async () =>
         {

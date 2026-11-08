@@ -179,7 +179,7 @@
   <data name="sync_reauthorize" xml:space="preserve"><value>更换 Token</value></data>
   <data name="sync_disconnect" xml:space="preserve"><value>断开连接</value></data>
   <data name="sync_disconnect_hint" xml:space="preserve"><value>断开后将停止同步，本机已有的表情不会受影响。</value></data>
-  <data name="sync_lifecycle_hint" xml:space="preserve"><value>应用运行期间会自动同步；暂停同步或关闭应用时停止。</value></data>
+  <data name="sync_lifecycle_hint" xml:space="preserve"><value>关闭窗口后仍在系统托盘同步；暂停同步或退出 MemeDock 时停止。</value></data>
   <data name="sync_merge_hint" xml:space="preserve"><value>首次连接会自动合并本机与云端的表情。删除操作也会同步到其他设备。</value></data>
   <data name="sync_blocked_hint" xml:space="preserve"><value>部分内容因冲突未能同步，可在网页端查看详情。</value></data>
   <data name="sync_failure_unauthorized" xml:space="preserve"><value>设备 Token 已失效，请重新输入。</value></data>
@@ -265,4 +265,85 @@
   <data name="desktop_output_drag_hint" xml:space="preserve"><value>拖到其他应用时的格式</value></data>
   <data name="output_copy_hint" xml:space="preserve"><value>复制按钮、右键菜单和 Ctrl+C</value></data>
   <data name="settings_windows_colors" xml:space="preserve"><value>Windows 颜色设置</value></data>
+  <data name="picker_title" xml:space="preserve"><value>表情面板</value></data>
+  <data name="picker_search" xml:space="preserve"><value>搜索表情</value></data>
+  <data name="picker_choose" xml:space="preserve"><value>选表情</value></data>
+  <data name="picker_library" xml:space="preserve"><value>素材库</value></data>
+  <data name="picker_open_library" xml:space="preserve"><value>在素材库中显示</value></data>
+  <data name="picker_hint" xml:space="preserve"><value>↩ 粘贴</value></data>
+  <data name="picker_filters" xml:space="preserve"><value>表情筛选</value></data>
+  <data name="picker_more" xml:space="preserve"><value>加载更多</value></data>
+  <data name="picker_more_actions" xml:space="preserve"><value>更多</value></data>
+  <data name="picker_empty" xml:space="preserve"><value>还没有表情</value></data>
+  <data name="picker_paste" xml:space="preserve"><value>粘贴</value></data>
+  <data name="picker_copy" xml:space="preserve"><value>仅复制</value></data>
+  <data name="picker_copy_file" xml:space="preserve"><value>复制文件</value></data>
+  <data name="picker_close" xml:space="preserve"><value>关闭</value></data>
+  <data name="picker_paste_missing" xml:space="preserve"><value>无法返回原来的输入框。</value></data>
+  <data name="picker_paste_changed" xml:space="preserve"><value>当前应用已切换。</value></data>
+  <data name="picker_clipboard_changed" xml:space="preserve"><value>剪贴板内容已变化，未执行粘贴。</value></data>
+  <data name="picker_paste_unsupported" xml:space="preserve"><value>这个输入框不支持图片，可粘贴到聊天窗口。</value></data>
+  <data name="picker_paste_blocked" xml:space="preserve"><value>已复制，请手动粘贴</value></data>
+  <data name="picker_loading_library" xml:space="preserve"><value>正在打开素材库…</value></data>
+  <data name="picker_restoring" xml:space="preserve"><value>正在恢复素材库…</value></data>
+  <data name="picker_set_shortcut" xml:space="preserve"><value>设置快捷键…</value></data>
+  <data name="picker_shortcut" xml:space="preserve"><value>打开表情面板</value></data>
+  <data name="picker_shortcut_conflict" xml:space="preserve"><value>此快捷键不可用，请选择其他组合。</value></data>
+  <data name="picker_record_shortcut" xml:space="preserve"><value>按下快捷键组合</value></data>
+  <data name="picker_clear_shortcut" xml:space="preserve"><value>清除快捷键</value></data>
+  <data name="picker_anchor" xml:space="preserve"><value>在输入框附近显示</value></data>
+  <data name="picker_anchor_hint" xml:space="preserve"><value>无法定位输入框时，会显示在鼠标附近。</value></data>
+  <data name="picker_paste_hint" xml:space="preserve"><value>MemeDock 定位输入框时不会读取文本。无法自动粘贴时，可复制后手动粘贴。</value></data>
+  <data name="desktop_show_taskbar" xml:space="preserve"><value>在任务栏显示图标</value></data>
+  <data name="desktop_launch_login" xml:space="preserve"><value>登录时启动</value></data>
+  <data name="desktop_resident_hint" xml:space="preserve"><value>关闭窗口后仍在系统托盘运行。</value></data>
+  <data name="desktop_startup_settings" xml:space="preserve"><value>打开启动应用设置…</value></data>
+  <data name="desktop_startup_failed" xml:space="preserve"><value>无法更新登录启动设置。</value></data>
+  <data name="desktop_preferences_failed" xml:space="preserve"><value>无法保存设置，请重试。</value></data>
+  <data name="desktop_quit" xml:space="preserve"><value>退出 MemeDock</value></data>
+  <data name="desktop_import_files" xml:space="preserve"><value>从文件导入…</value></data>
+  <data name="desktop_import_clipboard" xml:space="preserve"><value>从剪贴板导入</value></data>
+  <data name="tg_title" xml:space="preserve"><value>从 Telegram 导入</value></data>
+  <data name="tg_token" xml:space="preserve"><value>机器人 Token</value></data>
+  <data name="tg_token_hint" xml:space="preserve"><value>用 @BotFather 创建机器人，把它的 Token 粘贴到这里</value></data>
+  <data name="tg_remember" xml:space="preserve"><value>记住 Token（Windows 凭据管理器）</value></data>
+  <data name="tg_forget" xml:space="preserve"><value>清除已保存的 Token</value></data>
+  <data name="tg_token_failed" xml:space="preserve"><value>无法从 Windows 凭据管理器读取或写入 Token</value></data>
+  <data name="tg_token_invalid" xml:space="preserve"><value>Telegram 拒绝了这个 Token</value></data>
+  <data name="tg_pack_missing" xml:space="preserve"><value>未找到该贴纸包</value></data>
+  <data name="tg_pack" xml:space="preserve"><value>贴纸包</value></data>
+  <data name="tg_pack_placeholder" xml:space="preserve"><value>贴纸包名称或 t.me/addstickers/… 链接</value></data>
+  <data name="tg_load" xml:space="preserve"><value>查看贴纸</value></data>
+  <data name="tg_loading" xml:space="preserve"><value>正在读取贴纸包…</value></data>
+  <data name="tg_select_new" xml:space="preserve"><value>选择新增项</value></data>
+  <data name="tg_import" xml:space="preserve"><value>导入所选</value></data>
+  <data name="tg_cancel" xml:space="preserve"><value>取消导入</value></data>
+  <data name="tg_selected" xml:space="preserve"><value>已选 {0} 张</value></data>
+  <data name="tg_progress" xml:space="preserve"><value>正在导入 {0}/{1}…</value></data>
+  <data name="tg_import_stopped" xml:space="preserve"><value>已停止，完成 {0} 张</value></data>
+  <data name="tg_import_partial" xml:space="preserve"><value>已导入 {0} 张，{1} 张失败</value></data>
+  <data name="tg_import_restore" xml:space="preserve"><value>{0} 张待恢复</value></data>
+  <data name="tg_import_done" xml:space="preserve"><value>已导入 {0} 张，复用 {1} 张</value></data>
+  <data name="tg_added" xml:space="preserve"><value>已导入</value></data>
+  <data name="tg_existing" xml:space="preserve"><value>素材库中已有</value></data>
+  <data name="tg_restore" xml:space="preserve"><value>在回收站中</value></data>
+  <data name="tg_failed" xml:space="preserve"><value>导入失败</value></data>
+  <data name="tg_pending" xml:space="preserve"><value>等待中</value></data>
+  <data name="tg_missing_original" xml:space="preserve"><value>原图缺失，可重新下载</value></data>
+  <data name="tg_available" xml:space="preserve"><value>可导入</value></data>
+  <data name="picker_save" xml:space="preserve"><value>另存为</value></data>
+  <data name="picker_saved" xml:space="preserve"><value>已保存</value></data>
+  <data name="picker_recent" xml:space="preserve"><value>最近使用</value></data>
+  <data name="picker_starred" xml:space="preserve"><value>收藏</value></data>
+  <data name="picker_all" xml:space="preserve"><value>全部</value></data>
+  <data name="picker_collections" xml:space="preserve"><value>合集</value></data>
+  <data name="picker_view_all" xml:space="preserve"><value>查看全部</value></data>
+  <data name="picker_no_results" xml:space="preserve"><value>没有找到表情</value></data>
+  <data name="tg_import_added" xml:space="preserve"><value>已导入 {0} 张表情</value></data>
+  <data name="desktop_integration" xml:space="preserve"><value>系统集成</value></data>
+  <data name="desktop_resident_group" xml:space="preserve"><value>启动与常驻</value></data>
+  <data name="picker_loading" xml:space="preserve"><value>加载中…</value></data>
+  <data name="picker_shortcut_record_hint" xml:space="preserve"><value>按下包含 Ctrl、Alt、Shift 或 Windows 键的组合。按 Tab 移动到保存或取消。</value></data>
+  <data name="picker_shortcut_save" xml:space="preserve"><value>保存</value></data>
+  <data name="picker_shortcut_record_failed" xml:space="preserve"><value>无法开始录制快捷键，请重试。</value></data>
 </root>

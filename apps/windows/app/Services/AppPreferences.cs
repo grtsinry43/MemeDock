@@ -24,6 +24,7 @@ public sealed class AppPreferences : IOutputDefaults
     private readonly SemaphoreSlim _writes = new(1);
     public LanguageMode Language { get; private set; }
     public AppearanceMode Appearance { get; private set; }
+    public DesktopPreferences Desktop { get; private set; } = new();
     public OutputDefaults CopyOutput { get; private set; } = OutputDefaults.CopyDefault;
     public OutputDefaults DragOutput { get; private set; } = OutputDefaults.DragDefault;
     OutputDefaults IOutputDefaults.Copy => CopyOutput;
@@ -86,8 +87,10 @@ public sealed class AppPreferences : IOutputDefaults
     /// Applies one change at a time so concurrent saves of different fields compose
     /// instead of overwriting each other with a stale snapshot.
     /// </summary>
+    public Task SaveDesktopAsync(DesktopPreferences desktop) => SaveAsync(null, null, null, desktop.Sanitized());
+
     private async Task SaveAsync(LanguageMode? language, AppearanceMode? appearance,
-        (OutputAction Action, bool Animated, ExportPreset Preset)? output)
+        (OutputAction Action, bool Animated, ExportPreset Preset)? output, DesktopPreferences? desktop = null)
     {
         await _writes.WaitAsync();
         var temporary = _path + ".tmp";
@@ -109,7 +112,7 @@ public sealed class AppPreferences : IOutputDefaults
 
             var saved = new SavedPreferences(nextLanguage, nextAppearance,
                 new SavedOutput(new SavedDefaults(nextCopy.Still, nextCopy.Animated),
-                    new SavedDefaults(nextDrag.Still, nextDrag.Animated)));
+                    new SavedDefaults(nextDrag.Still, nextDrag.Animated)), desktop ?? Desktop);
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             await using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None,
                 4096, FileOptions.Asynchronous | FileOptions.WriteThrough))
@@ -125,6 +128,7 @@ public sealed class AppPreferences : IOutputDefaults
             Appearance = nextAppearance;
             CopyOutput = nextCopy;
             DragOutput = nextDrag;
+            Desktop = saved.Desktop;
         }
         finally
         {
@@ -151,6 +155,12 @@ public sealed class AppPreferences : IOutputDefaults
             // instead of the whole file being rejected.
             Language = ReadEnum(root, nameof(Language), LanguageMode.System);
             Appearance = ReadEnum(root, nameof(Appearance), AppearanceMode.System);
+            Desktop = new();
+            if (root.TryGetProperty(nameof(Desktop), out var desktop) && desktop.ValueKind == JsonValueKind.Object)
+            {
+                try { Desktop = (desktop.Deserialize<DesktopPreferences>(Json) ?? new()).Sanitized(); }
+                catch (JsonException) { /* An invalid desktop setting does not invalidate output preferences. */ }
+            }
             CopyOutput = OutputDefaults.CopyDefault;
             DragOutput = OutputDefaults.DragDefault;
             if (root.TryGetProperty(OutputKey, out var output) && output.ValueKind == JsonValueKind.Object)
@@ -185,7 +195,8 @@ public sealed class AppPreferences : IOutputDefaults
         return fallback;
     }
 
-    private sealed record SavedPreferences(LanguageMode Language, AppearanceMode Appearance, SavedOutput Output);
+    private sealed record SavedPreferences(LanguageMode Language, AppearanceMode Appearance, SavedOutput Output,
+        DesktopPreferences Desktop);
 
     private sealed record SavedOutput(SavedDefaults Copy, SavedDefaults Drag);
 

@@ -13,6 +13,17 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\bridge\MemeDock.Bridge.csproj" />
+    <Compile Include="..\app\Models\DesktopPreferences.cs" Link="Models\DesktopPreferences.cs" />
+    <Compile Include="..\app\Services\PanelPlacement.cs" Link="Services\PanelPlacement.cs" />
+    <Compile Include="..\app\Services\PanelFocus.cs" Link="Services\PanelFocus.cs" />
+    <Compile Include="..\app\Services\PastePolicy.cs" Link="Services\PastePolicy.cs" />
+    <Compile Include="..\app\Services\DesktopNative.cs" Link="Services\DesktopNative.cs" />
+    <Compile Include="..\app\Services\GlobalShortcut.cs" Link="Services\GlobalShortcut.cs" />
+    <Compile Include="..\app\Services\ShortcutCapture.cs" Link="Services\ShortcutCapture.cs" />
+    <Compile Include="..\app\Services\TrayRegistration.cs" Link="Services\TrayRegistration.cs" />
+    <Compile Include="..\app\Services\TelegramWorkspace.cs" Link="Services\TelegramWorkspace.cs" />
+    <Compile Include="..\app\Services\TelegramTokenStore.cs" Link="Services\TelegramTokenStore.cs" />
+    <Compile Include="..\app\ViewModels\TelegramImportViewModel.cs" Link="ViewModels\TelegramImportViewModel.cs" />
     <Compile Include="..\app\Models\LibraryFilter.cs" Link="Models\LibraryFilter.cs" />
     <Compile Include="..\app\Models\StorageSnapshot.cs" Link="Models\StorageSnapshot.cs" />
     <Compile Include="..\app\Models\StickerEditState.cs" Link="Models\StickerEditState.cs" />

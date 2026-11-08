@@ -19,6 +19,8 @@ internal static class Program
         try
         {
             QueryScopes();
+            await DesktopIntegrationTests.RunAsync();
+            await TelegramImportTests.RunAsync();
             RequestGenerations();
             EditDrafts();
             OutputPolicies();
@@ -1625,14 +1627,23 @@ internal static class Program
         var chinese = ReadResw(Path.Combine(root, "apps/windows/app/Strings/zh-CN/Resources.resw"));
         var english = ReadResw(Path.Combine(root, "apps/windows/app/Strings/en-US/Resources.resw"));
         Check(chinese.Keys.Order().SequenceEqual(english.Keys.Order()), "Chinese and English resource keys differ.");
-        // The shared key promises a background loop that survives the window,
-        // which Windows does not have; it must stay replaced by the lifecycle hint.
+        // Windows explains resident window-close and explicit process exit separately.
         Check(!chinese.ContainsKey("sync_background_hint"),
-            "Windows must not claim background sync; use sync_lifecycle_hint.");
+            "Windows should use the explicit resident sync lifecycle hint.");
         foreach (var file in Directory.EnumerateFiles(Path.Combine(root, "apps/windows/app"), "*.cs", SearchOption.AllDirectories)
             .Where(path => !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
-            foreach (Match match in Regex.Matches(File.ReadAllText(file), "(?:Strings|_strings)\\[\"([^\"]+)\"\\]"))
+        {
+            var sourceText = File.ReadAllText(file);
+            foreach (Match match in Regex.Matches(sourceText, "(?:Strings|_strings)\\[\"([^\"]+)\"\\]"))
                 Check(chinese.ContainsKey(match.Groups[1].Value), $"UI references missing resource {match.Groups[1].Value}: {file}");
+            // Include keys selected through conditionals or returned by presentation
+            // policies, not only direct indexer calls. These are runtime lookups too.
+            foreach (Match match in Regex.Matches(sourceText, "\"((?:picker_|tg_|desktop_)[A-Za-z0-9_]+)\""))
+            {
+                var name = match.Groups[1].Value;
+                if (!name.EndsWith('_')) Check(chinese.ContainsKey(name), $"Presentation references missing resource {name}: {file}");
+            }
+        }
         foreach (var key in chinese.Keys)
         {
             var zhArguments = Regex.Matches(chinese[key], @"\{\d+\}").Select(match => match.Value).Order();
@@ -1642,6 +1653,61 @@ internal static class Program
         }
         var desktopKeys = new Dictionary<string, string>
         {
+            ["picker_loading"] = "loading",
+            ["picker_hint"] = "quickPickerHint",
+            ["picker_empty"] = "emptyLibrary",
+            ["picker_paste_missing"] = "pasteTargetMissing",
+            ["picker_paste_changed"] = "pasteTargetChanged",
+            ["picker_paste_blocked"] = "manualPasteRequired",
+            ["picker_saved"] = "saved",
+            ["tg_pack_placeholder"] = "packPlaceholder",
+            ["tg_selected"] = "selectedCount",
+            ["tg_progress"] = "menuImportProgress",
+            ["tg_import_stopped"] = "importStopped",
+            ["tg_import_partial"] = "importDonePartial",
+            ["tg_import_done"] = "importDoneReused",
+            ["tg_failed"] = "importFailed",
+            ["picker_recent"] = "recentlyUsed",
+            ["picker_starred"] = "starred",
+            ["picker_all"] = "pickerAll",
+            ["picker_collections"] = "collections",
+            ["picker_view_all"] = "viewAll",
+            ["picker_no_results"] = "noResults",
+            ["tg_import_added"] = "importDone",
+            ["picker_save"] = "saveAs",
+            ["picker_title"] = "quickPicker",
+            ["picker_search"] = "searchStickers",
+            ["picker_choose"] = "chooseSticker",
+            ["picker_library"] = "library",
+            ["picker_open_library"] = "openInLibrary",
+            ["picker_more_actions"] = "more",
+            ["picker_paste"] = "pasteImage",
+            ["picker_copy"] = "copyOnly",
+            ["picker_copy_file"] = "copyFile",
+            ["picker_close"] = "close",
+            ["picker_paste_unsupported"] = "pasteUnsupportedInput",
+            ["picker_loading_library"] = "loadingLibrary",
+            ["picker_set_shortcut"] = "configureQuickShortcut",
+            ["picker_shortcut"] = "quickPickerShortcut",
+            ["picker_anchor"] = "anchorToInput",
+            ["picker_anchor_hint"] = "anchorToInputHint",
+            ["desktop_launch_login"] = "launchAtLogin",
+            ["desktop_quit"] = "quitApp",
+            ["desktop_import_files"] = "menuImportFiles",
+            ["desktop_import_clipboard"] = "menuImportClipboard",
+            ["tg_title"] = "importFromTelegram",
+            ["tg_token"] = "telegramToken",
+            ["tg_token_hint"] = "telegramTokenHint",
+            ["tg_forget"] = "clearToken",
+            ["tg_token_invalid"] = "tokenInvalid",
+            ["tg_pack_missing"] = "packMissing",
+            ["tg_pack"] = "stickerPack",
+            ["tg_load"] = "viewStickers",
+            ["tg_loading"] = "loadingStickerPack",
+            ["tg_select_new"] = "selectNew",
+            ["tg_import"] = "importSelected",
+            ["tg_existing"] = "alreadyImported",
+            ["tg_restore"] = "inTrash",
             ["desktop_settings"] = "settings", ["desktop_sort"] = "sortHint", ["desktop_sort_recent"] = "sortRecent",
             ["desktop_sort_collection"] = "sortCollectionOrder", ["desktop_select_all"] = "selectAll",
             ["desktop_clear_selection"] = "clearSelection", ["desktop_selection_loaded_only"] = "selectionLoadedOnly",
@@ -1666,6 +1732,43 @@ internal static class Program
         // Android source; they must not be invented there either.
         var windowsOnly = new HashSet<string>(StringComparer.Ordinal)
         {
+            "desktop_integration", "desktop_resident_group",
+            "picker_saved",
+            "picker_hint",
+            "picker_filters",
+            "picker_more",
+            "picker_empty",
+            "picker_paste_missing",
+            "picker_paste_changed",
+            "picker_clipboard_changed",
+            "picker_paste_blocked",
+            "picker_restoring",
+            "picker_shortcut_conflict",
+            "picker_record_shortcut",
+            // Windows' modifier keys and recording dialog have no macOS counterpart.
+            "picker_shortcut_record_hint", "picker_shortcut_save", "picker_shortcut_record_failed",
+            "picker_clear_shortcut",
+            "picker_paste_hint",
+            "desktop_show_taskbar",
+            "desktop_resident_hint",
+            "desktop_startup_settings",
+            "desktop_startup_failed",
+            "desktop_preferences_failed",
+            "tg_remember",
+            "tg_token_failed",
+            "tg_pack_placeholder",
+            "tg_cancel",
+            "tg_selected",
+            "tg_progress",
+            "tg_import_stopped",
+            "tg_import_partial",
+            "tg_import_restore",
+            "tg_import_done",
+            "tg_added",
+            "tg_failed",
+            "tg_pending",
+            "tg_missing_original",
+            "tg_available",
             "output_copy_group", "output_drag_group", "output_still", "output_animated",
             "export_gif", "export_gif_hint", "settings_library_id", "settings_device_id",
             "settings_license_text", "about_copy", "about_copy_failed",
@@ -1702,16 +1805,12 @@ internal static class Program
                     Check(android["organize_collections_footer"].EndsWith(value, StringComparison.Ordinal), "Collection deletion hint differs from Android.");
                     continue;
                 }
-                // Windows has no tray process: MainWindow.OnClosing stops the sync
-                // loop, so Android's "runs in the background" copy would promise a
-                // behaviour this platform does not have. The key stays Windows-only
-                // and must name both halves of the lifecycle: syncing while the app
-                // runs, stopped once it is paused or closed.
+                // Closing a resident window keeps sync alive; explicit Quit stops it.
                 if (key == "sync_lifecycle_hint")
                 {
                     Check(!android.ContainsKey(key), "The Windows-only sync lifecycle hint leaked into Android.");
-                    Check(value.Contains(locale == "values" ? "运行" : "running", StringComparison.OrdinalIgnoreCase)
-                          && value.Contains(locale == "values" ? "关闭" : "close", StringComparison.OrdinalIgnoreCase),
+                    Check(value.Contains(locale == "values" ? "托盘" : "tray", StringComparison.OrdinalIgnoreCase)
+                          && value.Contains(locale == "values" ? "退出" : "quitting", StringComparison.OrdinalIgnoreCase),
                         $"Sync lifecycle hint does not describe the Windows lifecycle: {key}/{locale}");
                     continue;
                 }

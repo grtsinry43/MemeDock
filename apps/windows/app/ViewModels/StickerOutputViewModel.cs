@@ -20,6 +20,7 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
     private StickerOutputTarget? _dragTarget;
     private bool _stopping;
     public bool IsBusy { get; private set; }
+    internal uint ClipboardSequence { get; private set; }
     public bool IsDragging => _drag is not null;
     public bool CanStart => !IsBusy && !_stopping;
     public string? MessageKey { get; private set; }
@@ -64,6 +65,7 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
             var package = new DataPackage();
             prepared = await _service.PrepareAsync(target, kind, package, drag: false, _lifetime.Token);
             await _clipboard.InstallAsync(prepared, package, _lifetime.Token);
+            ClipboardSequence = DesktopNative.GetClipboardSequenceNumber();
             prepared = null; // ClipboardGuard owns the published lease and any persistence retries.
             MessageKey = "image_copied";
             try { await _session.RecordUseAsync(target.Id, kind == StickerOutputKind.OriginalFile ? UsageAction.CopyFile : UsageAction.CopyImage); }
@@ -73,6 +75,43 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
         catch (OperationCanceledException) { MessageKey = null; return false; }
         catch (Exception error) { MessageKey = null; Report(error); return false; }
         finally { prepared?.Dispose(); IsBusy = false; Notify(); }
+    }
+
+    internal Task SaveAsync(StickerOutputTarget target, Microsoft.UI.WindowId owner)
+    {
+        if (!CanStart) return Task.CompletedTask;
+        return _work = SaveCoreAsync(target, owner);
+    }
+    private async Task SaveCoreAsync(StickerOutputTarget target, Microsoft.UI.WindowId owner)
+    {
+        Begin();
+        try
+        {
+            using var prepared = await _service.PrepareAsync(target, StickerOutputKind.Image, new DataPackage(), false, _lifetime.Token);
+            var artifact = prepared.Artifact;
+            var extension = Path.GetExtension(artifact.FileName);
+            var picker = new Microsoft.Windows.Storage.Pickers.FileSavePicker(owner)
+            { SuggestedFileName = artifact.FileName, DefaultFileExtension = extension, ShowOverwritePrompt = true };
+            picker.FileTypeChoices.Add(artifact.Mime, new List<string> { extension });
+            var destination = await picker.PickSaveFileAsync();
+            _lifetime.Token.ThrowIfCancellationRequested();
+            if (destination is null) { MessageKey = null; return; }
+            var destinationPath = Path.GetFullPath(destination.Path);
+            if (new[] { _session.DataDirectory, _session.CacheDirectory, _session.ShareDirectory }.Any(directory =>
+                destinationPath.StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase)))
+                throw new BridgeException.Failure(ErrorCode.InvalidInput, "Export destination belongs to the library.");
+            target.Validate((await _session.DetailAsync(target.Id, _lifetime.Token)).Sticker);
+            // Reuse the existing atomic copy primitive; never expose a partial export.
+            await BackupFileWriter.WriteAsync(artifact.Path, destination.Path, checked((long)artifact.ByteSize),
+                File.Exists(destination.Path), _lifetime.Token);
+            MessageKey = "picker_saved";
+            try { await _session.RecordUseAsync(target.Id, UsageAction.ExportSaved); }
+            catch (Exception error) { Trace.WriteLine($"Export saved; record usage failed: {error.GetType().Name}"); }
+        }
+        catch (OperationCanceledException) { MessageKey = null; }
+        catch (Exception error) { MessageKey = null; Report(error); }
+        finally { IsBusy = false; Notify(); }
     }
 
     public Task<bool> PrepareDragAsync(StickerOutputTarget target, DataPackage package)
