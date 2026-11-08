@@ -44,6 +44,8 @@ env:
   CARGO_INCREMENTAL: '0'
   CARGO_PROFILE_DEV_DEBUG: '0'
   CARGO_PROFILE_TEST_DEBUG: '0'
+  CARGO_PROFILE_DEV_STRIP: 'none'
+  CARGO_PROFILE_TEST_STRIP: 'none'
 
 jobs:
   build:
@@ -173,10 +175,7 @@ jobs:
             echo "Expected linked SDK $expected_sdk for the classic UI" >&2
             exit 1
           fi
-          # `ld` and `dyld` reject an image whose LINKEDIT string pool is not
-          # pointer aligned, and the linker emits it unaligned whenever the
-          # indirect symbol table has an odd number of entries. Not every dyld
-          # enforces that yet, so assert it instead of trusting the launch.
+          # Verify linker metadata without rewriting the compiled images.
           for image in "$bundle/Contents/MacOS/MemeDock" \
                        "$bundle/Contents/Frameworks/libmemedock_ffi.dylib"; do
             stroff=$(otool -l "$image" \
