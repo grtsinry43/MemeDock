@@ -51,6 +51,7 @@
     <Compile Include="..\app\ViewModels\RefreshQueue.cs" Link="ViewModels\RefreshQueue.cs" />
     <Compile Include="..\app\ViewModels\StorageViewModel.cs" Link="ViewModels\StorageViewModel.cs" />
     <Compile Include="..\app\ViewModels\BackupViewModel.cs" Link="ViewModels\BackupViewModel.cs" />
+    <Compile Include="..\app\ViewModels\CollectionExportViewModel.cs" Link="ViewModels\CollectionExportViewModel.cs" />
     <Compile Include="..\app\ViewModels\TrashGroupsPresentation.cs" Link="ViewModels\TrashGroupsPresentation.cs" />
     <Compile Include="..\app\ViewModels\TrashGroupsViewModel.cs" Link="ViewModels\TrashGroupsViewModel.cs" />
     <Compile Include="..\app\LibrarySession.cs" Link="LibrarySession.cs" />

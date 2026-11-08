@@ -19,6 +19,7 @@ public sealed partial class SettingsView : UserControl
     private AppPreferences? _preferences;
     private StorageViewModel? _storage;
     private BackupViewModel? _backup;
+    private CollectionExportViewModel? _collectionExport;
     private bool _updating;
     private bool _updatingRestoreMode;
     private bool _confirming;
@@ -95,6 +96,25 @@ public sealed partial class SettingsView : UserControl
     }
 
     /// <summary>
+    /// The same export view model also backs the sidebar collection menu, so the
+    /// page follows it for the whole life of the page: a run started elsewhere
+    /// must appear here, and vice versa.
+    /// </summary>
+    internal void ConfigureCollectionExport(CollectionExportViewModel? export)
+    {
+        if (_collectionExport is not null) _collectionExport.PropertyChanged -= OnCollectionExportChanged;
+        _collectionExport = export;
+        if (export is null)
+        {
+            ShowCollectionExport();
+            return;
+        }
+        export.PropertyChanged += OnCollectionExportChanged;
+        Relocalize();
+        ShowCollectionExport();
+    }
+
+    /// <summary>
     /// The identity is read from the open library, so it arrives after the page was
     /// first localized. Until then the values stay empty and copying is disabled.
     /// </summary>
@@ -130,6 +150,16 @@ public sealed partial class SettingsView : UserControl
     {
         if (_backup is not null) _backup.PropertyChanged -= OnBackupChanged;
         _backup = null;
+    }
+
+    /// <summary>
+    /// Detaches the page from the shared export view model; the window releases
+    /// the model itself when the session is done with it.
+    /// </summary>
+    public void ShutdownCollectionExport()
+    {
+        if (_collectionExport is not null) _collectionExport.PropertyChanged -= OnCollectionExportChanged;
+        _collectionExport = null;
     }
 
     public void Relocalize()
@@ -195,6 +225,13 @@ public sealed partial class SettingsView : UserControl
             CleanupRow.Description = _strings["desktop_cleanup_hint"];
             CleanButton.Content = _strings["desktop_clean"];
             AutomationProperties.SetName(CleanButton, _strings["desktop_clean"]);
+
+            ExportCollectionsRow.Header = _strings["desktop_export_collections"];
+            ExportCollectionsRow.Description = _strings["desktop_export_collections_hint"];
+            ExportCollectionsButton.Content = _strings["desktop_export_collections"];
+            AutomationProperties.SetName(ExportCollectionsButton, _strings["desktop_export_collections"]);
+            CancelExportCollectionsButton.Content = _strings["cancel"];
+            AutomationProperties.SetName(CancelExportCollectionsButton, _strings["cancel"]);
 
             BackupRow.Header = _strings["desktop_backup"];
             BackupRow.Description = _strings["desktop_backup_hint"];
@@ -486,6 +523,39 @@ public sealed partial class SettingsView : UserControl
     }
 
     /// <summary>
+    /// Renders the collection-export row from the shared view model. A partial
+    /// export that wrote nothing reads as a failure; an empty collection is a
+    /// normal outcome, shown with the same wording the sidebar uses.
+    /// </summary>
+    private void ShowCollectionExport()
+    {
+        if (_strings is null) return;
+        var export = _collectionExport;
+        var running = export?.IsRunning == true;
+        ExportCollectionsButton.IsEnabled = export is not null && !running;
+        CancelExportCollectionsButton.Visibility = ToVisibility(running);
+        ExportCollectionsProgress.IsActive = running;
+        ExportCollectionsStage.Text = export?.RunningText ?? "";
+
+        if (export?.ErrorKey is not null)
+        {
+            ExportCollectionsBar.Severity = InfoBarSeverity.Error;
+            ExportCollectionsBar.Message = export.ErrorText;
+            ExportCollectionsBar.IsOpen = true;
+        }
+        else if (export?.MessageText is { Length: > 0 } message)
+        {
+            ExportCollectionsBar.Severity = export.IsFailureMessage ? InfoBarSeverity.Error : InfoBarSeverity.Success;
+            ExportCollectionsBar.Message = message;
+            ExportCollectionsBar.IsOpen = true;
+        }
+        else
+        {
+            ExportCollectionsBar.IsOpen = false;
+        }
+    }
+
+    /// <summary>
     /// Renders the backup card. Only work the core really reports is shown: there is
     /// no percentage, because the core exposes stages rather than a fraction. The
     /// saved location is shown only after the copy completed.
@@ -651,6 +721,12 @@ public sealed partial class SettingsView : UserControl
         ShowBackup();
     }
 
+    private void OnCollectionExportChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (_closed) return;
+        ShowCollectionExport();
+    }
+
     private async void OnChooseArchive(object sender, RoutedEventArgs args)
     {
         if (_backup is null || _closed) return;
@@ -741,6 +817,15 @@ public sealed partial class SettingsView : UserControl
         await _storage.CleanAsync();
         if (!_closed) ShowStorage();
     }
+
+    private async void OnExportCollections(object sender, RoutedEventArgs args)
+    {
+        if (_collectionExport is null || _closed) return;
+        await _collectionExport.ExportAllAsync();
+        if (!_closed) ShowCollectionExport();
+    }
+
+    private void OnCancelCollectionExport(object sender, RoutedEventArgs args) => _collectionExport?.Cancel();
 
     private void OnOpenDataDirectory(object sender, RoutedEventArgs args) => OpenStorageDirectory(_storage?.DataDirectory);
 

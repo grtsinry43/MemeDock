@@ -27,7 +27,8 @@ internal sealed class BackupDestinationPicker : IBackupDestinationPicker
         _strings = strings;
     }
 
-    public async Task<BackupDestination?> PickSavePathAsync(string suggestedFileName, CancellationToken cancellation)
+    public async Task<BackupDestination?> PickSavePathAsync(string suggestedFileName, CancellationToken cancellation,
+        string? fileTypeLabelKey = null)
     {
         cancellation.ThrowIfCancellationRequested();
         var picker = new FileSavePicker(_windowId)
@@ -39,7 +40,8 @@ internal sealed class BackupDestinationPicker : IBackupDestinationPicker
         // is always the user's decision; the writer still refuses to replace anything
         // unless it was told this confirmation happened.
         picker.ShowOverwritePrompt = true;
-        picker.FileTypeChoices.Add(_strings["desktop_backup_file_type"], new List<string> { BackupExtension });
+        picker.FileTypeChoices.Add(_strings[fileTypeLabelKey ?? "desktop_backup_file_type"],
+            new List<string> { BackupExtension });
 
         var result = await picker.PickSaveFileAsync();
         cancellation.ThrowIfCancellationRequested();

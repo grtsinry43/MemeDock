@@ -193,6 +193,20 @@
   <data name="desktop_cleanup" xml:space="preserve"><value>清理</value></data>
   <data name="desktop_clean" xml:space="preserve"><value>清理</value></data>
   <data name="desktop_cleanup_hint" xml:space="preserve"><value>删除复制、分享时生成且已过期的临时文件，剪贴板正在使用的会保留。缩略图由应用管理，需要时自动重建。原图不受影响。</value></data>
+  <data name="desktop_export_collection" xml:space="preserve"><value>导出合集…</value></data>
+  <data name="desktop_export_collection_running" xml:space="preserve"><value>正在导出「{0}」…</value></data>
+  <data name="desktop_export_collection_done" xml:space="preserve"><value>已导出 {0} 张表情</value></data>
+  <data name="desktop_export_collection_partial" xml:space="preserve"><value>已导出 {0} 张，跳过 {1} 张：{2}</value></data>
+  <data name="desktop_export_issue_missing" xml:space="preserve"><value>原图缺失 {0} 张</value></data>
+  <data name="desktop_export_issue_corrupt" xml:space="preserve"><value>校验未通过 {0} 张</value></data>
+  <data name="desktop_export_issue_too_large" xml:space="preserve"><value>超出大小限制 {0} 张</value></data>
+  <data name="desktop_export_issue_unreadable" xml:space="preserve"><value>无法读取 {0} 张</value></data>
+  <data name="desktop_list_separator" xml:space="preserve"><value>、</value></data>
+  <data name="desktop_export_collections" xml:space="preserve"><value>导出合集</value></data>
+  <data name="desktop_export_collections_hint" xml:space="preserve"><value>导出的是原图，每个合集一个文件夹，不能用来恢复备份。</value></data>
+  <data name="desktop_export_all_file_name" xml:space="preserve"><value>MemeDock-合集.zip</value></data>
+  <data name="desktop_all_collections" xml:space="preserve"><value>全部合集</value></data>
+  <data name="desktop_collection_export_file_type" xml:space="preserve"><value>ZIP 压缩包</value></data>
   <data name="desktop_locations" xml:space="preserve"><value>位置</value></data>
   <data name="desktop_data_directory" xml:space="preserve"><value>素材库目录</value></data>
   <data name="desktop_cache_directory" xml:space="preserve"><value>缓存目录</value></data>
