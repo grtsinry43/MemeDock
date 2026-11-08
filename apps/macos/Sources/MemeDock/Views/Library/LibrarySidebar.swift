@@ -10,6 +10,7 @@ struct LibrarySidebar: View {
     @ObservedObject private var browser: StickerBrowser
     @ObservedObject private var collections: CollectionCatalog
     @ObservedObject private var tags: TagCatalog
+    @ObservedObject private var exports: CollectionExport
     @EnvironmentObject private var eggs: EasterEggController
 
     /// Which name the alert edits. Creating and renaming differ only in what
@@ -61,6 +62,7 @@ struct LibrarySidebar: View {
         _browser = ObservedObject(wrappedValue: model.browser)
         _collections = ObservedObject(wrappedValue: model.collections)
         _tags = ObservedObject(wrappedValue: model.tags)
+        _exports = ObservedObject(wrappedValue: model.exports)
     }
 
     var body: some View {
@@ -123,6 +125,8 @@ struct LibrarySidebar: View {
                         Button(L10n.text(.moveDown)) { move(collection, up: false) }
                             .disabled(collection.id == collections.active.last?.id)
                         Divider()
+                        Button(L10n.text(.exportCollection)) { exports.present(collection) }
+                            .disabled(exports.isRunning)
                         Button(L10n.text(.delete), role: .destructive) { remove(collection) }
                     }
             }

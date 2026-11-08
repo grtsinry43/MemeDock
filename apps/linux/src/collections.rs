@@ -98,7 +98,6 @@ pub fn open(
                 );
             }
         });
-        buttons.append(&export);
         let rename = i18n::button(Key::Rename);
         let parent = card.downgrade();
         let owner = source.clone();
@@ -160,7 +159,6 @@ pub fn open(
                 },
             );
         });
-        buttons.append(&delete);
         for (key, direction) in [(Key::MoveUp, -1i64), (Key::MoveDown, 1)] {
             let button = i18n::button(key);
             let weak = weak_store.clone();
@@ -214,6 +212,11 @@ pub fn open(
             });
             buttons.append(&button);
         }
+        // Export sits with delete rather than with the ordering entries, the same
+        // section the macOS and Windows menus put it in.
+        buttons.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+        buttons.append(&export);
+        buttons.append(&delete);
         popup.set_child(Some(&buttons));
         menu.set_popover(Some(&popup));
         line.append(&menu);

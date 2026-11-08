@@ -640,6 +640,7 @@ public sealed partial class MainWindow : Window
         var rename = new MenuFlyoutItem { Text = Strings["rename"], Icon = new FontIcon { Glyph = "\uE8AC" }, IsEnabled = available };
         rename.Click += async (_, _) => await NameCatalogAsync(target.Kind, target);
         menu.Items.Add(rename);
+        MenuFlyoutItem? export = null;
         if (collection is not null)
         {
             var index = IndexOfCollection(collection.Id);
@@ -653,15 +654,15 @@ public sealed partial class MainWindow : Window
             down.Click += async (_, _) => await MoveCollectionAsync(collection.Id, up: false);
             menu.Items.Add(up);
             menu.Items.Add(down);
-            var export = new MenuFlyoutItem
+            export = new MenuFlyoutItem
             {
                 Text = Strings["desktop_export_collection"], Icon = new FontIcon { Glyph = "\uE72D" },
                 IsEnabled = available && ViewModel.CollectionExport is { IsRunning: false }
             };
             export.Click += async (_, _) => await ExportCollectionAsync(collection);
-            menu.Items.Add(export);
         }
         menu.Items.Add(new MenuFlyoutSeparator());
+        if (export is not null) menu.Items.Add(export);
         var delete = new MenuFlyoutItem { Text = Strings["delete"], Icon = new FontIcon { Glyph = "\uE74D" }, IsEnabled = available };
         delete.Click += async (_, _) => await DeleteCatalogAsync(target);
         menu.Items.Add(delete);
