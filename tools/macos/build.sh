@@ -60,7 +60,9 @@ mv "$generated/Bridge/MemeDockBridgeFFI.modulemap" "$generated/FFI/module.module
 mv "$generated/Bridge/MemeDockBridgeFFI.h" "$generated/FFI/MemeDockBridgeFFI.h"
 
 echo "==> Swift build"
-swift_args=(-c "$configuration" --package-path "$apps")
+# Use the same backend across Swift versions. The native backend's resource
+# accessor only searches the app root and build tree, not Contents/Resources.
+swift_args=(-c "$configuration" --package-path "$apps" --build-system swiftbuild)
 swift_args+=(-Xlinker "-L$work")
 swift_args+=(-Xlinker -rpath -Xlinker "$work")
 swift_args+=(-Xlinker -rpath -Xlinker "@executable_path/../Frameworks")
