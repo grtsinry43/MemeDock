@@ -17,7 +17,9 @@ final class StickerDetailTests: XCTestCase {
             observed = model
             let playback = try XCTUnwrap(model?.playback)
             await model?.load(pixels: 200)
-            XCTAssertEqual(playback.state, .playing)
+            // Importing emits a notification that makes the session schedule a debounced reload,
+            // which supersedes this load and can leave the preview still settling when it returns.
+            try await eventually { playback.state == .playing }
             model = nil
             try await eventually { observed == nil }
             try await eventually { playback.frame == nil && playback.state == .idle }
