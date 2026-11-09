@@ -2231,7 +2231,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "memedock-api-contracts"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "memedock-domain",
  "serde",
@@ -2241,14 +2241,14 @@ dependencies = [
 
 [[package]]
 name = "memedock-bindgen"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "uniffi",
 ]
 
 [[package]]
 name = "memedock-core"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "ffmpeg-next",
  "flate2",
@@ -2272,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-domain"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "fractional_index",
  "serde",
@@ -2283,7 +2283,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-export-api-types"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "memedock-api-contracts",
  "ts-rs",
@@ -2291,7 +2291,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-ffi"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "memedock-core",
  "memedock-domain",
@@ -2304,7 +2304,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-ffi-fixtures"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "memedock-domain",
  "memedock-storage",
@@ -2314,7 +2314,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-linux"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "gtk4",
  "image",
@@ -2333,7 +2333,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-server"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "argon2",
  "async-trait",
@@ -2362,7 +2362,7 @@ dependencies = [
 
 [[package]]
 name = "memedock-storage"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "atomicwrites",
  "memedock-domain",

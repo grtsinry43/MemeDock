@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using MemeDock.Windows.Models;
 using MemeDock.Windows.Views;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Windows.ApplicationModel.DataTransfer;
 
@@ -290,9 +291,29 @@ internal sealed class DesktopIntegration : IAsyncDisposable
     }
     public void ApplyAppearance(AppearanceMode? appearance = null)
     {
+        var mode = appearance ?? Preferences.Appearance;
         foreach (var window in new Window?[] { _picker, _hub })
-            if (window?.Content is FrameworkElement root) root.RequestedTheme = (appearance ?? Preferences.Appearance) switch
+        {
+            if (window?.Content is not FrameworkElement root) continue;
+            root.RequestedTheme = mode switch
             { AppearanceMode.Light => ElementTheme.Light, AppearanceMode.Dark => ElementTheme.Dark, _ => ElementTheme.Default };
+            try
+            {
+                // The native window frame does not inherit the XAML content theme,
+                // even when the panel hides its title bar.
+                window.AppWindow.TitleBar.PreferredTheme = mode switch
+                {
+                    AppearanceMode.Light => TitleBarTheme.Light,
+                    AppearanceMode.Dark => TitleBarTheme.Dark,
+                    _ => TitleBarTheme.UseDefaultAppMode
+                };
+            }
+            catch (Exception error)
+            {
+                // Match the main window's behavior on shells without this property.
+                Trace.WriteLine($"The panel frame theme could not be applied: {error.GetType().Name}");
+            }
+        }
         _main.AppWindow.IsShownInSwitchers = Preferences.Desktop.ShowTaskbarIcon || !CanReside;
     }
     public void OpenLibrary(string? id) { Dismiss(false); _ = _main.OpenResidentLibraryAsync(id); }
