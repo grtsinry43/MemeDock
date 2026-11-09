@@ -114,6 +114,75 @@ internal static class Program
             }
             Console.WriteLine("PASS: verified export, handoff and clipboard protection contracts");
 
+            // Collection export crosses the same task seam: real archives with the
+            // original bytes, typed empty/deleted/missing outcomes, and replacement
+            // of the chosen destination only after the new archive is complete.
+            string exportCollectionId;
+            using (var create = library.CreateCollection("contract export", null))
+                exportCollectionId = (await create.AwaitResult().WaitAsync(Timeout)).Id;
+            var blue = Png(0, 0, 255);
+            using (var createInput = library.CreateImportInput())
+            using (var input = await createInput.AwaitResult().WaitAsync(Timeout))
+            {
+                await File.WriteAllBytesAsync(input.Path(), blue);
+                using var request = library.ImportStaged(input, new ImportOptions("蓝色.png", null, exportCollectionId));
+                await request.AwaitResult().WaitAsync(Timeout);
+            }
+            var singleArchive = Path.Combine(root, "contract-single.zip");
+            using (var export = library.ExportCollection(exportCollectionId, singleArchive, 480))
+            {
+                var summary = await export.AwaitResult().WaitAsync(Timeout);
+                Check(summary.Exported == 1 && summary.Skipped == 0 && summary.Collections == 1,
+                    "Single-collection export summary did not match the library.");
+                Check(summary.Path == singleArchive && summary.FileName == "contract-single.zip"
+                      && summary.ByteSize == (ulong)new FileInfo(singleArchive).Length,
+                    "Export summary did not describe the written file.");
+                using var zip = ZipFile.OpenRead(singleArchive);
+                var entry = zip.Entries.Single();
+                Check(entry.FullName == "蓝色.png", $"Single-collection entry lost its name: {entry.FullName}");
+                using var stream = entry.Open();
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+                Check(buffer.ToArray().SequenceEqual(blue), "Collection export changed original bytes.");
+            }
+            var allArchive = Path.Combine(root, "contract-all.zip");
+            using (var export = library.ExportCollection(null, allArchive, 480))
+            {
+                var summary = await export.AwaitResult().WaitAsync(Timeout);
+                Check(summary.Exported == 1 && summary.Collections == 1,
+                    "Export-all counted unorganized stickers.");
+                using var zip = ZipFile.OpenRead(allArchive);
+                Check(zip.Entries.Single().FullName == "contract export/蓝色.png",
+                    "Export-all did not write one folder per collection.");
+            }
+            using (var export = library.ExportCollection(exportCollectionId, singleArchive, 480))
+                await export.AwaitResult().WaitAsync(Timeout);
+            Check(File.Exists(singleArchive), "Replacing the destination lost the archive.");
+            CollectionMetadata emptyCollection;
+            using (var create = library.CreateCollection("contract empty", null))
+                emptyCollection = await create.AwaitResult().WaitAsync(Timeout);
+            await ExpectError(ErrorCode.InvalidInput, async () =>
+            {
+                using var export = library.ExportCollection(emptyCollection.Id, Path.Combine(root, "empty.zip"), 480);
+                await export.AwaitResult().WaitAsync(Timeout);
+            });
+            Check(!File.Exists(Path.Combine(root, "empty.zip")), "An empty export created a file.");
+            using (var delete = library.DeleteCollection(new EntityReference(emptyCollection.Id, emptyCollection.Lifecycle.Generation)))
+            {
+                var deleted = await delete.AwaitResult().WaitAsync(Timeout);
+                await ExpectError(ErrorCode.EntityDeleted, async () =>
+                {
+                    using var export = library.ExportCollection(deleted.Id, Path.Combine(root, "deleted.zip"), 480);
+                    await export.AwaitResult().WaitAsync(Timeout);
+                });
+            }
+            await ExpectError(ErrorCode.NotFound, async () =>
+            {
+                using var export = library.ExportCollection(UnusedCollectionId(), Path.Combine(root, "missing.zip"), 480);
+                await export.AwaitResult().WaitAsync(Timeout);
+            });
+            Console.WriteLine("PASS: collection export archives, replacement and typed error contracts");
+
             await library.Shutdown().WaitAsync(Timeout);
             library.Dispose();
             library = await MemeDockNative.OpenLibrary(config).WaitAsync(Timeout);
@@ -158,6 +227,18 @@ internal static class Program
         try { await operation(); }
         catch (BridgeException.Failure error) when (error.code == code) { return; }
         throw new InvalidOperationException($"Expected native error {code}.");
+    }
+
+    // Collection ids must be UUIDv7 (version 7, RFC4122 variant); Guid.NewGuid()
+    // is v4 and would be rejected as InvalidInput before any lookup. Rewrite the
+    // version and variant nibbles of a random id to get a well-formed id that was
+    // never inserted, so the lookup itself is what reports NotFound.
+    private static string UnusedCollectionId()
+    {
+        var chars = Guid.NewGuid().ToString().ToCharArray();
+        chars[14] = '7';
+        chars[19] = "89ab"[Random.Shared.Next(4)];
+        return new string(chars);
     }
 
     // Small real PNG fixture generated with BCL compression and PNG CRCs.

@@ -295,6 +295,15 @@
                 </StackPanel>
             </md:SettingsRow>
             <InfoBar x:Name="CleanupBar" IsClosable="True" />
+            <md:SettingsRow x:Name="ExportCollectionsRow" Glyph="&#xE72D;">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock x:Name="ExportCollectionsStage" Style="{StaticResource SecondaryCaptionTextBlockStyle}" VerticalAlignment="Center" MaxWidth="220" />
+                    <ProgressRing x:Name="ExportCollectionsProgress" Width="16" Height="16" IsActive="False" VerticalAlignment="Center" />
+                    <Button x:Name="CancelExportCollectionsButton" Click="OnCancelCollectionExport" Visibility="Collapsed" />
+                    <Button x:Name="ExportCollectionsButton" Click="OnExportCollections" />
+                </StackPanel>
+            </md:SettingsRow>
+            <InfoBar x:Name="ExportCollectionsBar" IsClosable="True" />
             <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                 <Expander.Header>
                     <Grid ColumnSpacing="16" Padding="0,12">

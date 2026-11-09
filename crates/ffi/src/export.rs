@@ -1,6 +1,6 @@
 use crate::{
-    ArtifactLeaseHandle, ClipboardProtectionTask, ClipboardUpdateTask, ExportTask, LibraryHandle,
-    Result,
+    ArtifactLeaseHandle, ClipboardProtectionTask, ClipboardUpdateTask, CollectionExportTask,
+    ExportTask, LibraryHandle, Result,
 };
 use std::sync::Arc;
 
@@ -55,6 +55,28 @@ impl LibraryHandle {
         Ok(ExportTask::new(
             self.inner.export(id.parse()?, options.try_into()?)?,
         ))
+    }
+    /// Writes one collection, or every collection, into one archive.
+    ///
+    /// Stickers whose original is missing or damaged are reported in the
+    /// result instead of failing the export. `utc_offset_minutes` is the
+    /// caller's offset from UTC, which is what the archive's entry times are
+    /// written in because zip carries no zone.
+    pub fn export_collection(
+        &self,
+        collection_id: Option<String>,
+        destination: String,
+        utc_offset_minutes: i32,
+    ) -> Result<Arc<CollectionExportTask>> {
+        let scope = match collection_id {
+            Some(id) => memedock_core::ExportScope::Collection(id.parse()?),
+            None => memedock_core::ExportScope::All,
+        };
+        Ok(CollectionExportTask::new(self.inner.export_collections(
+            scope,
+            std::path::PathBuf::from(destination),
+            utc_offset_minutes,
+        )?))
     }
     pub fn protect_clipboard(
         &self,

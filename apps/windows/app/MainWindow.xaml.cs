@@ -240,6 +240,7 @@ public sealed partial class MainWindow : Window
     {
         if (ViewModel.IsReady && !_childrenConfigured && ViewModel.Details is { } details && ViewModel.Batch is { } batch
             && ViewModel.Catalog is { } catalog && ViewModel.TrashGroups is { } trashGroups && ViewModel.Output is { } output
+            && ViewModel.CollectionExport is { } collectionExport
             && ViewModel.Storage is { } storage && ViewModel.Backup is { } backup)
         {
             _childrenConfigured = true;
@@ -249,6 +250,7 @@ public sealed partial class MainWindow : Window
             Settings.ConfigureSync(ViewModel.Sync, Strings);
             Settings.ConfigureStorage(storage);
             Settings.ConfigureBackup(backup);
+            Settings.ConfigureCollectionExport(collectionExport);
             details.Deleted += OnStickerDeleted;
             batch.PropertyChanged += OnModelChanged;
             batch.Completed += OnBatchCompleted;
@@ -638,6 +640,7 @@ public sealed partial class MainWindow : Window
         var rename = new MenuFlyoutItem { Text = Strings["rename"], Icon = new FontIcon { Glyph = "\uE8AC" }, IsEnabled = available };
         rename.Click += async (_, _) => await NameCatalogAsync(target.Kind, target);
         menu.Items.Add(rename);
+        MenuFlyoutItem? export = null;
         if (collection is not null)
         {
             var index = IndexOfCollection(collection.Id);
@@ -651,8 +654,15 @@ public sealed partial class MainWindow : Window
             down.Click += async (_, _) => await MoveCollectionAsync(collection.Id, up: false);
             menu.Items.Add(up);
             menu.Items.Add(down);
+            export = new MenuFlyoutItem
+            {
+                Text = Strings["desktop_export_collection"], Icon = new FontIcon { Glyph = "\uE72D" },
+                IsEnabled = available && ViewModel.CollectionExport is { IsRunning: false }
+            };
+            export.Click += async (_, _) => await ExportCollectionAsync(collection);
         }
         menu.Items.Add(new MenuFlyoutSeparator());
+        if (export is not null) menu.Items.Add(export);
         var delete = new MenuFlyoutItem { Text = Strings["delete"], Icon = new FontIcon { Glyph = "\uE74D" }, IsEnabled = available };
         delete.Click += async (_, _) => await DeleteCatalogAsync(target);
         menu.Items.Add(delete);
@@ -663,6 +673,34 @@ public sealed partial class MainWindow : Window
         for (var index = 0; index < ViewModel.Collections.Count; index++)
             if (ViewModel.Collections[index].Id == id) return index;
         return -1;
+    }
+
+    /// <summary>
+    /// Exports the collection's originals into one archive the core writes. The
+    /// running notice offers the same cancel the macOS strip does; the outcome
+    /// replaces it once the archive is finished or the run was dismissed.
+    /// </summary>
+    private async Task ExportCollectionAsync(CollectionMetadata collection)
+    {
+        if (_stopping || ViewModel.CollectionExport is not { } exports) return;
+        // The catalog may have been reloaded since the menu opened; export the live entry.
+        var live = ViewModel.Collections.FirstOrDefault(item => item.Id == collection.Id);
+        if (live is null) return;
+        var work = exports.ExportCollectionAsync(live);
+        if (exports.IsRunning)
+            Notice.Show(exports.RunningText, InfoBarSeverity.Informational, Strings["cancel"],
+                () => { exports.Cancel(); return Task.CompletedTask; });
+        await work;
+        if (_stopping) return;
+        ShowExportOutcome(exports);
+    }
+
+    private void ShowExportOutcome(CollectionExportViewModel exports)
+    {
+        if (exports.ErrorKey is not null) Notice.Show(exports.ErrorText, InfoBarSeverity.Error);
+        else if (exports.MessageText.Length > 0)
+            Notice.Show(exports.MessageText, exports.IsFailureMessage ? InfoBarSeverity.Error : InfoBarSeverity.Success);
+        else Notice.Hide();
     }
 
     private async Task MoveCollectionAsync(string id, bool up)
@@ -1293,6 +1331,7 @@ public sealed partial class MainWindow : Window
         Settings.ShutdownSync();
         Settings.ShutdownStorage();
         Settings.ShutdownBackup();
+        Settings.ShutdownCollectionExport();
         Root.IsHitTestVisible = false;
         _lifetime.Cancel();
         ViewModel.RequestStop();

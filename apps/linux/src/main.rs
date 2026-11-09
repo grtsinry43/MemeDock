@@ -7,6 +7,7 @@ mod collections;
 mod credentials;
 mod detail;
 mod drag;
+mod export_collection;
 mod i18n;
 mod import;
 mod library_view;

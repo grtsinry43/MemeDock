@@ -41,6 +41,7 @@ internal static class Program
             SyncStatusMapping();
             await SyncStateMachineAsync();
             await SessionQueriesAsync();
+            await CollectionExportModelAsync();
             Console.WriteLine("PASS: Windows browsing state, localization and preference checks");
             return 0;
         }
@@ -1725,7 +1726,21 @@ internal static class Program
             ["desktop_collection_empty_hint"] = "collectionEmptyHint", ["desktop_tag_empty_hint"] = "tagEmptyHint",
             ["desktop_selection_hint"] = "selectionHint", ["desktop_storage"] = "storage",
             ["desktop_output_drag_hint"] = "outputDragHint",
-            ["desktop_import_drop"] = "importDropHere"
+            ["desktop_import_drop"] = "importDropHere",
+            // Collection export copy comes from macOS; Android has no export flow.
+            ["desktop_export_collection"] = "exportCollection",
+            ["desktop_export_collection_running"] = "exportCollectionRunning",
+            ["desktop_export_collection_done"] = "exportCollectionDone",
+            ["desktop_export_collection_partial"] = "exportCollectionPartial",
+            ["desktop_export_issue_missing"] = "exportIssueMissing",
+            ["desktop_export_issue_corrupt"] = "exportIssueCorrupt",
+            ["desktop_export_issue_too_large"] = "exportIssueTooLarge",
+            ["desktop_export_issue_unreadable"] = "exportIssueUnreadable",
+            ["desktop_list_separator"] = "listSeparator",
+            ["desktop_export_collections"] = "exportCollections",
+            ["desktop_export_collections_hint"] = "exportCollectionsHint",
+            ["desktop_export_all_file_name"] = "exportAllFileName",
+            ["desktop_all_collections"] = "allCollections"
         };
         // Windows-only copy for the desktop settings page. Mobile has no drag
         // hand-off, a GIF preset, or a device identity panel, so these keys have no
@@ -1779,7 +1794,10 @@ internal static class Program
             // Windows shortcuts and the system color page have no mobile counterpart.
             "output_copy_hint", "settings_windows_colors",
             // One message covers both file drops and clipboard image input.
-            "desktop_import_empty"
+            "desktop_import_empty",
+            // The save dialog's file-type label has no macOS counterpart (NSSavePanel
+            // uses allowedContentTypes instead of a label string).
+            "desktop_collection_export_file_type"
         };
         var macos = File.ReadAllText(Path.Combine(root, "apps/macos/Sources/MemeDock/Support/Localization.swift"));
         var split = macos.IndexOf("private static let chinese:", StringComparison.Ordinal);
@@ -1796,7 +1814,8 @@ internal static class Program
                 {
                     var match = Regex.Match(desktopSection, "\\." + sourceKey + ": \"([^\"]*)\"");
                     var position = 0;
-                    var desktop = Regex.Replace(match.Groups[1].Value, "%d", _ => "{" + position++ + "}");
+                    // macOS uses %d for counts and %@ for names; both map to {n} here.
+                    var desktop = Regex.Replace(match.Groups[1].Value, "%d|%@", _ => "{" + position++ + "}");
                     Check(match.Success && desktop == value, $"Desktop copy differs from existing macOS copy: {key}/{locale}");
                     continue;
                 }
@@ -2460,6 +2479,135 @@ internal static class Program
         finally
         {
             File.Delete(source);
+        }
+    }
+
+    /// <summary>
+    /// The collection-export view model against the real core: the picker seam decides
+    /// the destination, the session writes the archive, and the model turns the core's
+    /// summary into the same outcomes the settings row and the sidebar notice show.
+    /// </summary>
+    private static async Task CollectionExportModelAsync()
+    {
+        var parent = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+        var root = Path.Combine(parent, "MemeDock-Windows-collection-export-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var strings = new FakeCatalogStrings();
+            var picker = new FakeBackupPicker();
+            var token = CancellationToken.None;
+            await using (var session = await LibrarySession.OpenAsync(root))
+            {
+                var collection = await session.CreateCollectionAsync("导出合集", token);
+                var emptyCollection = await session.CreateCollectionAsync("空合集", token);
+                var source = Path.Combine(root, "export-red.png");
+                await File.WriteAllBytesAsync(source, Png(255, 0, 0));
+                await session.ImportAsync(source, collection.Id, token);
+                await using var model = new CollectionExportViewModel(session, strings, picker);
+
+                // Dismissing the picker writes nothing and reports nothing.
+                Check(!await model.ExportCollectionAsync(collection).WaitAsync(TimeSpan.FromSeconds(20)),
+                    "A dismissed export was reported as a run.");
+                Check(picker.Calls == 1 && model.ErrorKey is null && model.MessageText.Length == 0,
+                    "A dismissed picker left an outcome behind.");
+
+                // One collection: suggested name, ZIP label, and the archive contents.
+                var single = Path.Combine(root, "single.zip");
+                picker.Choose = (_, _) => Task.FromResult<BackupDestination?>(new(single, false));
+                Check(await model.ExportCollectionAsync(collection).WaitAsync(TimeSpan.FromSeconds(20)),
+                    "The real collection export did not complete.");
+                Check(picker.LastSuggestedFileName == "导出合集.zip", "The save dialog did not suggest the collection name.");
+                Check(picker.LastFileTypeLabelKey == "desktop_collection_export_file_type",
+                    "The save dialog lost the ZIP file-type label.");
+                Check(!model.IsRunning && model.ErrorKey is null && !model.IsEmptyResult && !model.IsFailureMessage,
+                    "A completed export kept a failure state.");
+                Check(model.MessageText == "desktop_export_collection_done", "The success message was not resolved.");
+                using (var zip = ZipFile.OpenRead(single))
+                {
+                    var entry = zip.Entries.Single();
+                    Check(entry.FullName == "export-red.png", $"A single-collection archive gained a folder: {entry.FullName}");
+                    using var stream = entry.Open();
+                    using var buffer = new MemoryStream();
+                    await stream.CopyToAsync(buffer);
+                    Check(buffer.ToArray().SequenceEqual(await File.ReadAllBytesAsync(source)),
+                        "The archive did not preserve the original bytes.");
+                }
+
+                // Every collection: one folder per collection; unorganized stickers stay out.
+                var unorganized = Path.Combine(root, "unorganized.png");
+                await File.WriteAllBytesAsync(unorganized, Png(0, 255, 0));
+                await session.ImportAsync(unorganized, null, token);
+                var all = Path.Combine(root, "all.zip");
+                picker.Choose = (_, _) => Task.FromResult<BackupDestination?>(new(all, false));
+                Check(await model.ExportAllAsync().WaitAsync(TimeSpan.FromSeconds(20)),
+                    "The export of every collection did not complete.");
+                Check(picker.LastSuggestedFileName == "desktop_export_all_file_name",
+                    "Export-all did not use the shared default file name.");
+                using (var zip = ZipFile.OpenRead(all))
+                {
+                    var names = zip.Entries.Select(entry => entry.FullName).Order().ToArray();
+                    Check(names.SequenceEqual(["导出合集/export-red.png"]),
+                        $"Export-all included empty folders or unorganized stickers: {string.Join(", ", names)}");
+                }
+
+                // An empty collection is a normal outcome, not an error, and writes no file.
+                var emptyDestination = Path.Combine(root, "empty.zip");
+                picker.Choose = (_, _) => Task.FromResult<BackupDestination?>(new(emptyDestination, false));
+                Check(!await model.ExportCollectionAsync(emptyCollection).WaitAsync(TimeSpan.FromSeconds(20)),
+                    "An empty export was reported as written.");
+                Check(model.IsEmptyResult && model.ErrorKey is null && model.MessageText == "collection_empty",
+                    "An empty collection was not reported as empty.");
+                Check(!File.Exists(emptyDestination), "An empty export created a file.");
+
+                // A second request is refused while one runs; cancelling leaves no outcome.
+                var gate = new TaskCompletionSource<BackupDestination?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                picker.Choose = (_, cancellation) =>
+                {
+                    cancellation.Register(() => gate.TrySetCanceled());
+                    return gate.Task;
+                };
+                var run = model.ExportCollectionAsync(collection);
+                Check(model.IsRunning, "The export did not report itself running.");
+                Check(!await model.ExportCollectionAsync(collection), "A second export was admitted while one ran.");
+                model.Cancel();
+                Check(!await run.WaitAsync(TimeSpan.FromSeconds(20)), "A cancelled export was reported as completed.");
+                Check(!model.IsRunning && model.ErrorKey is null && model.MessageText.Length == 0,
+                    "Cancellation left an outcome behind.");
+
+                // A deleted collection surfaces the bridge error instead of a file.
+                var deletedDestination = Path.Combine(root, "deleted.zip");
+                picker.Choose = (_, _) => Task.FromResult<BackupDestination?>(new(deletedDestination, false));
+                var deleted = await session.DeleteCollectionAsync(
+                    new(emptyCollection.Id, emptyCollection.Lifecycle.Generation), token);
+                Check(!await model.ExportCollectionAsync(deleted).WaitAsync(TimeSpan.FromSeconds(20)),
+                    "A deleted collection was reported as exported.");
+                Check(model.ErrorKey is { Length: > 0 } && model.MessageText.Length == 0,
+                    "A deleted collection did not surface its error.");
+                Check(!File.Exists(deletedDestination), "A deleted collection created a file.");
+            }
+
+            // Disposal while the picker is open cancels the run instead of leaking it.
+            await using (var session = await LibrarySession.OpenAsync(root))
+            {
+                var collection = (await session.CollectionsAsync(token)).Single();
+                var blocked = new TaskCompletionSource<BackupDestination?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                picker.Choose = (_, cancellation) =>
+                {
+                    cancellation.Register(() => blocked.TrySetCanceled());
+                    return blocked.Task;
+                };
+                var stopping = new CollectionExportViewModel(session, strings, picker);
+                var pendingRun = stopping.ExportCollectionAsync(collection);
+                await stopping.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(20));
+                Check(!await pendingRun.WaitAsync(TimeSpan.FromSeconds(20)), "Disposal did not cancel the in-flight export.");
+            }
+            Console.WriteLine("PASS: collection export picker, archives, empty/deleted outcomes, cancel and disposal");
+        }
+        finally
+        {
+            if (Directory.Exists(root) && string.Equals(Path.GetDirectoryName(root), parent, StringComparison.OrdinalIgnoreCase)
+                && Path.GetFileName(root).StartsWith("MemeDock-Windows-collection-export-", StringComparison.Ordinal))
+                Directory.Delete(root, recursive: true);
         }
     }
 
@@ -3463,11 +3611,16 @@ internal static class Program
             (_, _) => Task.FromResult<BackupDestination?>(null);
 
         public int Calls => Volatile.Read(ref _calls);
+        public string? LastSuggestedFileName { get; private set; }
+        public string? LastFileTypeLabelKey { get; private set; }
 
-        public Task<BackupDestination?> PickSavePathAsync(string suggestedFileName, CancellationToken cancellation)
+        public Task<BackupDestination?> PickSavePathAsync(string suggestedFileName, CancellationToken cancellation,
+            string? fileTypeLabelKey = null)
         {
             cancellation.ThrowIfCancellationRequested();
             Interlocked.Increment(ref _calls);
+            LastSuggestedFileName = suggestedFileName;
+            LastFileTypeLabelKey = fileTypeLabelKey;
             return Choose(suggestedFileName, cancellation);
         }
     }
