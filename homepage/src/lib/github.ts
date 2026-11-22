@@ -12,7 +12,9 @@ export type ReleaseInfo = {
 }
 
 const REPO = 'grtsinry43/MemeDock'
-const CACHE_TTL = 10 * 60 * 1000
+const CACHE_TTL = 5 * 60 * 1000
+
+export const FALLBACK_VERSION = 'v0.3.0'
 
 type CacheEntry<T> = { value: T; at: number }
 

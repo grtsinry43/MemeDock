@@ -55,19 +55,19 @@ export function Download() {
         />
 
         <Reveal>
-          <div className="overflow-hidden rounded-[14px] border border-line bg-paper-raised shadow-[var(--shadow-card)]">
+          <div className="overflow-hidden rounded-[16px] border border-line bg-paper-raised shadow-[var(--shadow-elevated)]">
             <div className="grid md:grid-cols-12">
-              <div className="relative overflow-hidden border-b border-line p-6 md:col-span-5 md:border-r md:border-b-0 md:p-8">
+              <div className="download-spotlight relative overflow-hidden border-b border-line p-6 md:col-span-5 md:border-r md:border-b-0 md:p-8">
                 <ResolvedIcon
                   size={180}
                   strokeWidth={0.7}
-                  className="pointer-events-none absolute -right-6 -bottom-8 text-blue opacity-[0.06]"
+                  className="pointer-events-none absolute -right-6 -bottom-8 text-blue opacity-[0.055]"
                   aria-hidden="true"
                 />
                 <div className="relative">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-baseline gap-2.5">
                     <span className="text-[0.72rem] font-medium text-blue-deep">{d.latest}</span>
-                    <span className="mono">{version}</span>
+                    <span className="mono !text-ink-soft">{version}</span>
                   </div>
                   <h3 className="display mt-5 max-w-[18rem] text-[clamp(2.2rem,3.3vw,3rem)]">
                     {detectedPlatform ? detectedPlatform.name : d.choose}
@@ -154,7 +154,7 @@ export function Download() {
                             {platform.note}
                           </span>
                         </span>
-                        <span className="hidden shrink-0 items-center gap-1.5 sm:flex">
+                        <span className="hidden shrink-0 items-center gap-2 sm:flex">
                           {platform.formats.map((format) => (
                             <span key={format} className="font-mono text-[0.58rem] text-muted">
                               {format}
