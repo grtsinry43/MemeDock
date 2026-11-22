@@ -85,11 +85,11 @@ final class StickerDetailModel {
 
     func load(pixels: Int) async {
         scheduled?.cancel()
+        scheduled = nil
         beginLoad(pixels: pixels)
         let current = generation
-        let operation = work
         await withTaskCancellationHandler {
-            await operation?.value
+            await waitUntilLoaded()
         } onCancel: {
             Task { @MainActor [weak self] in
                 guard let self, self.generation == current else { return }
@@ -112,8 +112,12 @@ final class StickerDetailModel {
     }
 
     func waitUntilLoaded() async {
-        await scheduled?.value
-        await work?.value
+        while !closed && !Task.isCancelled {
+            let current = generation
+            await scheduled?.value
+            await work?.value
+            if generation == current { break }
+        }
     }
 
     func setPresentation(active: Bool, reduceMotion: Bool) {
