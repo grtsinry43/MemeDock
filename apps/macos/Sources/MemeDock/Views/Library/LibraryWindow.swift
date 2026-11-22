@@ -14,16 +14,18 @@ struct LibraryWindow: View {
     /// arrives, even while nothing else about the window changes.
     @ObservedObject var navigation: LibraryNavigation
     let telegram: TelegramCoordinator
+    let sync: SyncCoordinator
     @ObservedObject private var browser: StickerBrowser
     @ObservedObject private var detail: StickerDetailModel
     @ObservedObject private var imports: ImportCoordinator
     @State private var showTelegram = false
     @StateObject private var hero = HeroFlight()
 
-    init(model: LibraryModel, navigation: LibraryNavigation, telegram: TelegramCoordinator) {
+    init(model: LibraryModel, navigation: LibraryNavigation, telegram: TelegramCoordinator, sync: SyncCoordinator) {
         self.model = model
         self.navigation = navigation
         self.telegram = telegram
+        self.sync = sync
         _browser = ObservedObject(wrappedValue: model.browser)
         _detail = ObservedObject(wrappedValue: model.detail)
         _imports = ObservedObject(wrappedValue: model.imports)
@@ -31,12 +33,12 @@ struct LibraryWindow: View {
 
     var body: some View {
         splitView
-            .focusedSceneValue(\.librarySearchFocus, { searchFocused = true })
+            .focusedSceneValue(\.librarySearchFocus, { model.creator.modeIsCreator = false; searchFocused = true })
             .focusedSceneValue(\.libraryFile, fileActions)
             .toolbar(removing: .sidebarToggle)
             .toolbarBackground(.hidden, for: .windowToolbar)
             // What makes ⌘C and ⌘A land on the library instead of nowhere.
-            .background { LibraryResponderInstaller(model: model) }
+            .background { if !model.creator.modeIsCreator { LibraryResponderInstaller(model: model) } }
             // Where the settings window finds this one when it has to bring it
             // forward, and what lets it ask for anything at all.
             .background { HostWindowReader(host: navigation.library) }
@@ -75,22 +77,104 @@ struct LibraryWindow: View {
     /// out, shared with the + menu.
     private var fileActions: LibraryFileActions {
         LibraryFileActions(
-            available: !imports.isRunning,
+            available: !imports.isRunning && !model.creator.modeIsCreator,
             files: { imports.presentPicker(collectionId: model.importCollectionId) },
             telegram: { showTelegram = true },
-            canDelete: model.canDeleteFocused,
+            canDelete: !model.creator.modeIsCreator && model.canDeleteFocused,
             delete: { Task { await model.deleteFocused() } }
         )
     }
 
     private var splitView: some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            LibrarySidebar(model: model)
+            LibrarySidebar(model: model, sync: sync)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 300)
                 .toolbar(removing: .sidebarToggle)
         } detail: {
-            detailColumn
+            ZStack {
+                if model.creator.modeIsCreator {
+                    creatorColumn
+                        .transition(workspaceTransition(forCreator: true))
+                } else {
+                    detailColumn
+                        .transition(workspaceTransition(forCreator: false))
+                }
+            }
+            .clipped()
+            .animation(
+                reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.88),
+                value: model.creator.modeIsCreator
+            )
+            .background(MemeDockPalette(scheme).canvas)
+            .toolbar(removing: .sidebarToggle)
         }
+    }
+
+    private func workspaceTransition(forCreator: Bool) -> AnyTransition {
+        if reduceMotion { return .opacity }
+        return AnyTransition(WorkspaceDepthTransition(isCreatorLayer: forCreator))
+    }
+
+    private var creatorColumn: some View {
+        VStack(spacing: 0) {
+            creatorHeader
+            CreatorWorkspace(model: model.creator, collectionId: model.importCollectionId)
+        }
+        .background(MemeDockPalette(scheme).canvas)
+    }
+
+    private var creatorHeader: some View {
+        let palette = MemeDockPalette(scheme)
+        return HStack(spacing: 12) {
+            sidebarToggle
+            if sidebarVisibility == .detailOnly {
+                MemeDockBrandSwitcher(
+                    isCreator: Binding(
+                        get: { model.creator.modeIsCreator },
+                        set: { model.creator.modeIsCreator = $0 }
+                    ),
+                    compact: true
+                )
+            }
+            if model.creator.source != nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "film")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(palette.secondary)
+                    Text(model.creator.name)
+                        .font(MemeDockTypography.control)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 260, alignment: .leading)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: MemeDockGeometry.controlHeight)
+                .background(palette.input, in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
+                Button(L10n.text(.change)) { model.creator.chooseVideo() }
+                    .buttonStyle(MemeDockButtonStyle(kind: .quiet))
+                    .disabled(model.creator.busy || model.creator.saving)
+                    .fixedSize()
+            }
+            Spacer(minLength: 8)
+            if model.creator.source != nil && model.creator.result != nil {
+                MemeDockSegmentedControl(
+                    selection: Binding(
+                        get: { model.creator.showingResult },
+                        set: { model.creator.showingResult = $0 }
+                    ),
+                    options: [
+                        .init(value: false, title: L10n.text(.creatorEdit)),
+                        .init(value: true, title: L10n.text(.creatorResult), dot: model.creator.stale),
+                    ]
+                )
+                .fixedSize()
+            }
+            settingsButton
+        }
+        .padding(.horizontal, MemeDockGeometry.pageInset)
+        .padding(.top, 2)
+        .padding(.bottom, 12)
+        .background(palette.canvas)
     }
 
     private var detailColumn: some View {
@@ -198,10 +282,15 @@ struct LibraryWindow: View {
             // toggle and the title here puts them on that line instead of on a
             // toolbar strip of their own above it.
             sidebarToggle
-            Text(L10n.text(.app))
-                .font(MemeDockTypography.control)
-                .foregroundStyle(MemeDockPalette(scheme).secondary)
-                .fixedSize()
+            if sidebarVisibility == .detailOnly {
+                MemeDockBrandSwitcher(
+                    isCreator: Binding(
+                        get: { model.creator.modeIsCreator },
+                        set: { model.creator.modeIsCreator = $0 }
+                    ),
+                    compact: true
+                )
+            }
             searchField
             if browser.filter == .deleted {
                 Button(L10n.text(.emptyTrash), role: .destructive) { Task { await model.requestEmptyTrash() } }
@@ -250,6 +339,12 @@ struct LibraryWindow: View {
             Menu {
                 Button(L10n.text(.importFromFiles), action: fileActions.files)
                 Button(L10n.text(.importFromTelegramPack), action: fileActions.telegram)
+                Divider()
+                Button(L10n.text(.creatorTitle)) {
+                    withAnimation(reduceMotion ? nil : MemeDockMotion.panel) {
+                        model.creator.modeIsCreator = true
+                    }
+                }
             } label: {
                 Label(L10n.text(.libraryAdd), systemImage: "plus")
                     .labelStyle(.iconOnly)
@@ -265,6 +360,9 @@ struct LibraryWindow: View {
             // Kept out of the toolbar: with no title bar, a lone primary action
             // there is laid out beside the sidebar toggle instead of at the
             // trailing edge, so the row that already ends on the right owns it.
+            if sidebarVisibility == .detailOnly {
+                SyncStatusBadge(sync: sync, compact: true)
+            }
             settingsButton
         }
         .padding(.horizontal, MemeDockGeometry.pageInset)
@@ -318,4 +416,33 @@ struct LibraryWindow: View {
         }
     }
 
+}
+
+/// Subtle depth-and-glide transition between the MemeDock library and the
+/// Meme Creator studio: Creator glides in from slightly below with a soft
+/// settle while the library recedes gently into the background, and reverses
+/// cleanly on return.
+private struct WorkspaceDepthTransition: Transition {
+    let isCreatorLayer: Bool
+
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        let offsetY: CGFloat
+        let scale: CGFloat
+        if phase.isIdentity {
+            offsetY = 0
+            scale = 1
+        } else if isCreatorLayer {
+            offsetY = 18
+            scale = phase == .willAppear ? 1.018 : 0.985
+        } else {
+            offsetY = -12
+            scale = 0.975
+        }
+
+        return content
+            .scaleEffect(scale)
+            .offset(y: offsetY)
+            .blur(radius: phase.isIdentity ? 0 : 3)
+            .opacity(phase.isIdentity ? 1 : 0)
+    }
 }

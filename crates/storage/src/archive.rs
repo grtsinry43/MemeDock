@@ -82,12 +82,13 @@ impl LibraryDatabase {
             }
             after = batch.last().map(|v| v.id.clone());
             for artifact in batch {
-                if entities::asset::Entity::find_by_id(artifact.source_hash.clone())
-                    .one(&tx)
-                    .await?
-                    .is_none()
+                if let Some(source_hash) = artifact.source_asset_hash.clone()
+                    && entities::asset::Entity::find_by_id(source_hash.clone())
+                        .one(&tx)
+                        .await?
+                        .is_none()
                 {
-                    let asset = entities::asset::Entity::find_by_id(artifact.source_hash.clone())
+                    let asset = entities::asset::Entity::find_by_id(source_hash)
                         .one(&source.connection)
                         .await?
                         .ok_or(crate::StorageError::Integrity(

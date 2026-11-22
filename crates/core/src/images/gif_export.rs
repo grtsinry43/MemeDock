@@ -249,14 +249,58 @@ impl Write for TimedWriter<'_> {
     }
 }
 
-pub(crate) fn encode(
+pub(crate) fn encode_with_limit(
+    mut original: File,
+    blobs: &FsBlobStore,
+    limits: &ResourceLimits,
+    available: u64,
+    limit: Option<memedock_domain::export::GifSizeLimit>,
+    control: &TaskControl,
+) -> Result<(StagedFile, bool)> {
+    let budget = available.min(limit.map_or(u64::MAX, |v| v.bytes()));
+    let parameters: &[(u32, u32)] = if limit.is_some() {
+        &[(512, 30), (384, 24), (256, 20), (192, 15), (128, 10)]
+    } else {
+        &[(512, 30)]
+    };
+    let started = Instant::now();
+    for (i, (edge, fps)) in parameters.iter().enumerate() {
+        check(control, started)?;
+        original.seek(SeekFrom::Start(0))?;
+        let attempt = encode_parameters(
+            original.try_clone()?,
+            blobs,
+            limits,
+            budget,
+            control,
+            (*edge, *fps),
+            started,
+        );
+        match attempt {
+            Err(error)
+                if limit.is_some()
+                    && error.code() == ErrorCode::ResourceLimit
+                    && i + 1 < parameters.len() =>
+            {
+                continue;
+            }
+            other => return other,
+        }
+    }
+    Err(CoreError::internal("GIF attempt missing"))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_parameters(
     original: File,
     blobs: &FsBlobStore,
     limits: &ResourceLimits,
     available: u64,
     control: &TaskControl,
+    parameters: (u32, u32),
+    started: Instant,
 ) -> Result<(StagedFile, bool)> {
-    let started = Instant::now();
+    let (edge, fps) = parameters;
     check(control, started)?;
     control.stage("decoding_export");
     let mut animation = animation(original, limits, control, started)?;
@@ -304,10 +348,10 @@ pub(crate) fn encode(
                 }
                 // Decode every source frame for composition, but scale and
                 // quantize only the canvases selected for <=30 FPS output.
-                next_sample = (sample + 1000.0 / 30.0).max(timeline.milliseconds);
+                next_sample = (sample + 1000.0 / f64::from(fps)).max(timeline.milliseconds);
                 let mut image = DynamicImage::ImageRgba8(frame.into_buffer());
                 image.apply_orientation(animation.orientation);
-                let mut rgba = super::export::resize(image.into_rgba8(), Some(512), control)?;
+                let mut rgba = super::export::resize(image.into_rgba8(), Some(edge), control)?;
                 for row in rgba.rows_mut() {
                     check(control, started)?;
                     for pixel in row {
@@ -531,11 +575,12 @@ mod tests {
         let limits = ResourceLimits::default();
         let blobs = FsBlobStore::open(dir.path())?;
         let started = Instant::now();
-        let (staged, _) = encode(
+        let (staged, _) = encode_with_limit(
             File::open(source.path())?,
             &blobs,
             &limits,
             MAX_BYTES,
+            None,
             &control,
         )?;
         eprintln!(

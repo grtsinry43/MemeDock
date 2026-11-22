@@ -14,6 +14,7 @@ struct RootView: View {
     let navigation: LibraryNavigation
     /// The app's one Telegram import, presented from the library window.
     let telegram: TelegramCoordinator
+    let sync: SyncCoordinator
     @StateObject private var model: LibraryModel
     /// Observed so a theme or language change re-renders this window; applying
     /// them is `Preferences`' own job.
@@ -26,13 +27,15 @@ struct RootView: View {
         clipboard: ClipboardGuard,
         navigation: LibraryNavigation,
         telegram: TelegramCoordinator,
-        imports: ImportCoordinator
+        imports: ImportCoordinator,
+        sync: SyncCoordinator
     ) {
         _session = ObservedObject(wrappedValue: session)
         _status = ObservedObject(wrappedValue: status)
         _eggs = ObservedObject(wrappedValue: eggs)
         self.navigation = navigation
         self.telegram = telegram
+        self.sync = sync
         _model = StateObject(
             wrappedValue: LibraryModel(session: session, status: status, clipboard: clipboard, imports: imports)
         )
@@ -65,7 +68,7 @@ struct RootView: View {
         case .opening, .closed:
             OpeningView()
         case .ready:
-            LibraryWindow(model: model, navigation: navigation, telegram: telegram)
+            LibraryWindow(model: model, navigation: navigation, telegram: telegram, sync: sync)
         case let .failed(message):
             FailureView(message: message) {
                 Task { await session.start() }

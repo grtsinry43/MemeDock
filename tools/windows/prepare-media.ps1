@@ -46,7 +46,7 @@ if (!$ffmpegPort.Contains($originalOptions)) { throw 'Pinned FFmpeg options no l
 $ffmpegPort = $ffmpegPort.Replace($originalOptions, $minimalOptions)
 $optionsLog = 'message(STATUS "Building Options: ${OPTIONS}")'
 if (!$ffmpegPort.Contains($optionsLog)) { throw 'Pinned FFmpeg configuration anchor no longer matches.' }
-$decoderOptions = 'string(APPEND OPTIONS " --enable-decoder=libvpx_vp8,libvpx_vp9 --enable-demuxer=matroska --enable-parser=vp8,vp9 --enable-protocol=file --enable-filter=fps --disable-x86asm")'
+$decoderOptions = 'string(APPEND OPTIONS " --enable-decoder=libvpx_vp8,libvpx_vp9,h264,hevc,mpeg4,prores,mjpeg,rawvideo --enable-demuxer=matroska,mov,avi,mpegts --enable-parser=vp8,vp9,h264,hevc,mpeg4video --enable-protocol=file --enable-filter=fps,scale,crop,transpose,hflip,vflip,format,setsar --disable-x86asm")'
 $ffmpegPort = $ffmpegPort.Replace($optionsLog, $decoderOptions + "`n" + $optionsLog)
 [IO.File]::WriteAllText($ffmpegPortPath, $ffmpegPort)
 $vpxOverlay = Join-Path $overlayRoot 'libvpx'

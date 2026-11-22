@@ -6,3 +6,5 @@ pub(crate) mod inspect;
 pub(crate) mod preview;
 pub(crate) mod telegram;
 pub(crate) mod thumbnail;
+pub(crate) mod video;
+pub(crate) mod video_webp;

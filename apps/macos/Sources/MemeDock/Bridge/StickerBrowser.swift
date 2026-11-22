@@ -102,7 +102,9 @@ final class StickerBrowser: ObservableObject {
     func apply(_ event: SessionEvent) {
         switch event {
         case .reload:
-            restart()
+            // Keep current rows on screen while fetching the refreshed page so
+            // background sync never flashes an empty screen or loading spinner.
+            reload()
         case .collections, .tags:
             break
         case let .sticker(id):
@@ -183,7 +185,10 @@ final class StickerBrowser: ObservableObject {
         let added = page.stickers.map { sticker in
             StickerItem(sticker: sticker, resource: resources[sticker.id])
         }
-        items = more ? items + added : added
+        let next = more ? items + added : added
+        if items != next {
+            items = next
+        }
         cursor = page.next
         hasMore = page.next != nil
         isLoading = false

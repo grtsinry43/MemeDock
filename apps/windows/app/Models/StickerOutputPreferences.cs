@@ -97,11 +97,11 @@ public static class StickerOutputPresets
             throw new ArgumentOutOfRangeException(nameof(preset), preset, "Preset does not support this content kind.");
         return preset switch
         {
-            ExportPreset.Original => new(ExportPreset.Original, null, null, false, AnimationPolicy.Preserve),
-            ExportPreset.CompatiblePng => new(ExportPreset.CompatiblePng, 1024, null, true, AnimationPolicy.Preserve),
-            ExportPreset.SmallJpeg => new(ExportPreset.SmallJpeg, 512, OpaqueWhite, true, AnimationPolicy.Preserve),
-            ExportPreset.BestCompatibility => new(ExportPreset.BestCompatibility, null, null, true, AnimationPolicy.Preserve),
-            ExportPreset.CompatibleGif => new(ExportPreset.CompatibleGif, 512, null, true, AnimationPolicy.Preserve),
+            ExportPreset.Original => new(ExportPreset.Original, null, null, false, AnimationPolicy.Preserve, null),
+            ExportPreset.CompatiblePng => new(ExportPreset.CompatiblePng, 1024, null, true, AnimationPolicy.Preserve, null),
+            ExportPreset.SmallJpeg => new(ExportPreset.SmallJpeg, 512, OpaqueWhite, true, AnimationPolicy.Preserve, null),
+            ExportPreset.BestCompatibility => new(ExportPreset.BestCompatibility, null, null, true, AnimationPolicy.Preserve, null),
+            ExportPreset.CompatibleGif => new(ExportPreset.CompatibleGif, 512, null, true, AnimationPolicy.Preserve, null),
             _ => throw new ArgumentOutOfRangeException(nameof(preset), preset, "Unsupported output preset.")
         };
     }

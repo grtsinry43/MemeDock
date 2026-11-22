@@ -23,6 +23,7 @@ final class LibraryModel: ObservableObject {
     let thumbnails: ThumbnailStore
     let selection: StickerSelection
     let detail: StickerDetailModel
+    let creator: CreatorModel
 
     /// While on, a click extends the batch selection instead of only moving the
     /// detail pane: choosing many and inspecting one are different jobs, and the
@@ -116,6 +117,7 @@ final class LibraryModel: ObservableObject {
         self.session = session
         self.status = status
         actions = StickerActions(session: session, clipboard: clipboard, status: status)
+        creator = CreatorModel(session: session, actions: actions, status: status)
         self.imports = imports
         browser = StickerBrowser(session: session)
         collections = CollectionCatalog(session: session)
@@ -135,6 +137,7 @@ final class LibraryModel: ObservableObject {
     }
 
     func shutdown() {
+        creator.shutdown()
         confirmingPurge = false
         purgeTargets = []
         started = false
@@ -146,6 +149,7 @@ final class LibraryModel: ObservableObject {
     }
 
     func select(_ filter: LibraryFilter) {
+        creator.modeIsCreator = false
         browser.filter = filter
     }
 
@@ -346,7 +350,7 @@ final class LibraryModel: ObservableObject {
                 thumbnails.load(item)
             }
         case .reload:
-            thumbnails.clear()
+            thumbnails.clearFailures()
         case .collections, .tags:
             // Deleting what is being browsed has to move the grid somewhere, and
             // the trashed entry keeps the section it used to be only as a row.

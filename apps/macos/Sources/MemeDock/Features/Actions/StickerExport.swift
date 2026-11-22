@@ -48,13 +48,18 @@ enum StickerExport {
         }
     }
 
-    static func options(_ preset: ExportPreset, animation: AnimationPolicy) -> ExportOptions {
-        ExportOptions(
+    static func options(_ preset: ExportPreset, animation: AnimationPolicy, maxBytes: UInt64? = nil) -> ExportOptions {
+        let resolvedAnimation: AnimationPolicy = preset == .original ? .preserve : animation
+        let gifLimit: UInt64? = (preset == .bestCompatibility || preset == .compatibleGif) && resolvedAnimation == .preserve
+            ? maxBytes
+            : nil
+        return ExportOptions(
             preset: preset,
             maxEdge: maxEdge(preset),
             backgroundRgba: background(preset),
             stripMetadata: preset != .original,
-            animation: preset == .original ? .preserve : animation
+            animation: resolvedAnimation,
+            maxBytes: gifLimit
         )
     }
 

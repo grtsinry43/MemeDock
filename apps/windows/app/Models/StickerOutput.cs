@@ -24,9 +24,9 @@ public static class StickerOutputPolicy
     public static ExportOptions Options(bool animated, StickerOutputKind kind, OutputDefaults defaults)
     {
         if (kind == StickerOutputKind.OriginalFile)
-            return new(ExportPreset.Original, null, null, false, AnimationPolicy.Preserve);
+            return new(ExportPreset.Original, null, null, false, AnimationPolicy.Preserve, null);
         if (kind == StickerOutputKind.FirstFrame)
-            return new(ExportPreset.CompatiblePng, 1024, null, true, AnimationPolicy.FirstFrame);
+            return new(ExportPreset.CompatiblePng, 1024, null, true, AnimationPolicy.FirstFrame, null);
         return StickerOutputPresets.Options(defaults.For(animated), animated);
     }
 }

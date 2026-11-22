@@ -244,9 +244,9 @@ cd "$work/ffmpeg"
   --ar="${AR:-ar}" --ranlib="${RANLIB:-ranlib}" --strip="${STRIP:-strip}" --pkg-config="$pkg_config" --pkg-config-flags=--static \
   --disable-everything --disable-autodetect --disable-programs --disable-doc --disable-debug \
   --disable-avdevice --disable-swresample --disable-network --disable-shared \
-  --enable-static --enable-pic --enable-libvpx --enable-decoder=libvpx_vp8,libvpx_vp9 \
-  --enable-avfilter --enable-filter=fps \
-  --enable-demuxer=matroska --enable-parser=vp8,vp9 --enable-protocol=file --disable-x86asm
+  --enable-static --enable-pic --enable-libvpx --enable-decoder=libvpx_vp8,libvpx_vp9,h264,hevc,mpeg4,prores,mjpeg,rawvideo \
+  --enable-avfilter --enable-filter=fps,scale,crop,transpose,hflip,vflip,format,setsar \
+  --enable-demuxer=matroska,mov,avi,mpegts --enable-parser=vp8,vp9,h264,hevc,mpeg4video --enable-protocol=file --disable-x86asm
 make -j4
 make install
 mkdir -p "$prefix/licenses"

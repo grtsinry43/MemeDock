@@ -372,9 +372,7 @@ struct StickerDetailPane: View {
                 .menuIndicator(.hidden)
                 .help(StickerExport.effectiveOverride(actions.override, animated: item.animated).map(StickerExport.hint) ?? L10n.text(.followDefaultsHint))
                 if item.animated, actions.copyPreset(for: item) == .bestCompatibility || actions.sharePreset(for: item) == .bestCompatibility {
-                    Text(L10n.text(.exportAnimatedCompatibilityHint))
-                        .font(MemeDockTypography.caption)
-                        .foregroundStyle(MemeDockPalette(scheme).secondary)
+                    gifLimitControl
                 }
                 Button { run { try await model.actions.copyImage(item) } } label: {
                     HStack(spacing: 8) {
@@ -417,6 +415,74 @@ struct StickerDetailPane: View {
             Button(L10n.text(.cancel)) { actions.cancelOutput() }
                 .buttonStyle(.borderless)
         }
+    }
+
+    private var gifLimitControl: some View {
+        let palette = MemeDockPalette(scheme)
+        let currentMiB: Int? = {
+            if let override = actions.gifLimitOverride {
+                switch override {
+                case .unlimited: return nil
+                case let .limitMiB(mib): return mib
+                }
+            }
+            return preferences.gifSizeLimitEnabled ? preferences.gifSizeLimitMiB : nil
+        }()
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(L10n.text(.outputGifLimitOverride))
+                    .font(MemeDockTypography.caption)
+                    .foregroundStyle(palette.secondary)
+                Spacer()
+                if actions.gifLimitOverride != nil {
+                    Button(L10n.text(.outputGifLimitReset)) {
+                        actions.gifLimitOverride = nil
+                    }
+                    .buttonStyle(.plain)
+                    .font(MemeDockTypography.caption)
+                    .foregroundStyle(palette.secondary)
+                }
+                Text(currentMiB.map { "\($0) MiB" } ?? L10n.text(.outputGifLimitUnlimited))
+                    .font(MemeDockTypography.caption)
+                    .fontWeight(.medium)
+                    .monospacedDigit()
+                    .foregroundStyle(palette.text)
+            }
+            HStack(spacing: 8) {
+                Slider(
+                    value: Binding(
+                        get: { Double(currentMiB ?? preferences.gifSizeLimitMiB) },
+                        set: { actions.gifLimitOverride = .limitMiB(Int($0.rounded())) }
+                    ),
+                    in: Double(Preferences.gifSizeLimitRange.lowerBound) ... Double(Preferences.gifSizeLimitRange.upperBound),
+                    step: 1
+                )
+                .tint(palette.text)
+                .opacity(currentMiB == nil ? 0.45 : 1)
+                .accessibilityLabel(L10n.text(.outputGifLimitOverride))
+
+                Button(L10n.text(.outputGifLimitUnlimited)) {
+                    if currentMiB == nil {
+                        actions.gifLimitOverride = .limitMiB(preferences.gifSizeLimitMiB)
+                    } else {
+                        actions.gifLimitOverride = .unlimited
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(MemeDockTypography.caption)
+                .foregroundStyle(currentMiB == nil ? palette.raised : palette.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    currentMiB == nil ? palette.text : palette.input,
+                    in: RoundedRectangle(cornerRadius: MemeDockGeometry.badge)
+                )
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(palette.input.opacity(0.6), in: RoundedRectangle(cornerRadius: MemeDockGeometry.control))
     }
 
     private func actionIcon(_ title: L10nKey, _ symbol: String) -> some View {
@@ -579,6 +645,7 @@ private struct OriginalPreview: View {
             }
         }
         .task(id: path) { await load() }
+        .onWindowVisibilityChange { playback.setWindowVisible($0) }
         .onDisappear { playback.stop() }
     }
 

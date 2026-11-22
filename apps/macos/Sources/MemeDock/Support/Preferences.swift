@@ -71,6 +71,8 @@ final class Preferences: ObservableObject {
         static let copyPreset = "copyPreset"
         static let sharePreset = "sharePreset"
         static let dragPreset = "dragPreset"
+        static let gifSizeLimitEnabled = "gifSizeLimitEnabled"
+        static let gifSizeLimitMiB = "gifSizeLimitMiB"
         static let tileSize = "tileSize"
         static let showDockIcon = "showDockIcon"
         static let anchorToInput = "anchorToInput"
@@ -122,6 +124,19 @@ final class Preferences: ObservableObject {
     }
     @Published var dragAnimatedPreset: ExportPreset { didSet { persist() } }
 
+    /// Global byte ceiling for Best Compatibility GIF exports (default 5 MiB).
+    @Published var gifSizeLimitEnabled: Bool {
+        didSet { defaults.set(gifSizeLimitEnabled, forKey: Key.gifSizeLimitEnabled) }
+    }
+    @Published var gifSizeLimitMiB: Int {
+        didSet { defaults.set(gifSizeLimitMiB, forKey: Key.gifSizeLimitMiB) }
+    }
+    static let gifSizeLimitRange: ClosedRange<Int> = 1 ... 10
+    static let defaultGifSizeLimitMiB = 5
+    var effectiveGifMaxBytes: UInt64? {
+        gifSizeLimitEnabled ? UInt64(gifSizeLimitMiB) * 1024 * 1024 : nil
+    }
+
     /// How wide one grid tile aims to be, within `tileSizeRange`. A grid
     /// density is a display choice, so it survives relaunches.
     @Published var tileSize: CGFloat {
@@ -158,6 +173,9 @@ final class Preferences: ObservableObject {
         self.shareAnimatedPreset = Self.loadOutput(defaults, Key.sharePreset, animated: true)
         self.dragPreset = Self.loadOutput(defaults, Key.dragPreset, animated: false)
         self.dragAnimatedPreset = Self.loadOutput(defaults, Key.dragPreset, animated: true)
+        self.gifSizeLimitEnabled = defaults.object(forKey: Key.gifSizeLimitEnabled) as? Bool ?? true
+        let storedGifMiB = defaults.object(forKey: Key.gifSizeLimitMiB) as? Int ?? Self.defaultGifSizeLimitMiB
+        self.gifSizeLimitMiB = min(Self.gifSizeLimitRange.upperBound, max(Self.gifSizeLimitRange.lowerBound, storedGifMiB))
         let storedSize = defaults.object(forKey: Key.tileSize) as? Double
         self.tileSize = min(
             Self.tileSizeRange.upperBound,

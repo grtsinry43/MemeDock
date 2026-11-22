@@ -4,6 +4,7 @@ mod backup;
 pub(crate) mod batch_management;
 mod clipboard;
 mod collection_management;
+mod creator;
 mod export;
 pub(crate) mod import;
 pub(crate) mod maintenance;

@@ -57,6 +57,12 @@ final class ThumbnailStore: ObservableObject {
         order.removeAll { $0 == stickerId }
     }
 
+    /// Retries previously failed thumbnails without discarding decoded images
+    /// that are still valid at their immutable content-addressed paths.
+    func clearFailures() {
+        failed.removeAll()
+    }
+
     func clear() {
         generation += 1
         images.removeAll()

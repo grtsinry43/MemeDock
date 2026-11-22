@@ -52,7 +52,8 @@ final class OutputCoordinator {
                 let options = ExportOptions(
                     preset: firstFrame ? .compatiblePng : preset.bridge,
                     maxEdge: nil, backgroundRgba: nil, stripMetadata: true,
-                    animation: firstFrame ? .firstFrame : .preserve)
+                    animation: firstFrame ? .firstFrame : .preserve,
+                    maxBytes: nil)
                 let exporting = try library.export(id: sticker, options: options)
                 task = exporting
                 let lease = try await exporting.awaitResult()

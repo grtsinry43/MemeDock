@@ -31,7 +31,7 @@ class NativeBridgeDeviceTest {
                             } finally { bitmap.recycle() }
                             library.importStaged(input, ImportOptions("native-export.png", null, null)).use { it.awaitResult().sticker.id }
                         }
-                        library.export(id, ExportOptions(ExportPreset.WHITE_BACKGROUND, null, UInt.MAX_VALUE, true, AnimationPolicy.PRESERVE))
+                        library.export(id, ExportOptions(ExportPreset.WHITE_BACKGROUND, null, UInt.MAX_VALUE, true, AnimationPolicy.PRESERVE, null))
                             .use { it.awaitResult() }.use { lease ->
                                 val artifact = library.prepareHandoff(lease).use { it.awaitResult() }
                                 assertEquals("image/png", artifact.mime)
