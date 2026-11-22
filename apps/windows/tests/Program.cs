@@ -21,6 +21,7 @@ internal static class Program
             QueryScopes();
             await DesktopIntegrationTests.RunAsync();
             await TelegramImportTests.RunAsync();
+            await CreatorTests.RunAsync(FindRepository());
             RequestGenerations();
             EditDrafts();
             OutputPolicies();
@@ -1600,14 +1601,14 @@ internal static class Program
     /// </summary>
     private static void SyncStatusBrushes(string root)
     {
-        var xaml = File.ReadAllText(Path.Combine(root, "apps/windows/app/MainWindow.xaml"));
-        var code = File.ReadAllText(Path.Combine(root, "apps/windows/app/MainWindow.xaml.cs"));
-        foreach (var key in new[] { "SyncIdleBrush", "SyncAttentionBrush", "SyncFailureBrush" })
+        var xaml = File.ReadAllText(Path.Combine(root, "apps/windows/app/Views/SyncStatusBadge.xaml"));
+        var code = File.ReadAllText(Path.Combine(root, "apps/windows/app/Views/SyncStatusBadge.xaml.cs"));
+        foreach (var key in new[] { "SyncIdleBrush", "SyncSuccessBrush", "SyncAttentionBrush", "SyncFailureBrush" })
         {
             Check(xaml.Contains($"x:Key=\"{key}\"", StringComparison.Ordinal),
-                $"MainWindow.xaml no longer declares the {key} resource.");
+                $"SyncStatusBadge.xaml no longer declares the {key} resource.");
             Check(code.Contains($"\"{key}\"", StringComparison.Ordinal),
-                $"MainWindow.xaml.cs no longer reads the {key} resource.");
+                $"SyncStatusBadge.xaml.cs no longer reads the {key} resource.");
         }
         Check(!code.Contains(".HasKey(", StringComparison.Ordinal)
               && !code.Contains(".Lookup(", StringComparison.Ordinal),
@@ -1653,6 +1654,55 @@ internal static class Program
         }
         var desktopKeys = new Dictionary<string, string>
         {
+            ["output_gif_limit"] = "outputGifLimit",
+            ["output_gif_limit_hint"] = "outputGifLimitHint",
+            ["output_gif_limit_override"] = "outputGifLimitOverride",
+            ["output_gif_limit_unlimited"] = "outputGifLimitUnlimited",
+            ["output_gif_limit_reset"] = "outputGifLimitReset",
+            ["mode_dock_subtitle"] = "modeDockSubtitle",
+            ["mode_creator_subtitle"] = "modeCreatorSubtitle",
+            ["creator_title"] = "creatorTitle",
+            ["creator_choose"] = "creatorChoose",
+            ["creator_choose_hint"] = "creatorChooseHint",
+            ["creator_empty_hint"] = "creatorEmptyHint",
+            ["creator_sdr_hint"] = "creatorSDRHint",
+            ["creator_sdr_only"] = "creatorSDROnly",
+            ["creator_input_resolution"] = "creatorInputResolution",
+            ["creator_input_size"] = "creatorInputSize",
+            ["creator_resource_limit"] = "creatorResourceLimit",
+            ["creator_invalid_video"] = "creatorInvalidVideo",
+            ["creator_unsupported"] = "creatorUnsupported",
+            ["creator_invalid_selection"] = "creatorInvalidSelection",
+            ["creator_frame_preview"] = "creatorFramePreview",
+            ["creator_crop"] = "creatorCrop",
+            ["creator_resize_crop"] = "creatorResizeCrop",
+            ["creator_reset_crop"] = "creatorResetCrop",
+            ["creator_free_crop"] = "creatorFreeCrop",
+            ["creator_full_frame"] = "creatorFullFrame",
+            ["creator_crop_hint"] = "creatorCropHint",
+            ["creator_playhead"] = "creatorPlayhead",
+            ["creator_start"] = "creatorStart",
+            ["creator_end"] = "creatorEnd",
+            ["creator_set_start"] = "creatorSetStart",
+            ["creator_set_end"] = "creatorSetEnd",
+            ["creator_output"] = "creatorOutput",
+            ["creator_longest_edge"] = "creatorLongestEdge",
+            ["creator_frame_rate"] = "creatorFrameRate",
+            ["creator_quality"] = "creatorQuality",
+            ["creator_webp_hint"] = "creatorWebPHint",
+            ["creator_generate"] = "creatorGenerate",
+            ["creator_regenerate"] = "creatorRegenerate",
+            ["creator_reading"] = "creatorReading",
+            ["creator_preparing_previews"] = "creatorPreparingPreviews",
+            ["creator_validating"] = "creatorValidating",
+            ["creator_generating"] = "creatorGenerating",
+            ["creator_edit"] = "creatorEdit",
+            ["creator_result"] = "creatorResult",
+            ["creator_stale"] = "creatorStale",
+            ["creator_add_to_dock"] = "creatorAddToDock",
+            ["creator_added"] = "creatorAdded",
+            ["creator_result_hint"] = "creatorResultHint",
+            ["creator_switch_mode"] = "creatorSwitchMode",
             ["picker_loading"] = "loading",
             ["picker_hint"] = "quickPickerHint",
             ["picker_empty"] = "emptyLibrary",
@@ -1779,7 +1829,9 @@ internal static class Program
             // Windows shortcuts and the system color page have no mobile counterpart.
             "output_copy_hint", "settings_windows_colors",
             // One message covers both file drops and clipboard image input.
-            "desktop_import_empty"
+            "desktop_import_empty",
+            // Windows-specific Creator labels (File Explorer phrasing, Windows share sheet).
+            "creator_drop_hint", "creator_change", "creator_share", "creator_share_launched"
         };
         var macos = File.ReadAllText(Path.Combine(root, "apps/macos/Sources/MemeDock/Support/Localization.swift"));
         var split = macos.IndexOf("private static let chinese:", StringComparison.Ordinal);

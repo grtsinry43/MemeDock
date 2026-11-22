@@ -12,7 +12,6 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.Windows.Storage.Pickers;
 using Windows.ApplicationModel.DataTransfer;
 
@@ -20,9 +19,6 @@ namespace MemeDock.Windows;
 
 public sealed partial class MainWindow : Window
 {
-    private const string HeroOpenKey = "MemeDock.HeroOpen";
-    private const string HeroCloseKey = "MemeDock.HeroClose";
-    private const string TileImageName = "TileImage";
     // Target slot width for a tile, and the caption row added to it so the picture stays square
     // (8 epx padding on each side, a 16 epx caption and 6 epx between them).
     private const double TileTarget = 136;
@@ -45,6 +41,7 @@ public sealed partial class MainWindow : Window
     private bool _updatingNavigation;
     private bool _composing;
     private bool _settingsVisible;
+    private bool _creatorVisible;
     private bool _childrenConfigured;
     private bool _restoringSelection;
     private long _selectionVersion;
@@ -56,7 +53,7 @@ public sealed partial class MainWindow : Window
     private bool _outputWasBusy;
     private string? _reorderCollection;
     private Task<bool>? _galleryDragPreparation;
-    private SyncCoordinator? _sync;
+    private readonly WindowsShareService _share;
     private readonly BackupDestinationPicker _backupPicker;
     private readonly ArchiveSourcePicker _archivePicker;
 
@@ -94,6 +91,9 @@ public sealed partial class MainWindow : Window
         // Same identity rule as the save dialog: the open dialog is modal to this
         // window through its native handle.
         _archivePicker = new ArchiveSourcePicker(AppWindow.Id);
+        _share = new WindowsShareService(this);
+        BrandSwitcher.Configure(Strings);
+        SyncBadge.Configure(Strings);
         Settings.AppearanceChanged += OnAppearanceChanged;
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new global::Windows.Graphics.SizeInt32(1180, 820));
@@ -106,7 +106,9 @@ public sealed partial class MainWindow : Window
         ViewModel.ContentChanged += OnContentChanged;
         ViewModel.Rebuilt += OnRebuilt;
         Activated += OnActivated;
-        // Page changes and the inspector's two jobs animate with the Fluent entrance curve.
+        // Page changes, workspace mode switches, and the inspector's two jobs animate with Fluent motion.
+        Motion.UseWorkspaceTransition(Navigation, isCreatorLayer: false);
+        Motion.UseWorkspaceTransition(Creator, isCreatorLayer: true);
         Motion.UseEntrance(Inspector);
         Motion.UseEntrance(Settings);
         Motion.UseCrossFade(Details);
@@ -161,7 +163,6 @@ public sealed partial class MainWindow : Window
     {
         if (_initialized) return;
         _initialized = true;
-        Motion.ConfigureConnectedAnimations(Root);
         _initialization = InitializeAsync();
         await _initialization;
         if (!_stopping && _desktop?.CanReside == true && Environment.GetCommandLineArgs().Contains("--background")) AppWindow.Hide();
@@ -224,7 +225,14 @@ public sealed partial class MainWindow : Window
         RestoreButton.Label = Strings["restore"];
         PurgeButton.Label = Strings["purge_title"];
         Settings.Relocalize();
-        TelegramNavigation.Content = Strings["tg_title"];
+        BrandSwitcher.Relocalize();
+        SyncBadge.Refresh();
+        ToolTipService.SetToolTip(CreatorSettingsButton, Strings["desktop_settings"]);
+        AutomationProperties.SetName(CreatorSettingsButton, Strings["desktop_settings"]);
+        ImportFilesMenuItem.Text = Strings["desktop_import_files"];
+        ImportTelegramMenuItem.Text = Strings["tg_title"];
+        CreateVideoMenuItem.Text = Strings["creator_title"];
+        Creator.Relocalize();
         Details.Relocalize();
         Batch.Relocalize();
         TrashGroupsPanel.Relocalize();
@@ -240,12 +248,15 @@ public sealed partial class MainWindow : Window
     {
         if (ViewModel.IsReady && !_childrenConfigured && ViewModel.Details is { } details && ViewModel.Batch is { } batch
             && ViewModel.Catalog is { } catalog && ViewModel.TrashGroups is { } trashGroups && ViewModel.Output is { } output
-            && ViewModel.Storage is { } storage && ViewModel.Backup is { } backup)
+            && ViewModel.Storage is { } storage && ViewModel.Backup is { } backup && ViewModel.Creator is { } creator)
         {
             _childrenConfigured = true;
             Details.Configure(details, Strings, ViewModel.Collections, ViewModel.Tags, output);
             Batch.Configure(batch, Strings, ViewModel.Collections, ViewModel.Tags);
             TrashGroupsPanel.Configure(trashGroups, Strings);
+            Creator.Configure(creator, output, Strings, _share, AppWindow.Id,
+                () => ViewModel.Filter.Scope == LibraryScope.Collection ? ViewModel.Filter.Id : null);
+            creator.ModeIsCreator = _creatorVisible;
             Settings.ConfigureSync(ViewModel.Sync, Strings);
             Settings.ConfigureStorage(storage);
             Settings.ConfigureBackup(backup);
@@ -255,13 +266,11 @@ public sealed partial class MainWindow : Window
             catalog.PropertyChanged += OnModelChanged;
             trashGroups.PropertyChanged += OnModelChanged;
             output.PropertyChanged += OnModelChanged;
+            creator.PropertyChanged += OnModelChanged;
             output.SetForeground(_windowActive);
             _outputWasBusy = output.IsBusy;
         }
-        // The coordinator outlives this window only until shutdown, so the
-        // handler is attached once per instance and dropped in the finally
-        // block of OnClosing.
-        AttachSync(ViewModel.Sync);
+        SyncBadge.Attach(ViewModel.Sync);
         ReportOutput();
         var batchRunning = ViewModel.Batch?.IsRunning == true;
         // A restore either holds the session open for a merge or is about to close it
@@ -279,6 +288,9 @@ public sealed partial class MainWindow : Window
         TrashNavigation.IsEnabled = !blocked;
         NewCollectionNavigation.IsEnabled = NewTagNavigation.IsEnabled = !blocked && !catalogBusy && ViewModel.IsReady;
         if (Navigation.SettingsItem is NavigationViewItem settingsItem) settingsItem.IsEnabled = !blocked;
+        BrandSwitcher.SetModeEnabled(ViewModel.IsReady && !blocked);
+        CreatorSettingsButton.IsEnabled = !blocked;
+        SyncBadge.SetNavigationEnabled(!blocked);
 
         ImportButton.Visibility = ToVisibility(!trash);
         Search.IsEnabled = ViewModel.IsReady && !_stopping && !blocked;
@@ -336,10 +348,14 @@ public sealed partial class MainWindow : Window
         ReorderDone.Visibility = ToVisibility(_reordering);
         Gallery.CanDragItems = _reordering && reorder || CanDragOut;
         Gallery.CanReorderItems = Gallery.AllowDrop = _reordering && reorder;
-        ImportButton.IsEnabled = ViewModel.CanImport && !_stopping && !_reordering;
+        ImportButton.IsEnabled = ViewModel.IsReady && !blocked && !_stopping && !_reordering;
+        ImportFilesMenuItem.IsEnabled = ViewModel.CanImport && !_stopping && !_reordering;
+        ImportTelegramMenuItem.IsEnabled = ViewModel.IsReady && !blocked && !ViewModel.IsImporting && !_stopping && !_reordering;
+        CreateVideoMenuItem.IsEnabled = ViewModel.IsReady && !blocked && !_stopping;
         Batch.SetLoadedOnly(ViewModel.HasMore);
-        UpdateSyncStatus();
-        Details.SetActive(_windowActive && Inspector.IsPaneOpen && !_settingsVisible && Details.Visibility == Visibility.Visible);
+        SyncBadge.Refresh();
+        Details.SetActive(_windowActive && !_creatorVisible && Inspector.IsPaneOpen && !_settingsVisible && Details.Visibility == Visibility.Visible);
+        Creator.SetActive(_windowActive, _creatorVisible);
     }
 
     /// <summary>
@@ -432,79 +448,50 @@ public sealed partial class MainWindow : Window
         if (ViewModel.Catalog is { } catalog) catalog.PropertyChanged -= OnModelChanged;
         if (ViewModel.TrashGroups is { } trashGroups) trashGroups.PropertyChanged -= OnModelChanged;
         if (ViewModel.Output is { } output) output.PropertyChanged -= OnModelChanged;
+        if (ViewModel.Creator is { } creator) creator.PropertyChanged -= OnModelChanged;
     }
 
-    private void AttachSync(SyncCoordinator? sync)
-    {
-        if (ReferenceEquals(_sync, sync)) return;
-        if (_sync is not null) _sync.StateChanged -= OnSyncStateChanged;
-        _sync = sync;
-        if (_sync is not null) _sync.StateChanged += OnSyncStateChanged;
-    }
+    private void OnModeSelected(object? sender, bool isCreator) => _ = SetCreatorModeAsync(isCreator);
 
-    private void OnSyncStateChanged(object? sender, EventArgs args)
+    private void OnOpenCreatorMenu(object sender, RoutedEventArgs args) => _ = SetCreatorModeAsync(true);
+
+    private async Task SetCreatorModeAsync(bool creator)
     {
+        if (creator == _creatorVisible || _stopping || !ViewModel.IsReady) return;
+        if (ViewModel.Batch?.IsRunning == true || ViewModel.IsRestoring) return;
+        if (creator && ViewModel.Details is { } detail && !await detail.CommitAsync()) return;
         if (_stopping) return;
-        // The coordinator notifies from whichever thread finished the native
-        // call; the status bar may only be touched on the UI thread.
-        DispatcherQueue?.TryEnqueue(() =>
-        {
-            if (!_stopping) UpdateSyncStatus();
-        });
+
+        _creatorVisible = creator;
+        BrandSwitcher.IsCreator = creator;
+        if (ViewModel.Creator is { } model) model.ModeIsCreator = creator;
+
+        Navigation.Visibility = ToVisibility(!creator);
+        Creator.Visibility = ToVisibility(creator);
+        WindowTitleBar.IsPaneToggleButtonVisible = !creator;
+        Search.Visibility = ToVisibility(!creator);
+        CreatorSettingsButton.Visibility = ToVisibility(creator);
+        UpdateState();
     }
 
-    private void UpdateSyncStatus()
+    private void OnCreatorNotice(object? sender, (string Message, InfoBarSeverity Severity) args)
     {
-        if (ViewModel.Sync?.State is not { } state || !SyncPresentation.IsVisible(state))
-        {
-            SyncStatusButton.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        var phase = SyncPresentation.Phase(state);
-        var text = Strings[SyncPresentation.StatusKey(state)];
-
-        SyncStatusLabel.Text = text;
-        SyncStatusIcon.Glyph = phase switch
-        {
-            SyncPhase.Running => "\uE895",
-            SyncPhase.Authorization => "\uE72E",
-            SyncPhase.Paused => "\uE769",
-            SyncPhase.Blocked => "\uE7BA",
-            SyncPhase.Failed => "\uE783",
-            SyncPhase.Pending or SyncPhase.Unsynced => "\uE917",
-            _ => "\uE73E",
-        };
-        // The three brushes are declared in this window's XAML resources, so a
-        // direct indexer read is enough. ResourceDictionary's C# projection
-        // exposes the IDictionary members (indexer, ContainsKey, TryGetValue);
-        // the WinRT ABI names Lookup/HasKey are not callable from C#.
-        var brush = phase switch
-        {
-            SyncPhase.Failed or SyncPhase.Authorization => Root.Resources["SyncFailureBrush"] as Brush,
-            SyncPhase.Blocked or SyncPhase.Pending or SyncPhase.Unsynced => Root.Resources["SyncAttentionBrush"] as Brush,
-            _ => Root.Resources["SyncIdleBrush"] as Brush,
-        };
-        if (brush is not null)
-        {
-            SyncStatusIcon.Foreground = brush;
-            SyncStatusLabel.Foreground = brush;
-        }
-
-        // The hint carries the actionable part (blocked changes, expired token,
-        // retryable failure) without adding another permanent banner.
-        var hint = SyncPresentation.HintKey(state);
-        ToolTipService.SetToolTip(SyncStatusButton, hint is null ? text : Strings[hint]);
-        AutomationProperties.SetName(SyncStatusButton, text);
-        // Settings navigation is disabled while a batch runs; keep the entry
-        // from promising a destination it cannot reach.
-        SyncStatusButton.IsEnabled = ViewModel.Batch?.IsRunning != true && !ViewModel.IsRestoring;
-        SyncStatusButton.Visibility = Visibility.Visible;
+        if (!_stopping) Notice.Show(args.Message, args.Severity);
     }
 
-    private void OnOpenSyncSettings(object sender, RoutedEventArgs args)
+    private async void OnOpenSyncSettings(object? sender, EventArgs args)
     {
         if (_stopping || ViewModel.Batch?.IsRunning == true || ViewModel.IsRestoring) return;
+        if (_creatorVisible) await SetCreatorModeAsync(false);
+        if (_stopping) return;
+        Navigation.SelectedItem = Navigation.SettingsItem;
+    }
+
+    private async void OnOpenSyncSettings(object sender, RoutedEventArgs args)
+    {
+        if (_stopping || ViewModel.Batch?.IsRunning == true || ViewModel.IsRestoring) return;
+        if (_creatorVisible) await SetCreatorModeAsync(false);
+        if (_stopping) return;
         Navigation.SelectedItem = Navigation.SettingsItem;
     }
 
@@ -971,11 +958,17 @@ public sealed partial class MainWindow : Window
             return;
         }
         var single = !_selecting && selected.Length == 1 ? selected[0] : null;
+        var openingInspector = !Inspector.IsPaneOpen;
         if (single is not null)
         {
             Details.ShowPlaceholder(single.Id, single.Thumbnail);
-            if (!Inspector.IsPaneOpen) await OpenDetailWithHeroAsync(single);
-            if (_stopping || version != _selectionVersion) return;
+            if (openingInspector)
+            {
+                Batch.Visibility = Visibility.Collapsed;
+                Details.Visibility = Visibility.Visible;
+                Inspector.IsPaneOpen = true;
+                Motion.AnimateSlideIn(InspectorPane);
+            }
         }
         if (ViewModel.Details is { } detail)
         {
@@ -999,28 +992,18 @@ public sealed partial class MainWindow : Window
         var batch = _selecting || selected.Length > 1;
         Details.Visibility = ToVisibility(!batch && single is not null);
         Batch.Visibility = ToVisibility(batch);
-        Inspector.IsPaneOpen = batch || single is not null;
+        var shouldOpen = batch || single is not null;
+        if (shouldOpen && !Inspector.IsPaneOpen)
+        {
+            Inspector.IsPaneOpen = true;
+            Motion.AnimateSlideIn(InspectorPane);
+        }
+        else if (!shouldOpen)
+        {
+            Inspector.IsPaneOpen = false;
+        }
         ViewModel.SetSelectedCount(Gallery.SelectedItems.Count);
         UpdateState();
-    }
-
-    /// <summary>
-    /// The tile's picture flies into the preview slot while the pane opens. The slot is
-    /// already showing the thumbnail, so nothing has to be waited on in between.
-    /// </summary>
-    private async Task OpenDetailWithHeroAsync(StickerCard card)
-    {
-        ConnectedAnimation? hero = null;
-        if (Motion.Enabled && Gallery.ContainerFromItem(card) is GridViewItem)
-        {
-            try { hero = Gallery.PrepareConnectedAnimation(HeroOpenKey, card, TileImageName); }
-            catch (Exception error) { Trace.WriteLine($"Hero preparation failed: {error.GetType().Name}"); }
-        }
-        Batch.Visibility = Visibility.Collapsed;
-        Details.Visibility = Visibility.Visible;
-        Inspector.IsPaneOpen = true;
-        if (hero is null) return;
-        if (_stopping || !await Details.WaitForHeroTargetAsync() || !hero.TryStart(Details.HeroTarget)) hero.Cancel();
     }
 
     private void OnSelectAll(object? sender, EventArgs args) => Gallery.SelectAll();
@@ -1045,10 +1028,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnInspectorClose(object? sender, EventArgs args) => await CloseInspectorAsync();
 
-    /// <summary>
-    /// Closing commits the open editor first; the preview then flies back to its tile
-    /// when that tile is on screen.
-    /// </summary>
+    /// <summary>Closing commits the open editor first, then smoothly dismisses the inspector pane.</summary>
     private async Task CloseInspectorAsync()
     {
         if (ViewModel.Batch?.IsRunning == true) return;
@@ -1060,26 +1040,9 @@ public sealed partial class MainWindow : Window
             Inspector.IsPaneOpen = false;
             return;
         }
-        ConnectedAnimation? hero = null;
-        var card = Gallery.SelectedItems.Count == 1 ? Gallery.SelectedItem as StickerCard : null;
-        if (Motion.Enabled && card is not null && Details.Visibility == Visibility.Visible && Inspector.IsPaneOpen
-            && Gallery.ContainerFromItem(card) is GridViewItem)
-        {
-            try
-            {
-                hero = ConnectedAnimationService.GetForCurrentView().PrepareToAnimate(HeroCloseKey, Details.HeroTarget);
-                hero.Configuration = new DirectConnectedAnimationConfiguration();
-            }
-            catch (Exception error) { Trace.WriteLine($"Hero preparation failed: {error.GetType().Name}"); hero = null; }
-        }
         Gallery.SelectedItems.Clear();
         Inspector.IsPaneOpen = false;
         Details.SetActive(false);
-        if (hero is null || card is null) return;
-        var started = false;
-        try { started = await Gallery.TryStartConnectedAnimationAsync(hero, card, TileImageName); }
-        catch (Exception error) { Trace.WriteLine($"Hero landing failed: {error.GetType().Name}"); }
-        if (!started) hero.Cancel();
     }
 
     private void OnInspectorSizeChanged(object sender, SizeChangedEventArgs args)
@@ -1097,7 +1060,7 @@ public sealed partial class MainWindow : Window
 
     private void OnFocusSearch(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_settingsVisible || !Search.IsEnabled) return;
+        if (_creatorVisible || _settingsVisible || !Search.IsEnabled) return;
         Search.Focus(FocusState.Keyboard);
         args.Handled = true;
     }
@@ -1110,7 +1073,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnCopyShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_settingsVisible || EditingText || ViewModel.IsTrash || Gallery.SelectedItems.Count != 1
+        if (_creatorVisible || _settingsVisible || EditingText || ViewModel.IsTrash || Gallery.SelectedItems.Count != 1
             || Gallery.SelectedItem is not StickerCard card || ViewModel.Output?.CanStart != true) return;
         args.Handled = true;
         await CopyCardAsync(card, StickerOutputKind.Image);
@@ -1126,7 +1089,7 @@ public sealed partial class MainWindow : Window
 
     private void OnSelectAllShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_settingsVisible || EditingText) return;
+        if (_creatorVisible || _settingsVisible || EditingText) return;
         Gallery.SelectAll();
         args.Handled = true;
     }
@@ -1134,7 +1097,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Delete moves the open sticker to the trash, with undo in the notice.</summary>
     private async void OnDeleteShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_settingsVisible || EditingText || ViewModel.IsTrash || _selecting || Gallery.SelectedItems.Count != 1
+        if (_creatorVisible || _settingsVisible || EditingText || ViewModel.IsTrash || _selecting || Gallery.SelectedItems.Count != 1
             || ViewModel.Details is not { CurrentId: not null, IsSaving: false } detail) return;
         args.Handled = true;
         await detail.DeleteAsync();
@@ -1142,7 +1105,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnEscape(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_composing) return;
+        if (_composing || _creatorVisible) return;
         if (SearchFocused)
         {
             // Esc clears the query first, and leaves the box once it is already empty.
@@ -1161,7 +1124,7 @@ public sealed partial class MainWindow : Window
 
     // ---- Import ----
 
-    private bool CanReceiveImport => !_stopping && !_settingsVisible && !_reordering && _dialog is null
+    private bool CanReceiveImport => !_stopping && !_creatorVisible && !_settingsVisible && !_reordering && _dialog is null
         && _importing.IsCompleted && ViewModel.CanImport;
 
     private async void OnPasteShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
@@ -1205,7 +1168,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnImportShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (!ImportButton.IsEnabled || ImportButton.Visibility != Visibility.Visible || _settingsVisible) return;
+        if (_creatorVisible || !ImportButton.IsEnabled || ImportButton.Visibility != Visibility.Visible || _settingsVisible) return;
         args.Handled = true;
         await StartImportAsync();
     }
@@ -1281,6 +1244,7 @@ public sealed partial class MainWindow : Window
         if (ResidentLifetime.ShouldHide(_quitRequested, _desktop?.CanReside == true))
         {
             _desktop?.Dismiss(false);
+            Creator.SetActive(false, _creatorVisible);
             AppWindow.Hide();
             return;
         }
@@ -1290,6 +1254,7 @@ public sealed partial class MainWindow : Window
         Details.Shutdown();
         Batch.Shutdown();
         TrashGroupsPanel.Shutdown();
+        Creator.Shutdown();
         Settings.ShutdownSync();
         Settings.ShutdownStorage();
         Settings.ShutdownBackup();
@@ -1326,7 +1291,8 @@ public sealed partial class MainWindow : Window
             ViewModel.ContentChanged -= OnContentChanged;
             DetachChildren();
             ViewModel.Rebuilt -= OnRebuilt;
-            AttachSync(null);
+            SyncBadge.Attach(null);
+            _share.Dispose();
             Activated -= OnActivated;
             _searchCancellation?.Dispose();
             _lifetime.Dispose();
@@ -1339,7 +1305,8 @@ public sealed partial class MainWindow : Window
     {
         _windowActive = args.WindowActivationState != WindowActivationState.Deactivated;
         ViewModel.Output?.SetForeground(_windowActive);
-        Details.SetActive(_windowActive && Inspector.IsPaneOpen && !_settingsVisible && Details.Visibility == Visibility.Visible);
+        Details.SetActive(_windowActive && !_creatorVisible && Inspector.IsPaneOpen && !_settingsVisible && Details.Visibility == Visibility.Visible);
+        Creator.SetActive(_windowActive, _creatorVisible);
     }
 
     private async void OnContentChanged(object? sender, string? id)
@@ -1448,7 +1415,9 @@ public sealed partial class MainWindow : Window
         if (ViewModel.IsTrash) return;
         if (Gallery.SelectedItems.Count == 1 && args.ClickedItem is StickerCard card && card.Id == ViewModel.Details?.CurrentId)
         {
+            var wasClosed = !Inspector.IsPaneOpen;
             Inspector.IsPaneOpen = true;
+            if (wasClosed) Motion.AnimateSlideIn(InspectorPane);
             UpdateState();
         }
     }
@@ -1588,6 +1557,9 @@ public sealed partial class MainWindow : Window
         formats.Items.Add(original);
         if (card.Animated)
         {
+            var gif = new MenuFlyoutItem { Text = Strings["export_gif"], IsEnabled = output.CanStart };
+            gif.Click += async (_, _) => await CopyCardAsync(card, StickerOutputKind.CompatibleGif);
+            formats.Items.Add(gif);
             var frame = new MenuFlyoutItem { Text = Strings.Format("share_first_frame_as", Strings["export_png"]), IsEnabled = output.CanStart };
             frame.Click += async (_, _) => await CopyCardAsync(card, StickerOutputKind.FirstFrame);
             formats.Items.Add(frame);

@@ -12,12 +12,14 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly LibrarySession _session;
     private readonly LocalizationService _strings;
+    private readonly IOutputDefaults _defaults;
     private readonly StickerOutputService _service;
     private readonly ClipboardGuard _clipboard;
     private readonly CancellationTokenSource _lifetime = new();
     private Task _work = Task.CompletedTask;
     private PreparedSticker? _drag;
     private StickerOutputTarget? _dragTarget;
+    private GifLimitOverride? _gifLimitOverride;
     private bool _stopping;
     public bool IsBusy { get; private set; }
     internal uint ClipboardSequence { get; private set; }
@@ -25,6 +27,23 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
     public bool CanStart => !IsBusy && !_stopping;
     public string? MessageKey { get; private set; }
     public string? ErrorKey { get; private set; }
+    public GifLimitOverride? GifLimitOverride
+    {
+        get => _gifLimitOverride;
+        set
+        {
+            if (_gifLimitOverride == value) return;
+            _gifLimitOverride = value;
+            Notify();
+        }
+    }
+    public int DefaultGifLimitMiB => _defaults.DefaultGifLimitMiB;
+    public ulong? EffectiveGifMaxBytes => _gifLimitOverride is { } over ? over.MaxBytes : _defaults.GifMaxBytes;
+    public int? EffectiveGifLimitMiB => _gifLimitOverride is { } over
+        ? (over.IsUnlimited ? null : over.MiB)
+        : (_defaults.GifMaxBytes is { } bytes
+            ? GifSizeLimitPolicy.Clamp((int)Math.Round(bytes / (double)GifSizeLimitPolicy.BytesPerMiB))
+            : null);
     public string StatusText => string.Join("\n", new[]
     {
         MessageKey is null ? "" : _strings[MessageKey], ErrorKey is null ? "" : _strings[ErrorKey]
@@ -32,7 +51,7 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
 
     internal StickerOutputViewModel(LibrarySession session, LocalizationService strings, IOutputDefaults defaults)
     {
-        (_session, _strings) = (session, strings);
+        (_session, _strings, _defaults) = (session, strings, defaults);
         _service = new StickerOutputService(session, defaults);
         _clipboard = new ClipboardGuard(session);
     }
@@ -63,7 +82,7 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
         try
         {
             var package = new DataPackage();
-            prepared = await _service.PrepareAsync(target, kind, package, drag: false, _lifetime.Token);
+            prepared = await _service.PrepareAsync(target, kind, package, drag: false, _lifetime.Token, _gifLimitOverride);
             await _clipboard.InstallAsync(prepared, package, _lifetime.Token);
             ClipboardSequence = DesktopNative.GetClipboardSequenceNumber();
             prepared = null; // ClipboardGuard owns the published lease and any persistence retries.
@@ -77,6 +96,73 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
         finally { prepared?.Dispose(); IsBusy = false; Notify(); }
     }
 
+    public Task<bool> CopyPreparedAsync(ArtifactLeaseHandle lease, string title)
+    {
+        if (!CanStart) return Task.FromResult(false);
+        var work = CopyPreparedCoreAsync(lease, title);
+        _work = work;
+        return work;
+    }
+
+    private async Task<bool> CopyPreparedCoreAsync(ArtifactLeaseHandle lease, string title)
+    {
+        Begin();
+        PreparedSticker? prepared = null;
+        try
+        {
+            var package = new DataPackage();
+            prepared = await _service.PrepareLeaseAsync(lease, title, package, _lifetime.Token);
+            await _clipboard.InstallAsync(prepared, package, _lifetime.Token);
+            ClipboardSequence = DesktopNative.GetClipboardSequenceNumber();
+            prepared = null;
+            MessageKey = "image_copied";
+            return true;
+        }
+        catch (OperationCanceledException) { MessageKey = null; return false; }
+        catch (Exception error) { MessageKey = null; Report(error); return false; }
+        finally { prepared?.Dispose(); IsBusy = false; Notify(); }
+    }
+
+    internal Task<bool> SavePreparedAsync(ArtifactLeaseHandle lease, string suggestedTitle, Microsoft.UI.WindowId owner)
+    {
+        if (!CanStart) return Task.FromResult(false);
+        var work = SavePreparedCoreAsync(lease, suggestedTitle, owner);
+        _work = work;
+        return work;
+    }
+
+    private async Task<bool> SavePreparedCoreAsync(ArtifactLeaseHandle lease, string suggestedTitle, Microsoft.UI.WindowId owner)
+    {
+        Begin();
+        try
+        {
+            var artifact = await _session.PrepareHandoffAsync(lease, _lifetime.Token);
+            var extension = Path.GetExtension(artifact.FileName);
+            if (string.IsNullOrEmpty(extension)) extension = ".webp";
+            var suggested = string.IsNullOrWhiteSpace(suggestedTitle)
+                ? artifact.FileName
+                : $"{Path.GetFileNameWithoutExtension(suggestedTitle)}{extension}";
+            var picker = new Microsoft.Windows.Storage.Pickers.FileSavePicker(owner)
+            { SuggestedFileName = suggested, DefaultFileExtension = extension, ShowOverwritePrompt = true };
+            picker.FileTypeChoices.Add(artifact.Mime, new List<string> { extension });
+            var destination = await picker.PickSaveFileAsync();
+            _lifetime.Token.ThrowIfCancellationRequested();
+            if (destination is null) { MessageKey = null; return false; }
+            var destinationPath = Path.GetFullPath(destination.Path);
+            if (new[] { _session.DataDirectory, _session.CacheDirectory, _session.ShareDirectory }.Any(directory =>
+                destinationPath.StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase)))
+                throw new BridgeException.Failure(ErrorCode.InvalidInput, "Export destination belongs to the library.");
+            await BackupFileWriter.WriteAsync(artifact.Path, destination.Path, checked((long)artifact.ByteSize),
+                File.Exists(destination.Path), _lifetime.Token);
+            MessageKey = "picker_saved";
+            return true;
+        }
+        catch (OperationCanceledException) { MessageKey = null; return false; }
+        catch (Exception error) { MessageKey = null; Report(error); return false; }
+        finally { IsBusy = false; Notify(); }
+    }
+
     internal Task SaveAsync(StickerOutputTarget target, Microsoft.UI.WindowId owner)
     {
         if (!CanStart) return Task.CompletedTask;
@@ -87,7 +173,7 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
         Begin();
         try
         {
-            using var prepared = await _service.PrepareAsync(target, StickerOutputKind.Image, new DataPackage(), false, _lifetime.Token);
+            using var prepared = await _service.PrepareAsync(target, StickerOutputKind.Image, new DataPackage(), false, _lifetime.Token, _gifLimitOverride);
             var artifact = prepared.Artifact;
             var extension = Path.GetExtension(artifact.FileName);
             var picker = new Microsoft.Windows.Storage.Pickers.FileSavePicker(owner)
@@ -130,7 +216,7 @@ public sealed class StickerOutputViewModel : ObservableObject, IAsyncDisposable
         {
             // Dragging follows the drag presets; the default preset is Original, so an
             // untouched installation still hands over the original file bytes.
-            prepared = await _service.PrepareAsync(target, StickerOutputKind.Image, package, drag: true, _lifetime.Token);
+            prepared = await _service.PrepareAsync(target, StickerOutputKind.Image, package, drag: true, _lifetime.Token, _gifLimitOverride);
             _lifetime.Token.ThrowIfCancellationRequested();
             _drag = prepared;
             prepared = null;

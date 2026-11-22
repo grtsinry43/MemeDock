@@ -141,6 +141,40 @@
                     <ComboBox x:Name="DragAnimatedSelector" Grid.Row="1" Grid.Column="1" MinWidth="200" VerticalAlignment="Center" SelectionChanged="OnOutputPresetChanged" />
                 </Grid>
             </Expander>
+            <Border Padding="16,12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="{ThemeResource ControlCornerRadius}">
+                <StackPanel Spacing="12">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Glyph="&#xE8B2;" FontSize="20" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                            <TextBlock x:Name="GifLimitLabel" TextWrapping="Wrap" />
+                            <TextBlock x:Name="GifLimitHint" Style="{StaticResource SecondaryCaptionTextBlockStyle}" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="GifLimitToggle" Grid.Column="2" MinWidth="0" OnContent="" OffContent=""
+                                      VerticalAlignment="Center" Toggled="OnGifLimitToggled" />
+                    </Grid>
+                    <Grid x:Name="GifLimitSliderRow" Padding="36,0,0,0" ColumnSpacing="16" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="GifLimitTargetLabel" VerticalAlignment="Center" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <Slider x:Name="GifLimitSlider" Grid.Column="1" Width="180" Minimum="1" Maximum="10" StepFrequency="1"
+                                TickFrequency="1" TickPlacement="None" IsThumbToolTipEnabled="False"
+                                VerticalAlignment="Center" ValueChanged="OnGifLimitSliderChanged" />
+                        <TextBlock x:Name="GifLimitValue" Grid.Column="2" MinWidth="52" TextAlignment="Right"
+                                   VerticalAlignment="Center" Style="{StaticResource BodyStrongTextBlockStyle}"
+                                   Typography.NumeralAlignment="Tabular" />
+                    </Grid>
+                </StackPanel>
+            </Border>
             <InfoBar x:Name="OutputError" IsClosable="False" Severity="Error" />
 
             <!-- Sync -->

@@ -2,7 +2,7 @@ using MemeDock.Bridge;
 
 namespace MemeDock.Windows.Models;
 
-public enum StickerOutputKind { Image, OriginalFile, FirstFrame }
+public enum StickerOutputKind { Image, OriginalFile, FirstFrame, CompatibleGif }
 
 public sealed record StickerOutputTarget(string Id, long Generation)
 {
@@ -18,15 +18,18 @@ public sealed record StickerOutputTarget(string Id, long Generation)
 public static class StickerOutputPolicy
 {
     /// <summary>
-    /// <see cref="StickerOutputKind.OriginalFile"/> and <see cref="StickerOutputKind.FirstFrame"/>
-    /// are explicit user choices and never follow the configured presets.
+    /// <see cref="StickerOutputKind.OriginalFile"/>, <see cref="StickerOutputKind.FirstFrame"/>,
+    /// and <see cref="StickerOutputKind.CompatibleGif"/> are explicit user choices and never
+    /// follow the configured presets.
     /// </summary>
-    public static ExportOptions Options(bool animated, StickerOutputKind kind, OutputDefaults defaults)
+    public static ExportOptions Options(bool animated, StickerOutputKind kind, OutputDefaults defaults, ulong? gifMaxBytes = null)
     {
         if (kind == StickerOutputKind.OriginalFile)
             return new(ExportPreset.Original, null, null, false, AnimationPolicy.Preserve, null);
         if (kind == StickerOutputKind.FirstFrame)
             return new(ExportPreset.CompatiblePng, 1024, null, true, AnimationPolicy.FirstFrame, null);
-        return StickerOutputPresets.Options(defaults.For(animated), animated);
+        if (kind == StickerOutputKind.CompatibleGif)
+            return StickerOutputPresets.Options(ExportPreset.CompatibleGif, animated: true, gifMaxBytes);
+        return StickerOutputPresets.Options(defaults.For(animated), animated, gifMaxBytes);
     }
 }

@@ -5,7 +5,7 @@ using MemeDock.Windows.Services;
 namespace MemeDock.Windows;
 
 internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorageWorkspace, IBackupWorkspace,
-    IArchiveWorkspace
+    IArchiveWorkspace, ICreatorWorkspace
 {
     private readonly LibraryHandle _library;
     private readonly ulong _maxInputBytes;
@@ -635,6 +635,202 @@ internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorage
         => RunSyncAsync(() => _library.SetSyncPaused(paused), cancellation);
 
     public SyncSubscriptionHandle SubscribeSync() => _library.SubscribeSync();
+
+    // ---- Creator ----
+
+    public Task<ICreatorVideo> OpenVideoAsync(string path, IProgress<string>? stages, CancellationToken cancellation)
+        => Task.Run<ICreatorVideo>(async () =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            using var request = _library.OpenCreatorVideo(path);
+            using var registration = cancellation.Register(() => request.Cancel());
+            using var progress = request.Progress();
+            var observed = ObserveStagesAsync(progress, stages);
+            CreatorVideoHandle handle;
+            try
+            {
+                handle = await request.AwaitResult().ConfigureAwait(false);
+            }
+            finally
+            {
+                try { progress.Unsubscribe(); }
+                catch (BridgeException) { }
+                await observed.ConfigureAwait(false);
+            }
+
+            if (cancellation.IsCancellationRequested)
+            {
+                await DiscardCreatorVideoAsync(handle).ConfigureAwait(false);
+                cancellation.ThrowIfCancellationRequested();
+            }
+
+            return new StagedCreatorVideo(this, handle);
+        });
+
+    public Task<ICreatorArtifact> RenderPreviewFrameAsync(ICreatorVideo video, ulong timeMs, CancellationToken cancellation)
+        => Task.Run<ICreatorArtifact>(async () =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var staged = RequireStagedVideo(video);
+            using var request = _library.CreatorPreview(staged.Handle, timeMs);
+            using var registration = cancellation.Register(() => request.Cancel());
+            var lease = await request.AwaitResult().ConfigureAwait(false);
+            try
+            {
+                cancellation.ThrowIfCancellationRequested();
+                return new LeasedCreatorArtifact(lease);
+            }
+            catch
+            {
+                lease.Dispose();
+                throw;
+            }
+        });
+
+    public Task<CreatorGeneratedAnimation> CreateWebpAsync(ICreatorVideo video, VideoEditOptions edit,
+        IProgress<string>? stages, CancellationToken cancellation)
+        => Task.Run(async () =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var staged = RequireStagedVideo(video);
+            using var request = _library.CreateVideoWebp(staged.Handle, edit);
+            using var registration = cancellation.Register(() => request.Cancel());
+            using var progress = request.Progress();
+            var observed = ObserveStagesAsync(progress, stages);
+            CreatedAnimation output;
+            try
+            {
+                output = await request.AwaitResult().ConfigureAwait(false);
+            }
+            finally
+            {
+                try { progress.Unsubscribe(); }
+                catch (BridgeException) { }
+                await observed.ConfigureAwait(false);
+            }
+
+            try
+            {
+                cancellation.ThrowIfCancellationRequested();
+                var artifact = new LeasedCreatorArtifact(output.Artifact);
+                return new CreatorGeneratedAnimation(artifact, output.Width, output.Height, output.DurationMs, output.FrameRate);
+            }
+            catch
+            {
+                output.Artifact.Dispose();
+                throw;
+            }
+        });
+
+    public Task<ImportOutcome> AddToDockAsync(ICreatorArtifact artifact, string originalName, string title,
+        string? collectionId, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var create = _library.CreateImportInput();
+        using var input = await create.AwaitResult().ConfigureAwait(false);
+        var submitted = false;
+        try
+        {
+            await using (var reader = new FileStream(artifact.Path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                65536, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            await using (var writer = new FileStream(input.Path(), FileMode.Truncate, FileAccess.Write,
+                FileShare.None, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                await reader.CopyToAsync(writer, 65536, cancellation).ConfigureAwait(false);
+                await writer.FlushAsync(cancellation).ConfigureAwait(false);
+            }
+            cancellation.ThrowIfCancellationRequested();
+            using var request = _library.ImportStaged(input, new ImportOptions(originalName, title, collectionId));
+            submitted = true;
+            using var registration = cancellation.Register(() => request.Cancel());
+            return await request.AwaitResult().ConfigureAwait(false);
+        }
+        catch when (!submitted)
+        {
+            try
+            {
+                using var discard = _library.DiscardImportInput(input);
+                await discard.AwaitResult().ConfigureAwait(false);
+            }
+            catch (BridgeException) { }
+            throw;
+        }
+    });
+
+    public Task<ExportArtifact> PrepareHandoffAsync(ICreatorArtifact artifact, CancellationToken cancellation)
+    {
+        if (artifact.Lease is not { } lease)
+            throw new InvalidOperationException("The creator artifact does not hold a native lease.");
+        return PrepareHandoffAsync(lease, cancellation);
+    }
+
+    private async Task DiscardCreatorVideoAsync(CreatorVideoHandle handle)
+    {
+        try
+        {
+            using var request = _library.DiscardCreatorVideo(handle);
+            await request.AwaitResult().ConfigureAwait(false);
+        }
+        catch (BridgeException) { }
+        finally { handle.Dispose(); }
+    }
+
+    private static StagedCreatorVideo RequireStagedVideo(ICreatorVideo video)
+        => video as StagedCreatorVideo ?? throw new ArgumentException("Video does not belong to this library session.", nameof(video));
+
+    private sealed class StagedCreatorVideo : ICreatorVideo
+    {
+        private readonly LibrarySession _session;
+        private CreatorVideoHandle? _handle;
+
+        public StagedCreatorVideo(LibrarySession session, CreatorVideoHandle handle)
+        {
+            _session = session;
+            _handle = handle;
+            Path = handle.Path();
+            Info = handle.Info();
+        }
+
+        public string Path { get; }
+        public VideoInfo Info { get; }
+
+        internal CreatorVideoHandle Handle => _handle
+            ?? throw new ObjectDisposedException(nameof(StagedCreatorVideo));
+
+        public async ValueTask DisposeAsync()
+        {
+            var handle = Interlocked.Exchange(ref _handle, null);
+            if (handle is null) return;
+            await _session.DiscardCreatorVideoAsync(handle).ConfigureAwait(false);
+        }
+    }
+
+    private sealed class LeasedCreatorArtifact : ICreatorArtifact
+    {
+        private ArtifactLeaseHandle? _lease;
+
+        public LeasedCreatorArtifact(ArtifactLeaseHandle lease)
+        {
+            _lease = lease;
+            var meta = lease.Metadata();
+            Path = meta.Path;
+            FileName = meta.FileName;
+            Mime = meta.Mime;
+            ByteSize = meta.ByteSize;
+        }
+
+        public string Path { get; }
+        public string FileName { get; }
+        public string Mime { get; }
+        public ulong ByteSize { get; }
+        public ArtifactLeaseHandle? Lease => _lease;
+
+        public void Dispose()
+        {
+            var lease = Interlocked.Exchange(ref _lease, null);
+            lease?.Dispose();
+        }
+    }
 
     private Task<SyncStatus> RunSyncAsync(Func<SyncStatusTask> start, CancellationToken cancellation) => Task.Run(async () =>
     {

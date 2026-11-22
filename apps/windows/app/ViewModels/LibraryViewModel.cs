@@ -53,6 +53,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
     public CatalogViewModel? Catalog { get; private set; }
     public TrashGroupsViewModel? TrashGroups { get; private set; }
     public StickerOutputViewModel? Output { get; private set; }
+    public CreatorViewModel? Creator { get; private set; }
     // The backup and storage view models stay internal with the services they wrap; the window
     // passes them on inside this assembly, so they are not part of the page's public surface.
     internal StorageViewModel? Storage { get; private set; }
@@ -119,6 +120,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         Catalog?.Relocalize();
         TrashGroups?.Relocalize();
         Output?.Relocalize();
+        Creator?.Relocalize();
         Telegram?.Relocalize();
         foreach (var property in new[] { nameof(Heading), nameof(EmptyHeading), nameof(CountText), nameof(SelectionText),
             nameof(ErrorText), nameof(CatalogErrorText), nameof(ImportText), nameof(IsTrash) }) OnPropertyChanged(property);
@@ -163,6 +165,12 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         Catalog = new CatalogViewModel(session, strings, RefreshCatalogsAsync);
         TrashGroups ??= new TrashGroupsViewModel(session, strings, RefreshCatalogsAsync);
         Output = new StickerOutputViewModel(session, strings, outputDefaults);
+        Creator = new CreatorViewModel(session, strings, async () =>
+        {
+            await RefreshAsync(preserveLoaded: true);
+            if (Storage is { } storage) await storage.RefreshAsync();
+            ContentChanged?.Invoke(this, null);
+        });
         Picker = new QuickPickerViewModel(session, strings);
         Recents = new QuickPickerViewModel(session, strings, maximum: 8);
         Telegram = new TelegramImportViewModel(new TelegramWorkspace(session), new TelegramTokenStore(), strings,
@@ -183,7 +191,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         if (IsImporting || IsTrashing) return false;
         if (Batch is { IsRunning: true } || Catalog is { IsBusy: true } || TrashGroups is { IsBusy: true }) return false;
         if (Output is { IsBusy: true } || Details is { IsSaving: true } || Storage is { IsCleaning: true }) return false;
-        if (Telegram?.Busy == true) return false;
+        if (Telegram?.Busy == true || Creator is { IsBusy: true } or { IsSaving: true }) return false;
 
         IsRestoring = true;
         Picker?.Suspend();
@@ -343,10 +351,12 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
 
         TrashGroups?.RequestStop();
         Storage?.RequestStop();
+        Creator?.RequestStop();
         await ShutdownRun.SequenceAsync(
             () => Picker is null ? Task.CompletedTask : Picker.DisposeAsync().AsTask(),
             () => Recents is null ? Task.CompletedTask : Recents.DisposeAsync().AsTask(),
             () => Telegram is null ? Task.CompletedTask : Telegram.DisposeAsync().AsTask(),
+            () => Creator is null ? Task.CompletedTask : Creator.DisposeAsync().AsTask(),
             () => Sync is null ? Task.CompletedTask : Sync.DisposeAsync().AsTask(),
             () => Output is null ? Task.CompletedTask : Output.DisposeAsync().AsTask(),
             () => Details is null ? Task.CompletedTask : Details.DisposeAsync().AsTask(),
@@ -362,6 +372,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         Picker = null;
         Recents = null;
         Telegram = null;
+        Creator = null;
         Output = null;
         Details = null;
         Batch = null;
@@ -789,6 +800,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         Picker?.Suspend();
         Recents?.Suspend();
         Telegram?.Cancel();
+        Creator?.RequestStop();
         // The deleted catalog owns its own query lifetime, so it has to be
         // cancelled here: DisposeAsync only reaches it after the other children,
         // and a closing window must not keep a catalog query alive meanwhile.
@@ -834,6 +846,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
                 () => Picker is null ? Task.CompletedTask : Picker.DisposeAsync().AsTask(),
                 () => Recents is null ? Task.CompletedTask : Recents.DisposeAsync().AsTask(),
                 () => Telegram is null ? Task.CompletedTask : Telegram.DisposeAsync().AsTask(),
+                () => Creator is null ? Task.CompletedTask : Creator.DisposeAsync().AsTask(),
                 () => Sync is null ? Task.CompletedTask : Sync.DisposeAsync().AsTask(),
                 () => Output is null ? Task.CompletedTask : Output.DisposeAsync().AsTask(),
                 () => Details is null ? Task.CompletedTask : Details.DisposeAsync().AsTask(),

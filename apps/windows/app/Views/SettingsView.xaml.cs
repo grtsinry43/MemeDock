@@ -179,6 +179,15 @@ public sealed partial class SettingsView : UserControl
             FillPresets(CopyAnimatedSelector, animated: true, _preferences.CopyOutput.Animated);
             FillPresets(DragStillSelector, animated: false, _preferences.DragOutput.Still);
             FillPresets(DragAnimatedSelector, animated: true, _preferences.DragOutput.Animated);
+            GifLimitLabel.Text = _strings["output_gif_limit"];
+            GifLimitHint.Text = _strings["output_gif_limit_hint"];
+            GifLimitTargetLabel.Text = _strings["output_gif_limit_override"];
+            AutomationProperties.SetName(GifLimitToggle, _strings["output_gif_limit"]);
+            AutomationProperties.SetName(GifLimitSlider, _strings["output_gif_limit"]);
+            GifLimitToggle.IsOn = _preferences.GifSizeLimitEnabled;
+            GifLimitSlider.Value = _preferences.GifSizeLimitMiB;
+            GifLimitSliderRow.Visibility = MainWindow.ToVisibility(_preferences.GifSizeLimitEnabled);
+            GifLimitValue.Text = $"{_preferences.GifSizeLimitMiB} MiB";
             OutputError.Message = _strings["settings_output_failed"];
 
             StorageSpaceLabel.Text = _strings["desktop_space"];
@@ -303,6 +312,10 @@ public sealed partial class SettingsView : UserControl
             SelectPreset(CopyAnimatedSelector, _preferences.CopyOutput.Animated);
             SelectPreset(DragStillSelector, _preferences.DragOutput.Still);
             SelectPreset(DragAnimatedSelector, _preferences.DragOutput.Animated);
+            GifLimitToggle.IsOn = _preferences.GifSizeLimitEnabled;
+            GifLimitSlider.Value = _preferences.GifSizeLimitMiB;
+            GifLimitSliderRow.Visibility = MainWindow.ToVisibility(_preferences.GifSizeLimitEnabled);
+            GifLimitValue.Text = $"{_preferences.GifSizeLimitMiB} MiB";
         }
         finally
         {
@@ -428,6 +441,40 @@ public sealed partial class SettingsView : UserControl
         {
             box.IsEnabled = true;
             UpdateHints();
+        }
+    }
+
+    private async void OnGifLimitToggled(object sender, RoutedEventArgs args)
+    {
+        if (_updating || _preferences is null || GifLimitSliderRow is null || GifLimitSlider is null) return;
+        var enabled = GifLimitToggle.IsOn;
+        GifLimitSliderRow.Visibility = MainWindow.ToVisibility(enabled);
+        _saving = SaveGifLimitAsync(enabled, (int)Math.Round(GifLimitSlider.Value));
+        await _saving;
+    }
+
+    private async void OnGifLimitSliderChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs args)
+    {
+        var mib = GifSizeLimitPolicy.Clamp((int)Math.Round(args.NewValue));
+        if (GifLimitValue is not null) GifLimitValue.Text = $"{mib} MiB";
+        if (_updating || _preferences is null || GifLimitToggle is null) return;
+        _saving = SaveGifLimitAsync(GifLimitToggle.IsOn, mib);
+        await _saving;
+    }
+
+    private async Task SaveGifLimitAsync(bool enabled, int mib)
+    {
+        OutputError.IsOpen = false;
+        try
+        {
+            await _preferences!.SaveGifSizeLimitAsync(enabled, mib);
+            SyncSelectors();
+        }
+        catch (Exception error)
+        {
+            Trace.WriteLine($"GIF size limit could not be saved: {error}");
+            SyncSelectors();
+            OutputError.IsOpen = true;
         }
     }
 

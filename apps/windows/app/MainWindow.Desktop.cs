@@ -16,7 +16,6 @@ public sealed partial class MainWindow
     {
         try { _desktop = new DesktopIntegration(this, _preferences); Settings.ConfigureDesktop(_desktop); }
         catch (Exception error) { System.Diagnostics.Trace.WriteLine($"Desktop integration unavailable: {error.GetType().Name}"); }
-        TelegramNavigation.Content = Strings["tg_title"];
     }
     internal void ShowResidentWindow()
     {
@@ -45,7 +44,9 @@ public sealed partial class MainWindow
                     // of a large library just to locate an old recent item.
                     Details.ShowPlaceholder(id, null);
                     Details.Visibility = Visibility.Visible; Batch.Visibility = Visibility.Collapsed;
+                    var wasClosed = !Inspector.IsPaneOpen;
                     Inspector.IsPaneOpen = true;
+                    if (wasClosed) Motion.AnimateSlideIn(InspectorPane);
                     await detail.SelectAsync(id);
                     Details.SetActive(true);
                 }

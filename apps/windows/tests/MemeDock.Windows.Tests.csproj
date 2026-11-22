@@ -29,7 +29,9 @@
     <Compile Include="..\app\Models\StickerEditState.cs" Link="Models\StickerEditState.cs" />
     <Compile Include="..\app\Models\StickerOutput.cs" Link="Models\StickerOutput.cs" />
     <Compile Include="..\app\Models\StickerOutputPreferences.cs" Link="Models\StickerOutputPreferences.cs" />
+    <Compile Include="..\app\Models\CreatorModels.cs" Link="Models\CreatorModels.cs" />
     <Compile Include="..\app\Services\AppPreferences.cs" Link="Services\AppPreferences.cs" />
+    <Compile Include="..\app\Services\ICreatorWorkspace.cs" Link="Services\ICreatorWorkspace.cs" />
     <Compile Include="..\app\Services\ByteSize.cs" Link="Services\ByteSize.cs" />
     <Compile Include="..\app\Services\DirectoryOpener.cs" Link="Services\DirectoryOpener.cs" />
     <Compile Include="..\app\Services\IStorageWorkspace.cs" Link="Services\IStorageWorkspace.cs" />
@@ -53,6 +55,7 @@
     <Compile Include="..\app\ViewModels\BackupViewModel.cs" Link="ViewModels\BackupViewModel.cs" />
     <Compile Include="..\app\ViewModels\TrashGroupsPresentation.cs" Link="ViewModels\TrashGroupsPresentation.cs" />
     <Compile Include="..\app\ViewModels\TrashGroupsViewModel.cs" Link="ViewModels\TrashGroupsViewModel.cs" />
+    <Compile Include="..\app\ViewModels\CreatorViewModel.cs" Link="ViewModels\CreatorViewModel.cs" />
     <Compile Include="..\app\LibrarySession.cs" Link="LibrarySession.cs" />
   </ItemGroup>
 </Project>
