@@ -24,10 +24,12 @@ MemeDock 是一款本地优先的跨平台表情管理工具。它基于共享�
 ## 功能特性
 
 - **多源收纳** — 支持文件拖入、剪贴板粘贴、本地选取及 Android 系统分享接收；支持通过贴纸包名称或链接直接浏览并挑选 **Telegram 贴纸包**，自动将 `.tgs` 矢量动画与 `.webm` 视频贴纸转换为保留透明通道的动态 WebP。
+- **视频转表情（Creator）** — 在应用内直接将本地视频片段制作为动态 WebP 表情：支持截取最长 30 秒片段、可视化画面裁剪、调节分辨率（`32–512 px`）、帧率（`1–30 fps`）与画质，预览后一键入库。*（目前支持 macOS 与 Windows，Linux 及移动端后续补齐。）*
+- **快捷面板与即时发送** — 支持 macOS 菜单栏与 Windows 系统托盘常驻，配合全局快捷键随时呼出轻量贴纸选择器，快速搜索并直接粘贴到聊天窗口。
 - **井然有序** — 以合集、标签与星标梳理图库，支持自由拖拽排序、批量归类及按标题、备注、文件名或标签即时检索，并随日常使用自然浮现常用内容。
-- **从容分享** — 原图始终完整保留。复制、拖拽或分享时，可按需生成**原图**、**兼容 PNG** (`1024 px`)、**白底 PNG** 或**小尺寸 JPEG** (`512 px`)；动图默认保留动效，亦可在需要静图时提取首帧。
-- **本地长存** — 所有数据保存在本地设备，采用内容哈希 (`SHA-256`) 自动去重并配备可恢复回收站。支持将整个图库打包为单个备份文件，在恢复前预览内容，并按需选择增量合并或带安全快照的完整替换。
-- **原生质感** — 底层共享一套内存安全的 Rust 引擎 (`#![forbid(unsafe_code)]`)，上层采用各系统原生界面呈现：macOS (**SwiftUI & AppKit**)、iOS (**SwiftUI**)、Linux (**GTK4 & Libadwaita**)、Android (**Jetpack Compose**) 与 Windows (**WinUI 3**)，支持中英双语应用内即时切换。
+- **从容分享** — 原图始终完整保留。复制、拖拽或分享时，可按需生成**最佳兼容**、**原图**、**兼容 PNG**（`1024 px`）、**白底 PNG**、**小尺寸 JPEG**（`512 px`）或**兼容 GIF**（`512 px`）；支持配置**全局 GIF 体积上限**以自动权衡分辨率与帧率适配聊天软件发送限制，亦可在需要静图时提取首帧。
+- **本地长存与可选自托管同步** — 所有数据保存在本地设备，采用内容哈希（`SHA-256`）自动去重并配备可恢复回收站。支持将整个图库打包为单个备份文件，在恢复前预览内容，并按需选择增量合并或带安全快照的完整替换；也可搭配自托管同步服务端（`memedock-server`）实现多端同步。
+- **原生质感** — 底层共享一套内存安全的 Rust 引擎（`#![forbid(unsafe_code)]`），上层采用各系统原生界面呈现：macOS（**SwiftUI & AppKit**）、iOS（**SwiftUI**）、Linux（**GTK4 & Libadwaita**）、Android（**Jetpack Compose**）与 Windows（**WinUI 3**），支持中英双语应用内即时切换。
 
 ## 界面预览
 
@@ -60,11 +62,12 @@ MemeDock 是一款本地优先的跨平台表情管理工具。它基于共享�
 ## 架构与构建
 
 ```text
-crates/domain     强类型标识、领域模型、导出规则与版本化契约
-crates/storage    SQLite (SeaORM)、原子暂存区与内容寻址文件存储
-crates/core       业务用例、任务调度、媒体转码管线、Telegram 与备份归档
-crates/ffi        面向 Swift、Kotlin 与 C# 的 UniFFI 绑定及事件流
-apps/*            android、ios、linux、macos 与 windows 原生客户端
+crates/domain         强类型标识、领域模型、导出与制作规则及版本化契约
+crates/storage        SQLite (SeaORM)、原子暂存区与内容寻址文件存储
+crates/core           业务用例、任务调度、媒体与视频转码管线、Telegram、同步及备份归档
+crates/ffi            面向 Swift、Kotlin 与 C# 的 UniFFI 绑定及事件流
+crates/api-contracts  客户端与同步服务端共享的 API 契约
+apps/*                原生客户端（android、ios、linux、macos、windows）及同步服务端（server、server-web）
 ```
 
 ```sh
@@ -75,6 +78,7 @@ cargo test --workspace --locked
 
 # 各平台构建
 cargo build --release --locked -p memedock-linux                        # Linux
+cargo build --release --locked -p memedock-server                       # 自托管同步服务端
 bash tools/macos/build.sh release                                       # macOS (.app)
 (cd apps/android && ./gradlew :app:testDebugUnitTest :app:verifyDebugBridge) # Android
 bash tools/ios/build.sh release device                                  # iOS (无签名 .app)
