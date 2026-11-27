@@ -13,6 +13,7 @@ struct StickerGrid: View {
     @ObservedObject private var selection: StickerSelection
     @ObservedObject private var detail: StickerDetailModel
     @ObservedObject private var imports: ImportCoordinator
+    @ObservedObject private var exports: CollectionExport
     /// Read for the tile size, which the View menu changes.
     @ObservedObject private var preferences = Preferences.shared
 
@@ -26,11 +27,13 @@ struct StickerGrid: View {
         _selection = ObservedObject(wrappedValue: model.selection)
         _detail = ObservedObject(wrappedValue: model.detail)
         _imports = ObservedObject(wrappedValue: model.imports)
+        _exports = ObservedObject(wrappedValue: model.exports)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             if imports.isRunning { importStrip }
+            if exports.isRunning { exportStrip }
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -117,6 +120,26 @@ struct StickerGrid: View {
         let target = preferences.tileSize
         let count = max(1, Int((usable + Self.spacing) / (target + Self.spacing)))
         return Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: count)
+    }
+
+    /// The core reports stages, not a count, so this one cannot promise how
+    /// far along it is; it only has to say which collection is being written
+    /// and offer a way out of a large one.
+    private var exportStrip: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(L10n.text(.exportCollectionRunning, exports.running ?? ""))
+                .font(MemeDockTypography.body)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .foregroundStyle(.secondary)
+            Button(L10n.text(.cancel)) { exports.cancel() }
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var importStrip: some View {

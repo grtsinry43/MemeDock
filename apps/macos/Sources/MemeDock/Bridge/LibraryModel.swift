@@ -17,6 +17,7 @@ final class LibraryModel: ObservableObject {
     let status: StatusCenter
     let actions: StickerActions
     let imports: ImportCoordinator
+    let exports: CollectionExport
     let browser: StickerBrowser
     let collections: CollectionCatalog
     let tags: TagCatalog
@@ -119,6 +120,7 @@ final class LibraryModel: ObservableObject {
         actions = StickerActions(session: session, clipboard: clipboard, status: status)
         creator = CreatorModel(session: session, actions: actions, status: status)
         self.imports = imports
+        exports = CollectionExport(session: session, status: status)
         browser = StickerBrowser(session: session)
         collections = CollectionCatalog(session: session)
         tags = TagCatalog(session: session)

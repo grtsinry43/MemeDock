@@ -424,3 +424,70 @@ impl From<memedock_core::events::Notification> for Notification {
         }
     }
 }
+
+/// Why one sticker was left out of a collection export.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum CollectionExportReason {
+    MissingOriginal,
+    Corrupt,
+    TooLarge,
+    Unreadable,
+}
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct CollectionExportIssue {
+    pub sticker_id: String,
+    pub name: String,
+    pub reason: CollectionExportReason,
+}
+/// The archive an export produced, together with what it could not include.
+///
+/// `skipped` equals the sum of the four reason counts; `issues` is a capped
+/// sample so a badly damaged library cannot flood the interface.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct CollectionExportSummary {
+    pub path: String,
+    pub file_name: String,
+    pub byte_size: u64,
+    pub collections: u32,
+    pub exported: u32,
+    pub skipped: u32,
+    pub missing_original: u32,
+    pub corrupt: u32,
+    pub too_large: u32,
+    pub unreadable: u32,
+    pub issues: Vec<CollectionExportIssue>,
+}
+impl TryFrom<memedock_core::CollectionExportSummary> for CollectionExportSummary {
+    type Error = crate::BridgeError;
+    fn try_from(value: memedock_core::CollectionExportSummary) -> crate::Result<Self> {
+        use memedock_core::ExportIssueReason as C;
+        Ok(Self {
+            path: value.path.into_os_string().into_string().map_err(|_| {
+                crate::BridgeError::new(crate::ErrorCode::InvalidInput, "archive path is not UTF-8")
+            })?,
+            file_name: value.file_name,
+            byte_size: value.byte_size,
+            collections: value.collections,
+            exported: value.exported,
+            skipped: value.skipped,
+            missing_original: value.missing_original,
+            corrupt: value.corrupt,
+            too_large: value.too_large,
+            unreadable: value.unreadable,
+            issues: value
+                .issues
+                .into_iter()
+                .map(|issue| CollectionExportIssue {
+                    sticker_id: issue.sticker_id,
+                    name: issue.name,
+                    reason: match issue.reason {
+                        C::MissingOriginal => CollectionExportReason::MissingOriginal,
+                        C::Corrupt => CollectionExportReason::Corrupt,
+                        C::TooLarge => CollectionExportReason::TooLarge,
+                        C::Unreadable => CollectionExportReason::Unreadable,
+                    },
+                })
+                .collect(),
+        })
+    }
+}

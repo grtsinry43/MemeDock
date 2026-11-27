@@ -314,6 +314,17 @@ internal sealed class LibrarySession : IAsyncDisposable, ITrashCatalog, IStorage
         return await request.AwaitResult().ConfigureAwait(false);
     });
 
+    // The core reads the originals and writes the archive itself; the caller only
+    // chooses the destination. A null collection exports every live collection.
+    public Task<CollectionExportSummary> ExportCollectionAsync(string? collectionId, string destination,
+        int utcOffsetMinutes, CancellationToken cancellation) => Task.Run(async () =>
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var request = _library.ExportCollection(collectionId, destination, utcOffsetMinutes);
+        using var registration = cancellation.Register(() => request.Cancel());
+        return await request.AwaitResult().ConfigureAwait(false);
+    });
+
     public Task<ExportArtifact> PrepareHandoffAsync(ArtifactLeaseHandle lease, CancellationToken cancellation) => Task.Run(async () =>
     {
         cancellation.ThrowIfCancellationRequested();

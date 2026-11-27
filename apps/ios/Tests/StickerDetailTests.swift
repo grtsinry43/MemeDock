@@ -17,7 +17,9 @@ final class StickerDetailTests: XCTestCase {
             observed = model
             let playback = try XCTUnwrap(model?.playback)
             await model?.load(pixels: 200)
-            XCTAssertEqual(playback.state, .playing)
+            // Importing emits a notification that makes the session schedule a debounced reload,
+            // which supersedes this load and can leave the preview still settling when it returns.
+            try await eventually { playback.state == .playing }
             model = nil
             try await eventually { observed == nil }
             try await eventually { playback.frame == nil && playback.state == .idle }
@@ -109,22 +111,26 @@ final class StickerDetailTests: XCTestCase {
             let model = try XCTUnwrap(session.makeDetail(for: route))
             try FileManager.default.removeItem(atPath: XCTUnwrap(detail.originalPath))
             await model.load(pixels: 100)
+            try await waitUntilSettled(model)
             XCTAssertEqual(model.phase, .ready)
             XCTAssertNotNil(model.originalError)
             XCTAssertNil(model.playback.frame)
             let target = EntityReference(id: id, generation: detail.sticker.lifecycle.generation)
             let deleted = try await library.deleteSticker(target: target).awaitResult()
             await model.load(pixels: 100)
+            try await waitUntilSettled(model)
             guard case .unavailable = model.phase else { return XCTFail("Deleted sticker remained available") }
             try await library.purgeSticker(target: target, deletedRevision: deleted.lifecycle.revision).awaitResult()
             let replacement = try await importTestMedia(library, bytes: bytes, name: "replacement.png")
             XCTAssertGreaterThan(replacement.sticker.lifecycle.generation, route.generation)
             await model.load(pixels: 100)
+            try await waitUntilSettled(model)
             guard case .unavailable = model.phase else { return XCTFail("Old route adopted a replacement generation") }
             let next = try XCTUnwrap(session.makeDetail(for: StickerDetailRoute(
                 LibraryItem(sticker: replacement.sticker, resource: nil)
             )))
             await next.load(pixels: 100)
+            try await waitUntilSettled(next)
             XCTAssertEqual(next.phase, .ready)
             XCTAssertNotNil(next.playback.frame)
         }
@@ -228,5 +234,16 @@ final class StickerDetailTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTFail("Asynchronous preview did not reach the expected state")
+    }
+
+    /// `load` waits for the generation it started, but a session notification can schedule a
+    /// debounced reload that supersedes it, leaving the model `.loading` when `load` returns.
+    /// Sample the phase only once the model has settled.
+    private func waitUntilSettled(_ model: StickerDetailModel) async throws {
+        for _ in 0..<200 {
+            if model.phase != .loading { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("Detail did not settle after loading")
     }
 }

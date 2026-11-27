@@ -193,6 +193,20 @@
   <data name="desktop_cleanup" xml:space="preserve"><value>Clean up</value></data>
   <data name="desktop_clean" xml:space="preserve"><value>Clean</value></data>
   <data name="desktop_cleanup_hint" xml:space="preserve"><value>Removes expired temporary files made for copying and sharing; files still on the clipboard are kept. Thumbnails are managed by the app and rebuilt when needed. Originals are never touched.</value></data>
+  <data name="desktop_export_collection" xml:space="preserve"><value>Export Collection…</value></data>
+  <data name="desktop_export_collection_running" xml:space="preserve"><value>Exporting “{0}”…</value></data>
+  <data name="desktop_export_collection_done" xml:space="preserve"><value>Exported {0} stickers</value></data>
+  <data name="desktop_export_collection_partial" xml:space="preserve"><value>Exported {0}, skipped {1}: {2}</value></data>
+  <data name="desktop_export_issue_missing" xml:space="preserve"><value>{0} missing</value></data>
+  <data name="desktop_export_issue_corrupt" xml:space="preserve"><value>{0} damaged</value></data>
+  <data name="desktop_export_issue_too_large" xml:space="preserve"><value>{0} too large</value></data>
+  <data name="desktop_export_issue_unreadable" xml:space="preserve"><value>{0} unreadable</value></data>
+  <data name="desktop_list_separator" xml:space="preserve"><value>, </value></data>
+  <data name="desktop_export_collections" xml:space="preserve"><value>Export collections</value></data>
+  <data name="desktop_export_collections_hint" xml:space="preserve"><value>Originals only, one folder per collection, not restorable as a backup.</value></data>
+  <data name="desktop_export_all_file_name" xml:space="preserve"><value>MemeDock-Collections.zip</value></data>
+  <data name="desktop_all_collections" xml:space="preserve"><value>All collections</value></data>
+  <data name="desktop_collection_export_file_type" xml:space="preserve"><value>ZIP archive</value></data>
   <data name="desktop_locations" xml:space="preserve"><value>Locations</value></data>
   <data name="desktop_data_directory" xml:space="preserve"><value>Library folder</value></data>
   <data name="desktop_cache_directory" xml:space="preserve"><value>Cache folder</value></data>

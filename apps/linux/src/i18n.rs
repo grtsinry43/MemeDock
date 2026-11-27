@@ -347,6 +347,11 @@ pub enum Key {
     CollectionEmpty,
     CollectionEmptyHint,
     NewCollection,
+    ExportCollection,
+    ExportAllCollections,
+    ExportRunning,
+    ExportNothing,
+    ExportAllFileName,
     NewTag,
     TagEmpty,
     TagEmptyHint,
@@ -823,6 +828,11 @@ fn pair(key: Key) -> (&'static str, &'static str) {
             "Touch and hold a sticker and select Organize to add it to a collection.",
         ),
         Key::NewCollection => ("新建合集", "New Collection"),
+        Key::ExportCollection => ("导出合集…", "Export Collection…"),
+        Key::ExportAllCollections => ("导出全部合集", "Export All Collections"),
+        Key::ExportRunning => ("正在导出，请稍后再试", "An export is already running."),
+        Key::ExportNothing => ("没有可导出的合集", "No collections to export"),
+        Key::ExportAllFileName => ("MemeDock-Collections.zip", "MemeDock-Collections.zip"),
         Key::NewTag => ("新建标签", "New Tag"),
         Key::TagEmpty => ("暂无相关表情", "No stickers with this tag"),
         Key::TagEmptyHint => (
@@ -908,6 +918,55 @@ pub fn selection_over_limit(count: usize) -> String {
     match language() {
         Language::Zh => format!("已选 {count} 张，超过单次 {limit} 张上限"),
         Language::En => format!("{count} selected, above the {limit} per batch limit"),
+    }
+}
+
+pub fn export_done(exported: u32) -> String {
+    match language() {
+        Language::Zh => format!("已导出 {exported} 张表情"),
+        Language::En => format!("Exported {exported} stickers"),
+    }
+}
+
+pub fn export_partial(exported: u32, skipped: u32, reasons: &str) -> String {
+    match language() {
+        Language::Zh => format!("已导出 {exported} 张，跳过 {skipped} 张：{reasons}"),
+        Language::En => format!("Exported {exported}, skipped {skipped}: {reasons}"),
+    }
+}
+
+pub fn export_issue_missing(count: u32) -> String {
+    match language() {
+        Language::Zh => format!("{count} 张原图缺失"),
+        Language::En => format!("{count} missing"),
+    }
+}
+
+pub fn export_issue_corrupt(count: u32) -> String {
+    match language() {
+        Language::Zh => format!("{count} 张已损坏"),
+        Language::En => format!("{count} damaged"),
+    }
+}
+
+pub fn export_issue_too_large(count: u32) -> String {
+    match language() {
+        Language::Zh => format!("{count} 张过大"),
+        Language::En => format!("{count} too large"),
+    }
+}
+
+pub fn export_issue_unreadable(count: u32) -> String {
+    match language() {
+        Language::Zh => format!("{count} 张无法读取"),
+        Language::En => format!("{count} unreadable"),
+    }
+}
+
+pub fn export_issue_separator() -> &'static str {
+    match language() {
+        Language::Zh => "、",
+        Language::En => ", ",
     }
 }
 

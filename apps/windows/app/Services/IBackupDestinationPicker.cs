@@ -16,10 +16,13 @@ namespace MemeDock.Windows.Services;
 internal readonly record struct BackupDestination(string Path, bool ReplaceExisting);
 
 /// <summary>
-/// Asks the user where a finished backup should be saved. Returns the chosen
+/// Asks the user where a finished archive should be saved. Returns the chosen
 /// destination, or null when the user dismissed the picker without choosing anything.
+/// The optional label key names the file type in the dialog; backup wording is the
+/// default because that was the first archive the page saved.
 /// </summary>
 internal interface IBackupDestinationPicker
 {
-    Task<BackupDestination?> PickSavePathAsync(string suggestedFileName, CancellationToken cancellation);
+    Task<BackupDestination?> PickSavePathAsync(string suggestedFileName, CancellationToken cancellation,
+        string? fileTypeLabelKey = null);
 }

@@ -19,7 +19,9 @@ pub fn open(
     let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     let header = adw::HeaderBar::new();
     let create = i18n::button(Key::NewCollection);
+    let export_all = i18n::button(Key::ExportAllCollections);
     header.pack_end(&create);
+    header.pack_end(&export_all);
     content.append(&header);
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
     let factory = gtk4::SignalListItemFactory::new();
@@ -76,6 +78,26 @@ pub fn open(
         menu.set_icon_name("view-more-symbolic");
         let popup = gtk4::Popover::new();
         let buttons = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+        let export = i18n::button(Key::ExportCollection);
+        let parent = card.downgrade();
+        let owner = source.clone();
+        let feedback = Rc::clone(&message);
+        let target = collection.clone();
+        let weak_popup = popup.downgrade();
+        export.connect_clicked(move |_| {
+            if let Some(p) = weak_popup.upgrade() {
+                p.popdown();
+            }
+            if let Some(parent) = parent.upgrade() {
+                crate::export_collection::present_collection(
+                    &parent,
+                    owner.clone(),
+                    target.id(),
+                    target.name().as_str(),
+                    Rc::clone(&feedback),
+                );
+            }
+        });
         let rename = i18n::button(Key::Rename);
         let parent = card.downgrade();
         let owner = source.clone();
@@ -137,7 +159,6 @@ pub fn open(
                 },
             );
         });
-        buttons.append(&delete);
         for (key, direction) in [(Key::MoveUp, -1i64), (Key::MoveDown, 1)] {
             let button = i18n::button(key);
             let weak = weak_store.clone();
@@ -191,6 +212,11 @@ pub fn open(
             });
             buttons.append(&button);
         }
+        // Export sits with delete rather than with the ordering entries, the same
+        // section the macOS and Windows menus put it in.
+        buttons.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+        buttons.append(&export);
+        buttons.append(&delete);
         popup.set_child(Some(&buttons));
         menu.set_popover(Some(&popup));
         line.append(&menu);
@@ -278,6 +304,18 @@ pub fn open(
     scroll.set_child(Some(&grid));
     content.append(&scroll);
     let page = adw::NavigationPage::new(&content, i18n::text(Key::TabCollections));
+    let export_parent = page.downgrade();
+    let export_owner = library.clone();
+    let export_feedback = Rc::clone(&notify);
+    export_all.connect_clicked(move |_| {
+        if let Some(parent) = export_parent.upgrade() {
+            crate::export_collection::present_all(
+                &parent,
+                export_owner.clone(),
+                Rc::clone(&export_feedback),
+            );
+        }
+    });
     let parent = page.downgrade();
     let owner = library.clone();
     let feedback = Rc::clone(&notify);

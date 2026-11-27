@@ -52,6 +52,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
     public BatchOrganizeViewModel? Batch { get; private set; }
     public CatalogViewModel? Catalog { get; private set; }
     public TrashGroupsViewModel? TrashGroups { get; private set; }
+    public CollectionExportViewModel? CollectionExport { get; private set; }
     public StickerOutputViewModel? Output { get; private set; }
     public CreatorViewModel? Creator { get; private set; }
     // The backup and storage view models stay internal with the services they wrap; the window
@@ -119,6 +120,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         Batch?.Relocalize();
         Catalog?.Relocalize();
         TrashGroups?.Relocalize();
+        CollectionExport?.Relocalize();
         Output?.Relocalize();
         Creator?.Relocalize();
         Telegram?.Relocalize();
@@ -164,6 +166,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         Batch = new BatchOrganizeViewModel(session, strings);
         Catalog = new CatalogViewModel(session, strings, RefreshCatalogsAsync);
         TrashGroups ??= new TrashGroupsViewModel(session, strings, RefreshCatalogsAsync);
+        CollectionExport = new CollectionExportViewModel(session, strings, _backupDestinationPicker!);
         Output = new StickerOutputViewModel(session, strings, outputDefaults);
         Creator = new CreatorViewModel(session, strings, async () =>
         {
@@ -190,6 +193,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         if (_session is null || _stopping || IsRestoring) return false;
         if (IsImporting || IsTrashing) return false;
         if (Batch is { IsRunning: true } || Catalog is { IsBusy: true } || TrashGroups is { IsBusy: true }) return false;
+        if (CollectionExport is { IsRunning: true }) return false;
         if (Output is { IsBusy: true } || Details is { IsSaving: true } || Storage is { IsCleaning: true }) return false;
         if (Telegram?.Busy == true || Creator is { IsBusy: true } or { IsSaving: true }) return false;
 
@@ -350,6 +354,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         }
 
         TrashGroups?.RequestStop();
+        CollectionExport?.RequestStop();
         Storage?.RequestStop();
         Creator?.RequestStop();
         await ShutdownRun.SequenceAsync(
@@ -363,6 +368,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
             () => Batch is null ? Task.CompletedTask : Batch.DisposeAsync().AsTask(),
             () => Catalog is null ? Task.CompletedTask : Catalog.DisposeAsync().AsTask(),
             () => TrashGroups is null ? Task.CompletedTask : TrashGroups.DisposeAsync().AsTask(),
+            () => CollectionExport is null ? Task.CompletedTask : CollectionExport.DisposeAsync().AsTask(),
             () => Storage is null ? Task.CompletedTask : Storage.DisposeAsync().AsTask(),
             () => Thumbnails is null ? Task.CompletedTask : Thumbnails.DisposeAsync().AsTask(),
             ReleaseHandles,
@@ -378,6 +384,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         Batch = null;
         Catalog = null;
         TrashGroups = null;
+        CollectionExport = null;
         Storage = null;
         Thumbnails = null;
         _session = null;
@@ -805,6 +812,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
         // cancelled here: DisposeAsync only reaches it after the other children,
         // and a closing window must not keep a catalog query alive meanwhile.
         TrashGroups?.RequestStop();
+        CollectionExport?.RequestStop();
         Storage?.RequestStop();
         // A backup in flight keeps its staged archive and the session it needs until
         // it finishes, so it is told to stop here and awaited in DisposeAsync.
@@ -853,6 +861,7 @@ public sealed class LibraryViewModel(LocalizationService strings, IOutputDefault
                 () => Batch is null ? Task.CompletedTask : Batch.DisposeAsync().AsTask(),
                 () => Catalog is null ? Task.CompletedTask : Catalog.DisposeAsync().AsTask(),
                 () => TrashGroups is null ? Task.CompletedTask : TrashGroups.DisposeAsync().AsTask(),
+                () => CollectionExport is null ? Task.CompletedTask : CollectionExport.DisposeAsync().AsTask(),
                 () => Storage is null ? Task.CompletedTask : Storage.DisposeAsync().AsTask(),
                 // Must finish before the session closes: the staged archive is held
                 // by the library and its cleanup goes through the library handle.

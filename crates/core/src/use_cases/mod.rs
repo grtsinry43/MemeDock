@@ -6,6 +6,7 @@ mod clipboard;
 mod collection_management;
 mod creator;
 mod export;
+pub mod export_collection;
 pub(crate) mod import;
 pub(crate) mod maintenance;
 pub(crate) mod purge;
