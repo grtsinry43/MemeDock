@@ -7,6 +7,7 @@ struct LibrarySidebar: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: LibraryModel
+    let sync: SyncCoordinator
     @ObservedObject private var browser: StickerBrowser
     @ObservedObject private var collections: CollectionCatalog
     @ObservedObject private var tags: TagCatalog
@@ -56,9 +57,12 @@ struct LibrarySidebar: View {
 
     @State private var naming: Naming?
     @State private var draft = ""
+    @AppStorage("sidebar.collectionsExpanded") private var collectionsExpanded = true
+    @AppStorage("sidebar.tagsExpanded") private var tagsExpanded = true
 
-    init(model: LibraryModel) {
+    init(model: LibraryModel, sync: SyncCoordinator) {
         self.model = model
+        self.sync = sync
         _browser = ObservedObject(wrappedValue: model.browser)
         _collections = ObservedObject(wrappedValue: model.collections)
         _tags = ObservedObject(wrappedValue: model.tags)
@@ -66,31 +70,39 @@ struct LibrarySidebar: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("MemeDock")
-                    .font(MemeDockTypography.sectionTitle)
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 16)
-                    .contentShape(Rectangle())
-                    .onTapGesture { eggs.tap() }
-                Group {
-                    sectionRow(.all, .all, "square.grid.2x2")
-                    sectionRow(.starred, .starred, "star")
-                    sectionRow(.recentlyUsed, .recentlyUsed, "clock")
-                }
-                collectionsSection
-                tagsSection
-                sectionRow(.deleted, .trash, "trash")
-                    .contextMenu {
-                        Button(L10n.text(.emptyTrash), role: .destructive) { Task { await model.requestEmptyTrash() } }
-                            .disabled(model.purging)
-                        Button(L10n.text(.retryPurgeCleanup)) { Task { await model.retryPurgeCleanup() } }
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    MemeDockBrandSwitcher(
+                        isCreator: Binding(
+                            get: { model.creator.modeIsCreator },
+                            set: { model.creator.modeIsCreator = $0 }
+                        )
+                    )
+                    .padding(.bottom, 12)
+                    Group {
+                        sectionRow(.all, .all, "square.grid.2x2")
+                        sectionRow(.starred, .starred, "star")
+                        sectionRow(.recentlyUsed, .recentlyUsed, "clock")
                     }
+                    collectionsSection
+                    tagsSection
+                    sectionRow(.deleted, .trash, "trash")
+                        .contextMenu {
+                            Button(L10n.text(.emptyTrash), role: .destructive) { Task { await model.requestEmptyTrash() } }
+                                .disabled(model.purging)
+                            Button(L10n.text(.retryPurgeCleanup)) { Task { await model.retryPurgeCleanup() } }
+                        }
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 35)
+                .padding(.bottom, 16)
+                .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.88), value: collectionsExpanded)
+                .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.88), value: tagsExpanded)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 35)
-            .padding(.bottom, 16)
+            SyncStatusBadge(sync: sync)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
         }
         // The window has no title bar, so the sidebar owns the space beside the
         // traffic lights. Its content ignores the top safe area and pays for it
@@ -114,7 +126,11 @@ struct LibrarySidebar: View {
     }
 
     private var collectionsSection: some View {
-        sidebarSection(.collections) {
+        CollapsibleSidebarSection(
+            title: L10n.text(.collections),
+            count: collections.active.count,
+            expanded: $collectionsExpanded
+        ) {
             ForEach(collections.active, id: \.id) { collection in
                 navigationRow(collection.name, filter: .collection(collection.id), symbol: "square.stack",
                               count: Int(collections.summary(collection.id)?.count ?? 0))
@@ -143,7 +159,11 @@ struct LibrarySidebar: View {
     }
 
     private var tagsSection: some View {
-        sidebarSection(.tags) {
+        CollapsibleSidebarSection(
+            title: L10n.text(.tags),
+            count: tags.active.count,
+            expanded: $tagsExpanded
+        ) {
             ForEach(tags.active, id: \.id) { tag in
                 navigationRow(tag.name, filter: .tag(tag.id), symbol: "tag")
                     .contextMenu {
@@ -170,8 +190,12 @@ struct LibrarySidebar: View {
 
     private func navigationRow(_ title: String, filter: LibraryFilter, symbol: String, count: Int? = nil) -> some View {
         let palette = MemeDockPalette(scheme)
-        let selected = browser.filter == filter
-        return Button { model.select(filter) } label: {
+        let selected = !model.creator.modeIsCreator && browser.filter == filter
+        return Button {
+            withAnimation(reduceMotion ? nil : MemeDockMotion.panel) {
+                model.select(filter)
+            }
+        } label: {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
                     .frame(width: 18)
@@ -196,18 +220,6 @@ struct LibrarySidebar: View {
         .buttonStyle(.plain)
         .help(title)
         .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    private func sidebarSection<Content: View>(_ title: L10nKey, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(L10n.text(title))
-                .font(MemeDockTypography.sectionLabel)
-                .foregroundStyle(MemeDockPalette(scheme).secondary)
-                .padding(.horizontal, 10)
-                .padding(.top, 16)
-                .padding(.bottom, 4)
-            content()
-        }
     }
 
     /// A deleted collection or tag keeps its name so a restore can be recognised;
@@ -306,5 +318,79 @@ struct LibrarySidebar: View {
     /// rejected name or a failed move never disappears silently.
     private func run(_ body: @escaping () async throws -> Void) {
         Task { await perform(model.status, body) }
+    }
+}
+
+/// Finder-style collapsible sidebar section: hovering reveals the disclosure
+/// chevron (always visible while collapsed), and clicking smoothly folds or
+/// unfolds the rows underneath.
+private struct CollapsibleSidebarSection<Content: View>: View {
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let title: String
+    let count: Int
+    @Binding var expanded: Bool
+    @ViewBuilder let content: () -> Content
+    @State private var hoveringHeader = false
+
+    private var foldAnimation: Animation? {
+        reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.88)
+    }
+
+    var body: some View {
+        let palette = MemeDockPalette(scheme)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(foldAnimation) {
+                    expanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(MemeDockTypography.sectionLabel)
+                        .foregroundStyle(hoveringHeader ? palette.text : palette.secondary)
+                    if !expanded && count > 0 {
+                        Text("\(count)")
+                            .font(MemeDockTypography.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(palette.secondary.opacity(0.75))
+                            .transition(.opacity)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(palette.secondary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .opacity(hoveringHeader || !expanded ? 1 : 0)
+                        .animation(foldAnimation, value: expanded)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    hoveringHeader ? palette.input.opacity(0.6) : .clear,
+                    in: RoundedRectangle(cornerRadius: MemeDockGeometry.badge + 2)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hoveringHeader = $0 }
+            .padding(.top, 12)
+            .padding(.bottom, expanded ? 4 : 0)
+            .animation(reduceMotion ? nil : MemeDockMotion.feedback, value: hoveringHeader)
+            .accessibilityLabel(title)
+            .accessibilityValue(L10n.text(expanded ? .expanded : .collapsed))
+
+            VStack(alignment: .leading, spacing: 4) {
+                content()
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .offset(y: expanded ? 0 : -8)
+            .opacity(expanded ? 1 : 0)
+            .frame(height: expanded ? nil : 0, alignment: .top)
+            .clipped()
+            .allowsHitTesting(expanded)
+            .accessibilityHidden(!expanded)
+        }
+        .animation(foldAnimation, value: expanded)
     }
 }

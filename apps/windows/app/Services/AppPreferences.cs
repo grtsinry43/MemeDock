@@ -15,6 +15,8 @@ public sealed class AppPreferences : IOutputDefaults
     private const string DragKey = "Drag";
     private const string StillKey = "Still";
     private const string AnimatedKey = "Animated";
+    private const string GifLimitEnabledKey = "GifSizeLimitEnabled";
+    private const string GifLimitMiBKey = "GifSizeLimitMiB";
 
     // Enum names instead of ordinals: a hand-edited file stays readable and a value
     // added to any of these enums cannot silently change what an existing file means.
@@ -27,8 +29,13 @@ public sealed class AppPreferences : IOutputDefaults
     public DesktopPreferences Desktop { get; private set; } = new();
     public OutputDefaults CopyOutput { get; private set; } = OutputDefaults.CopyDefault;
     public OutputDefaults DragOutput { get; private set; } = OutputDefaults.DragDefault;
+    public bool GifSizeLimitEnabled { get; private set; } = true;
+    public int GifSizeLimitMiB { get; private set; } = GifSizeLimitPolicy.DefaultMiB;
+    public ulong? EffectiveGifMaxBytes => GifSizeLimitPolicy.MaxBytes(GifSizeLimitEnabled, GifSizeLimitMiB);
     OutputDefaults IOutputDefaults.Copy => CopyOutput;
     OutputDefaults IOutputDefaults.Drag => DragOutput;
+    ulong? IOutputDefaults.GifMaxBytes => EffectiveGifMaxBytes;
+    int IOutputDefaults.DefaultGifLimitMiB => GifSizeLimitMiB;
 
     public AppPreferences(string root) => _path = Path.Combine(root, "preferences.json");
 
@@ -83,6 +90,9 @@ public sealed class AppPreferences : IOutputDefaults
         return SaveAsync(null, null, (action, animated, preset));
     }
 
+    public Task SaveGifSizeLimitAsync(bool enabled, int mib)
+        => SaveAsync(null, null, null, null, (enabled, GifSizeLimitPolicy.Clamp(mib)));
+
     /// <summary>
     /// Applies one change at a time so concurrent saves of different fields compose
     /// instead of overwriting each other with a stale snapshot.
@@ -90,7 +100,8 @@ public sealed class AppPreferences : IOutputDefaults
     public Task SaveDesktopAsync(DesktopPreferences desktop) => SaveAsync(null, null, null, desktop.Sanitized());
 
     private async Task SaveAsync(LanguageMode? language, AppearanceMode? appearance,
-        (OutputAction Action, bool Animated, ExportPreset Preset)? output, DesktopPreferences? desktop = null)
+        (OutputAction Action, bool Animated, ExportPreset Preset)? output, DesktopPreferences? desktop = null,
+        (bool Enabled, int MiB)? gifLimit = null)
     {
         await _writes.WaitAsync();
         var temporary = _path + ".tmp";
@@ -100,6 +111,8 @@ public sealed class AppPreferences : IOutputDefaults
             var nextAppearance = appearance ?? Appearance;
             var nextCopy = CopyOutput;
             var nextDrag = DragOutput;
+            var nextGifEnabled = gifLimit?.Enabled ?? GifSizeLimitEnabled;
+            var nextGifMiB = gifLimit is { } nextLimit ? GifSizeLimitPolicy.Clamp(nextLimit.MiB) : GifSizeLimitMiB;
             if (output is { } preset)
             {
                 if (preset.Action == OutputAction.Copy)
@@ -112,7 +125,7 @@ public sealed class AppPreferences : IOutputDefaults
 
             var saved = new SavedPreferences(nextLanguage, nextAppearance,
                 new SavedOutput(new SavedDefaults(nextCopy.Still, nextCopy.Animated),
-                    new SavedDefaults(nextDrag.Still, nextDrag.Animated)), desktop ?? Desktop);
+                    new SavedDefaults(nextDrag.Still, nextDrag.Animated), nextGifEnabled, nextGifMiB), desktop ?? Desktop);
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             await using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None,
                 4096, FileOptions.Asynchronous | FileOptions.WriteThrough))
@@ -128,6 +141,8 @@ public sealed class AppPreferences : IOutputDefaults
             Appearance = nextAppearance;
             CopyOutput = nextCopy;
             DragOutput = nextDrag;
+            GifSizeLimitEnabled = nextGifEnabled;
+            GifSizeLimitMiB = nextGifMiB;
             Desktop = saved.Desktop;
         }
         finally
@@ -163,10 +178,18 @@ public sealed class AppPreferences : IOutputDefaults
             }
             CopyOutput = OutputDefaults.CopyDefault;
             DragOutput = OutputDefaults.DragDefault;
+            GifSizeLimitEnabled = true;
+            GifSizeLimitMiB = GifSizeLimitPolicy.DefaultMiB;
             if (root.TryGetProperty(OutputKey, out var output) && output.ValueKind == JsonValueKind.Object)
             {
                 CopyOutput = ReadDefaults(output, CopyKey, OutputDefaults.CopyDefault);
                 DragOutput = ReadDefaults(output, DragKey, OutputDefaults.DragDefault);
+                if (output.TryGetProperty(GifLimitEnabledKey, out var enabledElement)
+                    && enabledElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                    GifSizeLimitEnabled = enabledElement.GetBoolean();
+                if (output.TryGetProperty(GifLimitMiBKey, out var mibElement)
+                    && mibElement.ValueKind == JsonValueKind.Number && mibElement.TryGetInt32(out var mib))
+                    GifSizeLimitMiB = GifSizeLimitPolicy.Clamp(mib);
             }
         }
     }
@@ -198,7 +221,8 @@ public sealed class AppPreferences : IOutputDefaults
     private sealed record SavedPreferences(LanguageMode Language, AppearanceMode Appearance, SavedOutput Output,
         DesktopPreferences Desktop);
 
-    private sealed record SavedOutput(SavedDefaults Copy, SavedDefaults Drag);
+    private sealed record SavedOutput(SavedDefaults Copy, SavedDefaults Drag,
+        bool GifSizeLimitEnabled = true, int GifSizeLimitMiB = GifSizeLimitPolicy.DefaultMiB);
 
     private sealed record SavedDefaults(ExportPreset Still, ExportPreset Animated);
 }

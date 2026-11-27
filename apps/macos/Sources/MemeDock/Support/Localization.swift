@@ -8,6 +8,18 @@ enum Language {
 /// Interface strings live in Swift tables instead of localized bundles: the
 /// language follows an in-app choice, and switching must not reload the app.
 enum L10nKey: String {
+    case creatorFramePreview
+    case creatorInputResolution, creatorInputSize
+    case creatorTitle, creatorChooseHint, creatorChoose, creatorEmptyHint, creatorSDRHint, creatorSDROnly
+    case creatorAdded, creatorResourceLimit, creatorInvalidVideo, creatorUnsupported, creatorInvalidSelection
+    case creatorCrop, creatorResizeCrop, creatorPlayhead, creatorStart, creatorEnd, creatorOutput, creatorCustom, creatorFullFrame
+    case creatorCropX, creatorCropY, creatorCropWidth, creatorCropHeight, creatorLongestEdge, creatorFrameRate, creatorQuality
+    case creatorWebPHint, creatorGenerate, creatorReading, creatorPreparingPreviews, creatorValidating, creatorGenerating
+    case creatorPreviewFormat, creatorCalculatingGIF, creatorGIFActual, creatorGIFLimit, creatorNoTarget, creatorStale
+    case creatorAddToDock, creatorResultHint, creatorCalculating, creatorWorkspace, creatorEdit, creatorResult, creatorCropHint, creatorSwitchMode
+    case creatorDropHint, creatorResetCrop, creatorSetStart, creatorSetEnd, creatorRegenerate, creatorFreeCrop
+    case outputGifLimit, outputGifLimitHint, outputGifLimitUnlimited, outputGifLimitOverride, outputGifLimitReset
+    case modeDockSubtitle, modeCreatorSubtitle
     case quickPicker, quickPickerHint, quickPickerShortcut, configureQuickShortcut
     case quickPickerPreparing
     case chooseSticker, searchStickers, pickerAll, copyOnly, pasteImage, copyingImage, pastingImage, savingImage
@@ -87,6 +99,44 @@ enum L10nKey: String {
 
 enum L10n {
     private static let english: [L10nKey: String] = [
+        .creatorInputResolution: "This video's resolution exceeds the decoder memory budget. Choose a lower-resolution version.",
+        .creatorInputSize: "Choose a local video no larger than 2 GiB.",
+        .creatorFramePreview: "Frame preview · Drag the playhead to inspect this video",
+        .creatorTitle: "Make a sticker from a video", .creatorChoose: "Choose Video…",
+        .creatorChooseHint: "Choose a local video. Creator keeps a temporary copy while you edit.",
+        .creatorEmptyHint: "Choose a clip, crop the picture, and create an animated WebP for your Dock. Preview its GIF version before sharing.",
+        .creatorSDRHint: "MP4 / MOV (H.264, HEVC), WebM. SDR video, up to 30 seconds per sticker.",
+        .creatorSDROnly: "HDR and wide-gamut video need color mapping. Choose a standard-gamut SDR version.",
+        .creatorAdded: "WebP added to Dock", .creatorResourceLimit: "The processing or output limit was reached. Try a shorter clip, smaller dimensions or a lower frame rate; for GIF, raise the size limit.",
+        .creatorInvalidVideo: "The video could not be decoded completely. Try another file or selection.",
+        .creatorUnsupported: "This video's codec, timing or display transform is not supported.",
+        .creatorInvalidSelection: "Choose a valid crop and a clip of up to 30 seconds.",
+        .creatorCrop: "Crop", .creatorResizeCrop: "Resize Crop", .creatorPlayhead: "Video Position",
+        .creatorStart: "Start", .creatorEnd: "End", .creatorOutput: "Create WebP", .creatorCustom: "Custom",
+        .creatorFullFrame: "Full Frame", .creatorCropX: "Left", .creatorCropY: "Top", .creatorCropWidth: "Width", .creatorCropHeight: "Height",
+        .creatorLongestEdge: "Longest Edge", .creatorFrameRate: "Frame Rate", .creatorQuality: "WebP Quality",
+        .creatorWebPHint: "Smaller sources stay at their original size. Output is always animated WebP.",
+        .creatorGenerate: "Generate", .creatorReading: "Reading video…", .creatorPreparingPreviews: "Preparing timeline…",
+        .creatorValidating: "Verifying result…", .creatorGenerating: "Creating WebP…",
+        .creatorPreviewFormat: "Preview and Save Format", .creatorCalculatingGIF: "Generating GIF…",
+        .creatorGIFActual: "GIF: %d × %d · %.1f FPS", .creatorGIFLimit: "GIF Size Limit", .creatorNoTarget: "Best Compatibility",
+        .creatorStale: "The edit has changed. Generate a new result to save or share it.",
+        .creatorAddToDock: "Add to Dock", .creatorResultHint: "Stickers are always saved as animated WebP. Sending from Dock with Best Compatibility converts to GIF under your global size limit.",
+        .creatorCalculating: "Calculating…", .creatorWorkspace: "Creator Workspace", .creatorEdit: "Edit", .creatorResult: "Result",
+        .creatorCropHint: "Drag to move, drag any edge or corner to resize, double-click to reset. Space to play/pause.", .creatorSwitchMode: "Switch MemeDock / Meme Creator",
+        .creatorDropHint: "Drop a video here or choose from Finder",
+        .creatorResetCrop: "Reset",
+        .creatorSetStart: "Set start to playhead ([)",
+        .creatorSetEnd: "Set end to playhead (])",
+        .creatorRegenerate: "Regenerate",
+        .creatorFreeCrop: "Free",
+        .outputGifLimit: "Animated GIF size limit",
+        .outputGifLimitHint: "Applies when sending animated stickers with Best Compatibility. Larger outputs step down resolution or frame rate automatically. Originals are unaffected.",
+        .outputGifLimitUnlimited: "Unlimited",
+        .outputGifLimitOverride: "GIF size limit",
+        .outputGifLimitReset: "Default",
+        .modeDockSubtitle: "Browse, organize, and send stickers",
+        .modeCreatorSubtitle: "Trim and crop videos into stickers",
         .quickPicker: "Sticker Panel", .quickPickerHint: "↩ Paste",
         .quickPickerPreparing: "Preparing file…",
         .quickPickerShortcut: "Open Sticker Panel", .configureQuickShortcut: "Set Shortcut…",
@@ -290,6 +340,44 @@ enum L10n {
     ]
 
     private static let chinese: [L10nKey: String] = [
+        .creatorInputResolution: "此视频分辨率超出解码内存预算，请选择较低分辨率的版本。",
+        .creatorInputSize: "请选择不超过 2 GiB 的本地视频。",
+        .creatorFramePreview: "逐帧预览 · 拖动播放位置查看此视频",
+        .creatorTitle: "从视频制作表情", .creatorChoose: "选择视频…",
+        .creatorChooseHint: "选择本地视频。编辑期间，Creator 会保留一份临时副本。",
+        .creatorEmptyHint: "选取片段、裁剪画面，生成动态 WebP 加入 Dock。发送前还能预览 GIF 效果和实际大小。",
+        .creatorSDRHint: "支持 MP4 / MOV（H.264、HEVC）和 WebM。仅支持 SDR，每段最长 30 秒。",
+        .creatorSDROnly: "暂不支持 HDR 或广色域视频的色彩映射，请选择标准色域的 SDR 版本。",
+        .creatorAdded: "已将 WebP 加入 Dock", .creatorResourceLimit: "已达到处理或文件大小限制。请缩短片段、降低尺寸或帧率；GIF 也可提高大小上限。",
+        .creatorInvalidVideo: "无法完整解码此视频，请更换文件或调整选取范围。",
+        .creatorUnsupported: "暂不支持此视频的编码、时间信息或画面变换。",
+        .creatorInvalidSelection: "请选择有效裁剪区域和不超过 30 秒的片段。",
+        .creatorCrop: "画面裁剪", .creatorResizeCrop: "调整裁剪大小", .creatorPlayhead: "播放位置",
+        .creatorStart: "起点", .creatorEnd: "终点", .creatorOutput: "制作 WebP", .creatorCustom: "自定义",
+        .creatorFullFrame: "完整画面", .creatorCropX: "左侧", .creatorCropY: "顶部", .creatorCropWidth: "宽度", .creatorCropHeight: "高度",
+        .creatorLongestEdge: "最长边", .creatorFrameRate: "帧率", .creatorQuality: "WebP 质量",
+        .creatorWebPHint: "不放大原视频，输出始终为动态 WebP。",
+        .creatorGenerate: "生成动图", .creatorReading: "正在读取视频…", .creatorPreparingPreviews: "正在准备时间轴…",
+        .creatorValidating: "正在验证结果…", .creatorGenerating: "正在生成 WebP…",
+        .creatorPreviewFormat: "预览及保存格式", .creatorCalculatingGIF: "正在生成 GIF…",
+        .creatorGIFActual: "GIF：%d × %d · %.1f FPS", .creatorGIFLimit: "GIF 大小上限", .creatorNoTarget: "最佳兼容",
+        .creatorStale: "编辑参数已变化，请重新生成后保存或分享。",
+        .creatorAddToDock: "加入 Dock", .creatorResultHint: "入库始终保存为动态 WebP 原图。在 Dock 以「最佳兼容」发送时会自动按全局上限转为 GIF。",
+        .creatorCalculating: "正在计算…", .creatorWorkspace: "制作工作区", .creatorEdit: "编辑", .creatorResult: "结果",
+        .creatorCropHint: "拖动选框移动，拖动任意边角调整大小，双击重置。按空格键播放/暂停。", .creatorSwitchMode: "切换 MemeDock / Meme Creator",
+        .creatorDropHint: "拖入视频文件，或从访达选择",
+        .creatorResetCrop: "重置",
+        .creatorSetStart: "设为起点 ([)",
+        .creatorSetEnd: "设为终点 (])",
+        .creatorRegenerate: "重新生成",
+        .creatorFreeCrop: "自由",
+        .outputGifLimit: "动图（GIF）大小上限",
+        .outputGifLimitHint: "仅在以「最佳兼容」发送动图（转 GIF）时生效；超出上限会自动降低分辨率或帧率。原图导出不受影响。",
+        .outputGifLimitUnlimited: "不限制",
+        .outputGifLimitOverride: "GIF 大小上限",
+        .outputGifLimitReset: "恢复默认",
+        .modeDockSubtitle: "浏览、整理与快速发送表情",
+        .modeCreatorSubtitle: "从本地视频剪辑并制作动图",
         .quickPicker: "表情面板", .quickPickerHint: "↩ 粘贴",
         .quickPickerPreparing: "正在准备文件…",
         .quickPickerShortcut: "打开表情面板", .configureQuickShortcut: "设置快捷键…",

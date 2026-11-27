@@ -2,6 +2,27 @@
 use crate::{asset::ImageFormat, error::DomainError};
 use serde::{Deserialize, Serialize};
 
+/// Optional byte target for an adaptive GIF, separate from legacy presets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GifSizeLimit(u64);
+impl GifSizeLimit {
+    pub fn new(bytes: u64) -> Result<Self, DomainError> {
+        if !(64 * 1024..=32 * 1024 * 1024).contains(&bytes) {
+            return Err(DomainError::InvalidValue("GIF size limit"));
+        }
+        Ok(Self(bytes))
+    }
+    pub fn bytes(self) -> u64 {
+        self.0
+    }
+    pub fn recipe(self) -> String {
+        format!(
+            "gif-sized-v1:bytes={}:edges=512,384,256,192,128:fps=30,24,20,15,10:quantizer=neuquant:speed=10:alpha=128:timing=cumulative:repeat=source",
+            self.0
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportPreset {
@@ -29,6 +50,7 @@ pub struct ExportOptions {
     background_rgba: Option<u32>,
     strip_metadata: bool,
     animation: AnimationPolicy,
+    max_bytes: Option<u64>,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -39,6 +61,8 @@ struct OptionsWire {
     background_rgba: Option<u32>,
     strip_metadata: bool,
     animation: AnimationPolicy,
+    #[serde(default)]
+    max_bytes: Option<u64>,
 }
 
 impl ExportOptions {
@@ -63,6 +87,7 @@ impl ExportOptions {
             } else {
                 animation
             },
+            max_bytes: None,
         }
     }
 
@@ -121,7 +146,23 @@ impl ExportOptions {
             background_rgba,
             strip_metadata,
             animation,
+            max_bytes: None,
         })
+    }
+
+    pub fn with_max_bytes(mut self, max_bytes: Option<u64>) -> Result<Self, DomainError> {
+        if let Some(bytes) = max_bytes {
+            if !matches!(
+                self.preset,
+                ExportPreset::BestCompatibility | ExportPreset::CompatibleGif
+            ) || self.animation != AnimationPolicy::Preserve
+            {
+                return Err(DomainError::InvalidValue("GIF size limit"));
+            }
+            GifSizeLimit::new(bytes)?;
+        }
+        self.max_bytes = max_bytes;
+        Ok(self)
     }
 
     pub fn validate_source(self, animated: bool) -> Result<(), DomainError> {
@@ -152,14 +193,15 @@ impl ExportOptions {
         if self.preset != ExportPreset::BestCompatibility {
             return Ok(self);
         }
-        Ok(Self::for_preset(
-            if animated && self.animation == AnimationPolicy::Preserve {
-                ExportPreset::CompatibleGif
-            } else {
-                ExportPreset::CompatiblePng
-            },
-            self.animation,
-        ))
+        if animated && self.animation == AnimationPolicy::Preserve {
+            Self::for_preset(ExportPreset::CompatibleGif, self.animation)
+                .with_max_bytes(self.max_bytes)
+        } else {
+            Ok(Self::for_preset(
+                ExportPreset::CompatiblePng,
+                self.animation,
+            ))
+        }
     }
     pub const fn preset(self) -> ExportPreset {
         self.preset
@@ -172,6 +214,9 @@ impl ExportOptions {
     }
     pub const fn animation(self) -> AnimationPolicy {
         self.animation
+    }
+    pub const fn max_bytes(self) -> Option<u64> {
+        self.max_bytes
     }
     pub const fn output_format(self, source: ImageFormat, animated: bool) -> ImageFormat {
         match self.preset {
@@ -193,9 +238,17 @@ impl ExportOptions {
             return "original-v1".into();
         }
         if self.preset == ExportPreset::CompatibleGif {
+            if let Some(bytes) = self.max_bytes {
+                return GifSizeLimit(bytes).recipe();
+            }
             return "gif-v2:edge=512:resize=lanczos3:alpha=128:fps=max30:timing=cumulative-centiseconds:repeat=source:quantizer=neuquant:speed=10:metadata=strip".into();
         }
         if self.preset == ExportPreset::BestCompatibility {
+            if let Some(bytes) = self.max_bytes {
+                return format!(
+                    "best-compatibility-v1:static=png1024:animated=gif512-max30:gif_max_bytes={bytes}:metadata=strip"
+                );
+            }
             return "best-compatibility-v1:static=png1024:animated=gif512-max30:metadata=strip"
                 .into();
         }
@@ -230,7 +283,8 @@ impl TryFrom<OptionsWire> for ExportOptions {
             w.background_rgba,
             w.strip_metadata,
             w.animation,
-        )
+        )?
+        .with_max_bytes(w.max_bytes)
     }
 }
 impl From<ExportOptions> for OptionsWire {
@@ -241,6 +295,7 @@ impl From<ExportOptions> for OptionsWire {
             background_rgba: v.background_rgba,
             strip_metadata: v.strip_metadata,
             animation: v.animation,
+            max_bytes: v.max_bytes,
         }
     }
 }

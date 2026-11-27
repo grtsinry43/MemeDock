@@ -360,4 +360,58 @@
   <data name="picker_shortcut_record_hint" xml:space="preserve"><value>Press a shortcut with Ctrl, Alt, Shift, or Windows. Use Tab to move to Save or Cancel.</value></data>
   <data name="picker_shortcut_save" xml:space="preserve"><value>Save</value></data>
   <data name="picker_shortcut_record_failed" xml:space="preserve"><value>Could not start shortcut recording. Please try again.</value></data>
+  <data name="sync_downloading" xml:space="preserve"><value>Waiting for originals</value></data>
+  <data name="output_gif_limit" xml:space="preserve"><value>Animated GIF size limit</value></data>
+  <data name="output_gif_limit_hint" xml:space="preserve"><value>Applies when sending animated stickers with Best Compatibility. Larger outputs step down resolution or frame rate automatically. Originals are unaffected.</value></data>
+  <data name="output_gif_limit_override" xml:space="preserve"><value>GIF size limit</value></data>
+  <data name="output_gif_limit_unlimited" xml:space="preserve"><value>Unlimited</value></data>
+  <data name="output_gif_limit_reset" xml:space="preserve"><value>Default</value></data>
+  <data name="mode_dock_subtitle" xml:space="preserve"><value>Browse, organize, and send stickers</value></data>
+  <data name="mode_creator_subtitle" xml:space="preserve"><value>Trim and crop videos into stickers</value></data>
+  <data name="creator_title" xml:space="preserve"><value>Make a sticker from a video</value></data>
+  <data name="creator_choose" xml:space="preserve"><value>Choose Video…</value></data>
+  <data name="creator_choose_hint" xml:space="preserve"><value>Choose a local video. Creator keeps a temporary copy while you edit.</value></data>
+  <data name="creator_empty_hint" xml:space="preserve"><value>Choose a clip, crop the picture, and create an animated WebP for your Dock. Preview its GIF version before sharing.</value></data>
+  <data name="creator_drop_hint" xml:space="preserve"><value>Drop a video here or choose from File Explorer</value></data>
+  <data name="creator_sdr_hint" xml:space="preserve"><value>MP4 / MOV (H.264, HEVC), WebM. SDR video, up to 30 seconds per sticker.</value></data>
+  <data name="creator_sdr_only" xml:space="preserve"><value>HDR and wide-gamut video need color mapping. Choose a standard-gamut SDR version.</value></data>
+  <data name="creator_input_resolution" xml:space="preserve"><value>This video's resolution exceeds the decoder memory budget. Choose a lower-resolution version.</value></data>
+  <data name="creator_input_size" xml:space="preserve"><value>Choose a local video no larger than 2 GiB.</value></data>
+  <data name="creator_resource_limit" xml:space="preserve"><value>The processing or output limit was reached. Try a shorter clip, smaller dimensions or a lower frame rate; for GIF, raise the size limit.</value></data>
+  <data name="creator_invalid_video" xml:space="preserve"><value>The video could not be decoded completely. Try another file or selection.</value></data>
+  <data name="creator_unsupported" xml:space="preserve"><value>This video's codec, timing or display transform is not supported.</value></data>
+  <data name="creator_invalid_selection" xml:space="preserve"><value>Choose a valid crop and a clip of up to 30 seconds.</value></data>
+  <data name="creator_frame_preview" xml:space="preserve"><value>Frame preview · Drag the playhead to inspect this video</value></data>
+  <data name="creator_crop" xml:space="preserve"><value>Crop</value></data>
+  <data name="creator_resize_crop" xml:space="preserve"><value>Resize Crop</value></data>
+  <data name="creator_reset_crop" xml:space="preserve"><value>Reset</value></data>
+  <data name="creator_free_crop" xml:space="preserve"><value>Free</value></data>
+  <data name="creator_full_frame" xml:space="preserve"><value>Full Frame</value></data>
+  <data name="creator_crop_hint" xml:space="preserve"><value>Drag to move, drag any edge or corner to resize, double-click to reset. Space to play/pause.</value></data>
+  <data name="creator_playhead" xml:space="preserve"><value>Video Position</value></data>
+  <data name="creator_start" xml:space="preserve"><value>Start</value></data>
+  <data name="creator_end" xml:space="preserve"><value>End</value></data>
+  <data name="creator_set_start" xml:space="preserve"><value>Set start to playhead ([)</value></data>
+  <data name="creator_set_end" xml:space="preserve"><value>Set end to playhead (])</value></data>
+  <data name="creator_output" xml:space="preserve"><value>Create WebP</value></data>
+  <data name="creator_longest_edge" xml:space="preserve"><value>Longest Edge</value></data>
+  <data name="creator_frame_rate" xml:space="preserve"><value>Frame Rate</value></data>
+  <data name="creator_quality" xml:space="preserve"><value>WebP Quality</value></data>
+  <data name="creator_webp_hint" xml:space="preserve"><value>Smaller sources stay at their original size. Output is always animated WebP.</value></data>
+  <data name="creator_generate" xml:space="preserve"><value>Generate</value></data>
+  <data name="creator_regenerate" xml:space="preserve"><value>Regenerate</value></data>
+  <data name="creator_reading" xml:space="preserve"><value>Reading video…</value></data>
+  <data name="creator_preparing_previews" xml:space="preserve"><value>Preparing timeline…</value></data>
+  <data name="creator_validating" xml:space="preserve"><value>Verifying result…</value></data>
+  <data name="creator_generating" xml:space="preserve"><value>Creating WebP…</value></data>
+  <data name="creator_edit" xml:space="preserve"><value>Edit</value></data>
+  <data name="creator_result" xml:space="preserve"><value>Result</value></data>
+  <data name="creator_change" xml:space="preserve"><value>Change</value></data>
+  <data name="creator_stale" xml:space="preserve"><value>The edit has changed. Generate a new result to save or share it.</value></data>
+  <data name="creator_add_to_dock" xml:space="preserve"><value>Add to Dock</value></data>
+  <data name="creator_added" xml:space="preserve"><value>WebP added to Dock</value></data>
+  <data name="creator_share" xml:space="preserve"><value>Share</value></data>
+  <data name="creator_share_launched" xml:space="preserve"><value>Share opened</value></data>
+  <data name="creator_result_hint" xml:space="preserve"><value>Stickers are always saved as animated WebP. Sending from Dock with Best Compatibility converts to GIF under your global size limit.</value></data>
+  <data name="creator_switch_mode" xml:space="preserve"><value>Switch MemeDock / Meme Creator</value></data>
 </root>

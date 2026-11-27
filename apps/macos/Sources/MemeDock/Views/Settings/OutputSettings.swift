@@ -17,6 +17,36 @@ struct OutputSettings: View {
             } footer: {
                 SettingsFooter(.outputFooter)
             }
+
+            Section {
+                Toggle(isOn: $preferences.gifSizeLimitEnabled) {
+                    SettingsLabel(.outputGifLimit, detail: .outputGifLimitHint)
+                }
+                if preferences.gifSizeLimitEnabled {
+                    LabeledContent {
+                        HStack(spacing: 12) {
+                            Slider(
+                                value: Binding(
+                                    get: { Double(preferences.gifSizeLimitMiB) },
+                                    set: { preferences.gifSizeLimitMiB = Int($0.rounded()) }
+                                ),
+                                in: Double(Preferences.gifSizeLimitRange.lowerBound) ... Double(Preferences.gifSizeLimitRange.upperBound),
+                                step: 1
+                            )
+                            .frame(width: 180)
+                            .accessibilityLabel(L10n.text(.outputGifLimit))
+                            Text("\(preferences.gifSizeLimitMiB) MiB")
+                                .font(MemeDockTypography.control)
+                                .monospacedDigit()
+                                .foregroundStyle(MemeDockPalette(scheme).text)
+                                .frame(minWidth: 48, alignment: .trailing)
+                        }
+                    } label: {
+                        Text(L10n.text(.outputGifLimitOverride))
+                            .font(MemeDockTypography.body)
+                    }
+                }
+            }
         }
     }
 

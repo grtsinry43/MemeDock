@@ -67,11 +67,48 @@
                         <DropDownButton x:Name="FormatButton" Grid.Column="1">
                             <DropDownButton.Flyout><MenuFlyout Placement="BottomEdgeAlignedRight">
                                 <MenuFlyoutItem x:Name="CopyOriginal" Click="OnCopyOriginal" />
+                                <MenuFlyoutItem x:Name="CopyGif" Click="OnCopyGif" />
                                 <MenuFlyoutItem x:Name="CopyPng" Click="OnCopy" />
                                 <MenuFlyoutItem x:Name="CopyFrame" Click="OnCopyFrame" />
                             </MenuFlyout></DropDownButton.Flyout>
                         </DropDownButton>
                     </Grid>
+
+                    <!-- Per-session GIF size limit override for animated stickers -->
+                    <Border x:Name="GifLimitPanel" Visibility="Collapsed" Padding="10,8"
+                            CornerRadius="{ThemeResource ControlCornerRadius}"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                        <StackPanel Spacing="6">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="GifLimitTitle" Style="{StaticResource SecondaryCaptionTextBlockStyle}"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="GifLimitResetButton" Grid.Column="1" Padding="6,2" MinHeight="0"
+                                        Style="{StaticResource SubtleButtonStyle}" FontSize="11"
+                                        Visibility="Collapsed" Click="OnGifLimitReset" />
+                                <TextBlock x:Name="GifLimitValueLabel" Grid.Column="2" Style="{StaticResource CaptionTextBlockStyle}"
+                                           FontWeight="SemiBold" VerticalAlignment="Center"
+                                           Typography.NumeralAlignment="Tabular" />
+                            </Grid>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Slider x:Name="GifLimitSlider" Minimum="1" Maximum="10" StepFrequency="1"
+                                        IsThumbToolTipEnabled="False" VerticalAlignment="Center"
+                                        ValueChanged="OnGifLimitSliderChanged" />
+                                <ToggleButton x:Name="GifLimitUnlimitedToggle" Grid.Column="1" Padding="8,4" MinHeight="28"
+                                              FontSize="12" VerticalAlignment="Center"
+                                              Click="OnGifLimitUnlimitedClick" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
 
                     <TextBlock x:Name="OrganizeLabel" Style="{StaticResource PaneSectionTextBlockStyle}" />
                     <ComboBox x:Name="CollectionPicker" HorizontalAlignment="Stretch" DisplayMemberPath="Name" SelectionChanged="OnCollectionChosen" />

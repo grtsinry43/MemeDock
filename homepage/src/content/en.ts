@@ -1,3 +1,4 @@
+import { FALLBACK_VERSION } from '../lib/github'
 import type { SiteContent } from './zh'
 
 export const en: SiteContent = {
@@ -35,7 +36,7 @@ export const en: SiteContent = {
     secondary: 'See features',
     platforms: 'macOS · iOS · Android · Windows · Linux',
     license: 'MIT licensed',
-    version: 'v0.2.4',
+    version: FALLBACK_VERSION,
     stamp: 'Local-first',
     catalog: '',
     figure: '',
@@ -70,13 +71,17 @@ export const en: SiteContent = {
     label: 'Import',
     catalog: '',
     title: 'Pocket stickers from [[anywhere]].',
-    lede: 'Drag, paste, pick from files, share from Android, or browse Telegram sticker packs inside the app.',
+    lede: 'Drag, paste, pick from files, share from Android, browse Telegram sticker packs, or turn local video clips into animated stickers.',
     channels: [
       { title: 'Drag & drop', body: 'Drop images into the window.' },
       { title: 'Clipboard', body: 'Copy an image, paste it in.' },
       { title: 'File picker', body: 'Select a batch and import in order.' },
       { title: 'Android share', body: 'Send from any chat app to MemeDock.' },
       { title: 'Telegram packs', body: 'Browse a pack before importing.' },
+      {
+        title: 'Video creator',
+        body: 'Trim, crop, and convert video clips into animated WebP stickers (macOS & Windows).',
+      },
     ],
     telegram: {
       badge: 'TELEGRAM',
@@ -135,11 +140,17 @@ export const en: SiteContent = {
     label: 'Share',
     catalog: '',
     title: 'Untouched original, right format.',
-    lede: 'Copy, drag, or share and MemeDock prepares the format for you: original, compatible PNG, white-background PNG, or small JPEG. The original file is always kept.',
+    lede: 'Copy, drag, or summon the quick picker from the menu bar or tray. MemeDock prepares the right format on demand—Best Compatibility, Original, PNG, Small JPEG, or size-capped GIF—while keeping the original untouched.',
     notes: [
       { title: 'Original always kept', body: 'Every conversion is a derived file. The original is never rewritten.' },
-      { title: 'Animation handled', body: 'Motion is kept by default. Only “Take first frame” produces a still.' },
-      { title: 'Override anytime', body: 'The format menu in the detail pane can override the preset.' },
+      {
+        title: 'Smart GIF size cap',
+        body: 'Set a global GIF size limit and MemeDock balances resolution and frame rate for chat upload limits.',
+      },
+      {
+        title: 'Quick picker & override',
+        body: 'Summon the anchored picker from the menu bar or tray, or override any preset per sticker.',
+      },
     ],
     lab: {
       eyebrow: 'Format lab',
@@ -286,7 +297,7 @@ export const en: SiteContent = {
         id: 'macos',
         name: 'macOS',
         stack: 'SwiftUI + AppKit',
-        note: 'Native windows, menus, and drag',
+        note: 'Menu bar picker, native drag, and video creator',
       },
       { id: 'ios', name: 'iOS', stack: 'SwiftUI', note: 'Native navigation and touch' },
       {
@@ -299,7 +310,7 @@ export const en: SiteContent = {
         id: 'windows',
         name: 'Windows',
         stack: 'WinUI 3',
-        note: 'Installer, drag, and system integration',
+        note: 'System tray, native drag, and video creator',
       },
       {
         id: 'linux',
@@ -339,7 +350,7 @@ export const en: SiteContent = {
       },
       {
         q: 'Which formats are supported?',
-        a: 'PNG (including APNG), JPEG, GIF, and WebP. Telegram .tgs and .webm stickers are converted into animated WebP with transparency kept.',
+        a: 'Images: PNG (including APNG), JPEG, GIF, and WebP. Telegram .tgs and .webm stickers convert into transparent animated WebP automatically; macOS and Windows can also turn local video clips into animated WebP stickers.',
       },
       {
         q: 'Can I get deleted stickers back?',
@@ -366,7 +377,7 @@ export const en: SiteContent = {
     title: 'Get it on your device.',
     lede: 'Free and open source under MIT. Choose your platform.',
     latest: 'Latest release',
-    fallbackVersion: 'v0.2.4',
+    fallbackVersion: FALLBACK_VERSION,
     recommended: 'Recommended',
     choose: 'Choose your platform',
     allReleases: 'All releases and SHA256SUMS',

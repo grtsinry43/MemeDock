@@ -12,6 +12,9 @@ use sea_orm::{
 pub struct ArtifactRecord {
     pub id: OperationId,
     pub source_hash: ContentHash,
+    /// Optional relation to a library asset. Creator outputs have a content
+    /// identity for caching before they have any library asset metadata.
+    pub source_asset_hash: Option<ContentHash>,
     pub output_hash: ContentHash,
     pub recipe: String,
     pub format: ImageFormat,
@@ -38,12 +41,19 @@ impl TryFrom<row::Model> for ArtifactRecord {
         }
         let source_hash = v.source_hash.parse()?;
         let output_hash = v.output_hash.parse()?;
+        let source_asset_hash = v.source_asset_hash.map(|v| v.parse()).transpose()?;
+        if source_asset_hash.is_some_and(|hash| hash != source_hash) {
+            return Err(StorageError::Integrity(
+                "artifact source association mismatch",
+            ));
+        }
         if v.recipe == "original-v1" && source_hash != output_hash {
             return Err(StorageError::Integrity("original artifact hash mismatch"));
         }
         Ok(Self {
             id: v.id.parse()?,
             source_hash,
+            source_asset_hash,
             output_hash,
             recipe: v.recipe,
             format,
@@ -145,6 +155,14 @@ impl LibraryDatabase {
             .transpose()
     }
     pub async fn save_artifact(&self, record: &ArtifactRecord) -> Result<()> {
+        if record
+            .source_asset_hash
+            .is_some_and(|hash| hash != record.source_hash)
+        {
+            return Err(StorageError::InvalidInput(
+                "artifact source association mismatch",
+            ));
+        }
         if record.recipe == "original-v1" && record.source_hash != record.output_hash {
             return Err(StorageError::InvalidInput(
                 "original artifact hash mismatch",
@@ -153,6 +171,7 @@ impl LibraryDatabase {
         let model = row::ActiveModel {
             id: Set(record.id.to_string()),
             source_hash: Set(record.source_hash.to_string()),
+            source_asset_hash: Set(record.source_asset_hash.map(|hash| hash.to_string())),
             output_hash: Set(record.output_hash.to_string()),
             recipe: Set(record.recipe.clone()),
             mime: Set(record.format.mime().into()),

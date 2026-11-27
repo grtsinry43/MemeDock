@@ -21,7 +21,8 @@ struct MemeDockApp: App {
                 clipboard: delegate.clipboard,
                 navigation: delegate.navigation,
                 telegram: delegate.telegram,
-                imports: delegate.imports
+                imports: delegate.imports,
+                sync: delegate.sync
             )
             .background(LibraryWindowOpener(navigation: delegate.navigation))
         }

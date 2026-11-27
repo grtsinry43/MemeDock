@@ -2,6 +2,7 @@ import {
   ArrowRight,
   Check,
   Clipboard,
+  Film,
   FolderOpen,
   MousePointer2,
   Send,
@@ -13,7 +14,7 @@ import { Reveal } from '../components/ui/Reveal'
 import { Specimen } from '../components/ui/Specimen'
 import telegramShot from '../../../assets/screenshots/telegram-import.webp'
 
-const channelIcons = [MousePointer2, Clipboard, FolderOpen, Share2, Send]
+const channelIcons = [MousePointer2, Clipboard, FolderOpen, Share2, Send, Film]
 
 export function Collect() {
   const { t } = useI18n()

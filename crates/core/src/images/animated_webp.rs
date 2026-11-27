@@ -1,4 +1,4 @@
-//! Full-canvas lossless frames, streamed into the standard WebP RIFF container.
+//! Full-canvas frames, streamed into the standard WebP RIFF container.
 //! See https://developers.google.com/speed/webp/docs/riff_container.
 //! Retains one encoded frame so its duration can use the next frame timestamp.
 use super::telegram::MediaResult;
@@ -20,6 +20,9 @@ pub(super) struct Sink<'a> {
     frames: usize,
     max_bytes: u64,
     alpha: bool,
+    quality: Option<u8>,
+    max_frames: usize,
+    max_duration: i32,
 }
 fn u24(value: u32) -> [u8; 3] {
     let bytes = value.to_le_bytes();
@@ -44,6 +47,9 @@ impl<'a> Sink<'a> {
             frames: 0,
             max_bytes,
             alpha: false,
+            quality: None,
+            max_frames: 180,
+            max_duration: 3000,
         };
         sink.write(b"RIFF\0\0\0\0WEBP")?;
         let mut extended = vec![0x02, 0, 0, 0]; // Animation; alpha is finalized after encoding.
@@ -51,6 +57,20 @@ impl<'a> Sink<'a> {
         extended.extend_from_slice(&u24(height - 1));
         sink.chunk(b"VP8X", &extended)?;
         sink.chunk(b"ANIM", &[0; 6])?; // Transparent background; loop forever.
+        Ok(sink)
+    }
+    pub(super) fn for_video(
+        width: u32,
+        height: u32,
+        control: &'a TaskControl,
+        output: &Path,
+        max_bytes: u64,
+        quality: u8,
+    ) -> MediaResult<Self> {
+        let mut sink = Self::new(width, height, control, output, max_bytes)?;
+        sink.quality = Some(quality);
+        sink.max_frames = 900;
+        sink.max_duration = 30_000;
         Ok(sink)
     }
     pub(super) fn check(&self) -> MediaResult<()> {
@@ -99,13 +119,14 @@ impl<'a> Sink<'a> {
     }
     pub(super) fn add(&mut self, rgba: &[u8], start: i32, end: i32) -> MediaResult<()> {
         self.check()?;
-        if self.frames >= 180 {
+        if self.frames >= self.max_frames {
             return Err("frame budget exceeded".into());
         }
-        self.alpha |= rgba.chunks_exact(4).any(|pixel| pixel[3] != 255);
+        let alpha = rgba.chunks_exact(4).any(|pixel| pixel[3] != 255);
+        self.alpha |= alpha;
         if start < 0
             || end <= start
-            || end > 3000
+            || end > self.max_duration
             || self
                 .current
                 .as_ref()
@@ -119,13 +140,32 @@ impl<'a> Sink<'a> {
             return Err("invalid frame buffer".into());
         }
         let mut encoded = Vec::new();
-        WebPEncoder::new_lossless(&mut encoded).encode(
-            rgba,
-            self.width,
-            self.height,
-            image::ExtendedColorType::Rgba8,
-        )?;
-        // The image library owns the pixel codec; only its standard image chunks
+        // libwebp's animation encoder can crop even a single transparent
+        // canvas into ANMF. The lossless image encoder preserves the complete
+        // alpha canvas without depending on delta/disposal composition.
+        if let Some(quality) = self.quality.filter(|_| !alpha) {
+            let options = webp_animation::EncoderOptions {
+                kmax: 1,
+                encoding_config: Some(webp_animation::EncodingConfig::new_lossy(f32::from(
+                    quality,
+                ))),
+                ..Default::default()
+            };
+            // One native canvas at a time. Full replacement frames avoid
+            // decoder-specific differences in transparent delta composition.
+            let mut encoder =
+                webp_animation::Encoder::new_with_options((self.width, self.height), options)?;
+            encoder.add_frame(rgba, 0)?;
+            encoded.extend_from_slice(&encoder.finalize(end - start)?);
+        } else {
+            WebPEncoder::new_lossless(&mut encoded).encode(
+                rgba,
+                self.width,
+                self.height,
+                image::ExtendedColorType::Rgba8,
+            )?;
+        }
+        // Pixel encoders own their codecs; only their standard image chunks
         // are placed inside ANMF. No native pointers or animation buffers escape.
         if encoded.len() < 12 || &encoded[..4] != b"RIFF" || &encoded[8..12] != b"WEBP" {
             return Err("invalid encoded frame".into());

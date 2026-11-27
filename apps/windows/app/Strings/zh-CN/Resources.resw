@@ -360,4 +360,58 @@
   <data name="picker_shortcut_record_hint" xml:space="preserve"><value>按下包含 Ctrl、Alt、Shift 或 Windows 键的组合。按 Tab 移动到保存或取消。</value></data>
   <data name="picker_shortcut_save" xml:space="preserve"><value>保存</value></data>
   <data name="picker_shortcut_record_failed" xml:space="preserve"><value>无法开始录制快捷键，请重试。</value></data>
+  <data name="sync_downloading" xml:space="preserve"><value>等待原图入库</value></data>
+  <data name="output_gif_limit" xml:space="preserve"><value>动图（GIF）大小上限</value></data>
+  <data name="output_gif_limit_hint" xml:space="preserve"><value>仅在以「最佳兼容」发送动图（转 GIF）时生效；超出上限会自动降低分辨率或帧率。原图导出不受影响。</value></data>
+  <data name="output_gif_limit_override" xml:space="preserve"><value>GIF 大小上限</value></data>
+  <data name="output_gif_limit_unlimited" xml:space="preserve"><value>不限制</value></data>
+  <data name="output_gif_limit_reset" xml:space="preserve"><value>恢复默认</value></data>
+  <data name="mode_dock_subtitle" xml:space="preserve"><value>浏览、整理与快速发送表情</value></data>
+  <data name="mode_creator_subtitle" xml:space="preserve"><value>从本地视频剪辑并制作动图</value></data>
+  <data name="creator_title" xml:space="preserve"><value>从视频制作表情</value></data>
+  <data name="creator_choose" xml:space="preserve"><value>选择视频…</value></data>
+  <data name="creator_choose_hint" xml:space="preserve"><value>选择本地视频。编辑期间，Creator 会保留一份临时副本。</value></data>
+  <data name="creator_empty_hint" xml:space="preserve"><value>选取片段、裁剪画面，生成动态 WebP 加入 Dock。发送前还能预览 GIF 效果和实际大小。</value></data>
+  <data name="creator_drop_hint" xml:space="preserve"><value>拖入视频文件，或从文件资源管理器选择</value></data>
+  <data name="creator_sdr_hint" xml:space="preserve"><value>支持 MP4 / MOV（H.264、HEVC）和 WebM。仅支持 SDR，每段最长 30 秒。</value></data>
+  <data name="creator_sdr_only" xml:space="preserve"><value>暂不支持 HDR 或广色域视频的色彩映射，请选择标准色域的 SDR 版本。</value></data>
+  <data name="creator_input_resolution" xml:space="preserve"><value>此视频分辨率超出解码内存预算，请选择较低分辨率的版本。</value></data>
+  <data name="creator_input_size" xml:space="preserve"><value>请选择不超过 2 GiB 的本地视频。</value></data>
+  <data name="creator_resource_limit" xml:space="preserve"><value>已达到处理或文件大小限制。请缩短片段、降低尺寸或帧率；GIF 也可提高大小上限。</value></data>
+  <data name="creator_invalid_video" xml:space="preserve"><value>无法完整解码此视频，请更换文件或调整选取范围。</value></data>
+  <data name="creator_unsupported" xml:space="preserve"><value>暂不支持此视频的编码、时间信息或画面变换。</value></data>
+  <data name="creator_invalid_selection" xml:space="preserve"><value>请选择有效裁剪区域和不超过 30 秒的片段。</value></data>
+  <data name="creator_frame_preview" xml:space="preserve"><value>逐帧预览 · 拖动播放位置查看此视频</value></data>
+  <data name="creator_crop" xml:space="preserve"><value>画面裁剪</value></data>
+  <data name="creator_resize_crop" xml:space="preserve"><value>调整裁剪大小</value></data>
+  <data name="creator_reset_crop" xml:space="preserve"><value>重置</value></data>
+  <data name="creator_free_crop" xml:space="preserve"><value>自由</value></data>
+  <data name="creator_full_frame" xml:space="preserve"><value>完整画面</value></data>
+  <data name="creator_crop_hint" xml:space="preserve"><value>拖动选框移动，拖动任意边角调整大小，双击重置。按空格键播放/暂停。</value></data>
+  <data name="creator_playhead" xml:space="preserve"><value>播放位置</value></data>
+  <data name="creator_start" xml:space="preserve"><value>起点</value></data>
+  <data name="creator_end" xml:space="preserve"><value>终点</value></data>
+  <data name="creator_set_start" xml:space="preserve"><value>设为起点 ([)</value></data>
+  <data name="creator_set_end" xml:space="preserve"><value>设为终点 (])</value></data>
+  <data name="creator_output" xml:space="preserve"><value>制作 WebP</value></data>
+  <data name="creator_longest_edge" xml:space="preserve"><value>最长边</value></data>
+  <data name="creator_frame_rate" xml:space="preserve"><value>帧率</value></data>
+  <data name="creator_quality" xml:space="preserve"><value>WebP 质量</value></data>
+  <data name="creator_webp_hint" xml:space="preserve"><value>不放大原视频，输出始终为动态 WebP。</value></data>
+  <data name="creator_generate" xml:space="preserve"><value>生成动图</value></data>
+  <data name="creator_regenerate" xml:space="preserve"><value>重新生成</value></data>
+  <data name="creator_reading" xml:space="preserve"><value>正在读取视频…</value></data>
+  <data name="creator_preparing_previews" xml:space="preserve"><value>正在准备时间轴…</value></data>
+  <data name="creator_validating" xml:space="preserve"><value>正在验证结果…</value></data>
+  <data name="creator_generating" xml:space="preserve"><value>正在生成 WebP…</value></data>
+  <data name="creator_edit" xml:space="preserve"><value>编辑</value></data>
+  <data name="creator_result" xml:space="preserve"><value>结果</value></data>
+  <data name="creator_change" xml:space="preserve"><value>更换</value></data>
+  <data name="creator_stale" xml:space="preserve"><value>编辑参数已变化，请重新生成后保存或分享。</value></data>
+  <data name="creator_add_to_dock" xml:space="preserve"><value>加入 Dock</value></data>
+  <data name="creator_added" xml:space="preserve"><value>已将 WebP 加入 Dock</value></data>
+  <data name="creator_share" xml:space="preserve"><value>分享</value></data>
+  <data name="creator_share_launched" xml:space="preserve"><value>已打开系统分享</value></data>
+  <data name="creator_result_hint" xml:space="preserve"><value>入库始终保存为动态 WebP 原图。在 Dock 以「最佳兼容」发送时会自动按全局上限转为 GIF。</value></data>
+  <data name="creator_switch_mode" xml:space="preserve"><value>切换 MemeDock / Meme Creator</value></data>
 </root>

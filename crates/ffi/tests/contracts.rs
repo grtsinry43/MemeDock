@@ -17,6 +17,7 @@ fn gif_options_cross_the_bridge_and_reject_flattening() -> TestResult {
         background_rgba: None,
         strip_metadata: true,
         animation: AnimationPolicy::Preserve,
+        max_bytes: None,
     };
     let domain = memedock_domain::export::ExportOptions::try_from(options())?;
     assert_eq!(
@@ -44,6 +45,7 @@ fn best_compatibility_crosses_ffi_as_an_adaptive_policy() -> TestResult {
         background_rgba: None,
         strip_metadata: true,
         animation: AnimationPolicy::Preserve,
+        max_bytes: Some(5 * 1024 * 1024),
     };
     let domain = memedock_domain::export::ExportOptions::try_from(options)?;
     assert_eq!(
@@ -51,9 +53,14 @@ fn best_compatibility_crosses_ffi_as_an_adaptive_policy() -> TestResult {
         memedock_domain::export::ExportPreset::CompatibleGif
     );
     assert_eq!(
+        domain.resolve_source(true)?.max_bytes(),
+        Some(5 * 1024 * 1024)
+    );
+    assert_eq!(
         domain.resolve_source(false)?.preset(),
         memedock_domain::export::ExportPreset::CompatiblePng
     );
+    assert_eq!(domain.resolve_source(false)?.max_bytes(), None);
     Ok(())
 }
 

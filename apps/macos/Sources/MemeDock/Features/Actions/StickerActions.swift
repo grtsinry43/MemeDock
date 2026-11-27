@@ -13,9 +13,29 @@ final class StickerActions: ObservableObject {
     private var activeExport: ExportTask?
 
     func cancelOutput() { _ = activeExport?.cancel() }
+    /// Optional per-session GIF size limit override from the detail pane.
+    /// `nil` follows `Preferences.shared.effectiveGifMaxBytes`.
+    enum GifLimitOverride: Equatable {
+        case unlimited
+        case limitMiB(Int)
+
+        var maxBytes: UInt64? {
+            switch self {
+            case .unlimited: return nil
+            case let .limitMiB(mib): return UInt64(mib) * 1024 * 1024
+            }
+        }
+    }
+
     /// A preset picked in the detail pane for this run of the app. It replaces
     /// the copy and share defaults while set; `nil` follows the settings.
     @Published var override: ExportPreset?
+    @Published var gifLimitOverride: GifLimitOverride?
+
+    var effectiveGifMaxBytes: UInt64? {
+        if let gifLimitOverride { return gifLimitOverride.maxBytes }
+        return preferences.effectiveGifMaxBytes
+    }
 
     /// What copying an image or a file hands over right now.
     func copyPreset(for item: StickerItem) -> ExportPreset {
@@ -122,6 +142,39 @@ final class StickerActions: ObservableObject {
         }
     }
 
+    /// Creator already owns the selected WebP/GIF bytes; use the same verified
+    /// handoff and retain its lease while native consumers reference the file.
+    func savePrepared(_ lease: ArtifactLeaseHandle) async throws {
+        try await run {
+            let artifact = try await self.session.requireLibrary().prepareHandoff(lease: lease).awaitResult()
+            guard let destination = try await Self.askDestination(name: artifact.fileName) else { return }
+            let source = URL(fileURLWithPath: artifact.path)
+            // Copy beside the destination first. Replacing a saved file must
+            // not delete the user's old file before the new bytes are ready.
+            try await Task.detached {
+                let manager = FileManager.default
+                let temporary = destination.deletingLastPathComponent().appendingPathComponent(".MemeDock-\(UUID().uuidString)")
+                defer { try? manager.removeItem(at: temporary) }
+                try manager.copyItem(at: source, to: temporary)
+                if manager.fileExists(atPath: destination.path) {
+                    _ = try manager.replaceItemAt(destination, withItemAt: temporary)
+                } else { try manager.moveItem(at: temporary, to: destination) }
+            }.value
+            self.status.show(.saved)
+        }
+    }
+
+    func sharePrepared(_ lease: ArtifactLeaseHandle) async throws {
+        try await run {
+            let artifact = try await self.session.requireLibrary().prepareHandoff(lease: lease).awaitResult()
+            _ = self.retain(lease)
+            guard let view = Self.anchorView() else { throw AppFailure(.errorInternal) }
+            NSSharingServicePicker(items: [URL(fileURLWithPath: artifact.path)])
+                .show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+            self.status.show(.shareLaunched)
+        }
+    }
+
     /// Prepares the file a drag hands over.
     ///
     /// The export runs to completion first: some destinations read the offered
@@ -146,14 +199,19 @@ final class StickerActions: ObservableObject {
     }
 
     func dragPreparationKey(for item: StickerItem) -> String {
-        "\(session.library.map { String(describing: ObjectIdentifier($0)) } ?? "closed"):\(item.id):\(item.sticker.lifecycle.generation):\(item.animated):\(StickerExport.storageKey(dragPreset(for: item)))"
+        let preset = dragPreset(for: item)
+        let gifBytes = item.animated && (preset == .bestCompatibility || preset == .compatibleGif)
+            ? (preferences.effectiveGifMaxBytes.map(String.init) ?? "none")
+            : "na"
+        return "\(session.library.map { String(describing: ObjectIdentifier($0)) } ?? "closed"):\(item.id):\(item.sticker.lifecycle.generation):\(item.animated):\(StickerExport.storageKey(preset)):\(gifBytes)"
     }
 
     func prepareDrag(for item: StickerItem) {
         guard let library = session.library, !item.isDeleted, item.asset != nil else { return }
         let key = dragPreparationKey(for: item)
         let resolution = StickerExport.resolve(preset: dragPreset(for: item), animated: item.animated, firstFrame: false)
-        let options = StickerExport.options(resolution.preset, animation: resolution.animation)
+        let maxBytes = item.animated ? preferences.effectiveGifMaxBytes : nil
+        let options = StickerExport.options(resolution.preset, animation: resolution.animation, maxBytes: maxBytes)
         drag.prepare(key: key) {
             let task = try library.export(id: item.id, options: options)
             return try await withTaskCancellationHandler {
@@ -193,7 +251,8 @@ final class StickerActions: ObservableObject {
         firstFrame: Bool
     ) async throws -> ArtifactLeaseHandle {
         let resolution = StickerExport.resolve(preset: preset, animated: item.animated, firstFrame: firstFrame)
-        let options = StickerExport.options(resolution.preset, animation: resolution.animation)
+        let maxBytes = item.animated && !firstFrame ? effectiveGifMaxBytes : nil
+        let options = StickerExport.options(resolution.preset, animation: resolution.animation, maxBytes: maxBytes)
         let task = try session.requireLibrary().export(id: item.id, options: options)
         activeExport = task
         preparingOutput = true

@@ -3,6 +3,7 @@ import { useReducedMotion, useScroll, useTransform } from 'motion/react'
 import * as m from 'motion/react-m'
 import { ArrowDown, Download } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
+import { useLatestRelease } from '../lib/useGithub'
 import { ButtonLink } from '../components/ui/Button'
 import { Specimen } from '../components/ui/Specimen'
 import heroShot from '../../../assets/screenshots/hero-desktop.webp'
@@ -22,6 +23,8 @@ const platformItems = [
 
 export function Hero() {
   const { t } = useI18n()
+  const release = useLatestRelease()
+  const version = release?.tag_name ?? t.hero.version
   const heroRef = useRef<HTMLElement>(null)
   const reduce = useReducedMotion()
   const { scrollYProgress } = useScroll({
@@ -37,13 +40,13 @@ export function Hero() {
         <div className="grid gap-10 md:grid-cols-12 md:items-end md:gap-8">
           <div className="md:col-span-8">
             <m.p
-              className="eyebrow flex items-center gap-2"
+              className="eyebrow flex items-center gap-2.5"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, ease: EASE }}
             >
               <span className="size-1.5 rounded-full bg-blue" aria-hidden="true" />
-              {t.hero.eyebrow}
+              <span>{t.hero.eyebrow}</span>
             </m.p>
 
             <h1 className="display hero-title mt-6">
@@ -85,7 +88,7 @@ export function Hero() {
             <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.72rem] text-muted">
               <span className="font-brand font-semibold">{t.hero.platforms}</span>
               <span className="hidden size-1 rounded-full bg-line-strong sm:block" aria-hidden="true" />
-              <span className="mono">{t.hero.version}</span>
+              <span className="mono">{version}</span>
               <span>{t.hero.license}</span>
             </div>
           </m.div>

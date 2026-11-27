@@ -9,14 +9,11 @@ public sealed partial class QuickPickerWindow : Window
     public QuickPickerWindow()
     {
         InitializeComponent();
-        ExtendsContentIntoTitleBar = true;
         SystemBackdrop = PanelAcrylicBackdrop.CreateNative();
         AppWindow.IsShownInSwitchers = false;
-        if (AppWindow.Presenter is OverlappedPresenter presenter)
-        {
-            presenter.SetBorderAndTitleBar(false, false); presenter.IsResizable = false;
-            presenter.IsMinimizable = false; presenter.IsMaximizable = false; presenter.IsAlwaysOnTop = true;
-        }
+        var presenter = OverlappedPresenter.CreateForContextMenu();
+        presenter.IsAlwaysOnTop = true;
+        AppWindow.SetPresenter(presenter);
     }
     internal StickerPickerView Surface => Picker;
 }

@@ -4,14 +4,10 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:MemeDock.Windows"
     xmlns:views="using:MemeDock.Windows.Views"
+    xmlns:creator="using:MemeDock.Windows.Views.Creator"
     Title="MemeDock">
     <Grid x:Name="Root" Loaded="OnLoaded">
         <Grid.Resources>
-            <!-- Named copies of the theme brushes picked from code; ThemeResource keeps
-                 them in step with the theme applied to this root. -->
-            <SolidColorBrush x:Key="SyncIdleBrush" Color="{ThemeResource TextFillColorSecondary}" />
-            <SolidColorBrush x:Key="SyncAttentionBrush" Color="{ThemeResource SystemFillColorCaution}" />
-            <SolidColorBrush x:Key="SyncFailureBrush" Color="{ThemeResource SystemFillColorCritical}" />
             <SolidColorBrush x:Key="InspectorOverlayBrush" Color="{ThemeResource SolidBackgroundFillColorTertiary}" />
             <Style x:Key="TileContainerStyle" TargetType="GridViewItem">
                 <Setter Property="Margin" Value="4" />
@@ -34,37 +30,35 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TitleBar x:Name="WindowTitleBar" Title="MemeDock" Height="48"
+        <TitleBar x:Name="WindowTitleBar" Height="48"
                   IsPaneToggleButtonVisible="True" PaneToggleRequested="OnPaneToggle">
             <TitleBar.Resources>
                 <HorizontalAlignment x:Key="TitleBarContentHorizontalAlignment">Stretch</HorizontalAlignment>
             </TitleBar.Resources>
-            <TitleBar.IconSource>
-                <ImageIconSource>
-                    <ImageIconSource.ImageSource>
-                        <BitmapImage UriSource="ms-appx:///Assets/MemeDock.png" />
-                    </ImageIconSource.ImageSource>
-                </ImageIconSource>
-            </TitleBar.IconSource>
+            <TitleBar.LeftHeader>
+                <views:BrandModeSwitcher x:Name="BrandSwitcher" Margin="4,0,8,0"
+                                         VerticalAlignment="Center" ModeSelected="OnModeSelected" />
+            </TitleBar.LeftHeader>
             <TitleBar.Content>
                 <AutoSuggestBox x:Name="Search" IsEnabled="False" QueryIcon="Find" MinWidth="240" MaxWidth="560"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Center"
                                 TextChanged="OnSearchChanged" Loaded="OnSearchLoaded" />
             </TitleBar.Content>
             <TitleBar.RightHeader>
-                <Button x:Name="SyncStatusButton" Visibility="Collapsed" Click="OnOpenSyncSettings"
-                        Style="{StaticResource SubtleButtonStyle}" Padding="10,6" Margin="0,0,4,0" VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon x:Name="SyncStatusIcon" FontSize="14" VerticalAlignment="Center" />
-                        <TextBlock x:Name="SyncStatusLabel" Style="{StaticResource CaptionTextBlockStyle}" VerticalAlignment="Center" />
-                    </StackPanel>
-                </Button>
+                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <views:SyncStatusBadge x:Name="SyncBadge" OpenSettingsRequested="OnOpenSyncSettings" />
+                    <Button x:Name="CreatorSettingsButton" Visibility="Collapsed" Click="OnOpenSyncSettings"
+                            Style="{StaticResource SubtleButtonStyle}" Padding="8,6" Margin="0,0,4,0" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE713;" FontSize="14" />
+                    </Button>
+                </StackPanel>
             </TitleBar.RightHeader>
         </TitleBar>
 
-        <NavigationView x:Name="Navigation" Grid.Row="1" PaneDisplayMode="Auto" OpenPaneLength="260"
-                        IsBackButtonVisible="Collapsed" IsPaneToggleButtonVisible="False" IsSettingsVisible="True"
-                        SelectionChanged="OnNavigationChanged" ItemInvoked="OnNavigationInvoked" Loaded="OnNavigationLoaded">
+        <Grid Grid.Row="1">
+            <NavigationView x:Name="Navigation" PaneDisplayMode="Auto" OpenPaneLength="260"
+                            IsBackButtonVisible="Collapsed" IsPaneToggleButtonVisible="False" IsSettingsVisible="True"
+                            SelectionChanged="OnNavigationChanged" ItemInvoked="OnNavigationInvoked" Loaded="OnNavigationLoaded">
             <NavigationView.MenuItems>
                 <NavigationViewItem x:Name="AllNavigation" Tag="all">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE80A;" /></NavigationViewItem.Icon>
@@ -85,9 +79,6 @@
                 </NavigationViewItem>
             </NavigationView.MenuItems>
             <NavigationView.FooterMenuItems>
-                <NavigationViewItem x:Name="TelegramNavigation" SelectsOnInvoked="False" Tapped="OnTelegram">
-                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE898;" /></NavigationViewItem.Icon>
-                </NavigationViewItem>
                 <NavigationViewItem x:Name="TrashNavigation" Tag="trash">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE74D;" /></NavigationViewItem.Icon>
                 </NavigationViewItem>
@@ -97,9 +88,9 @@
                 <SplitView x:Name="Inspector" PanePlacement="Right" OpenPaneLength="320" DisplayMode="Inline" IsPaneOpen="False"
                            PaneBackground="Transparent" SizeChanged="OnInspectorSizeChanged" PaneClosed="OnInspectorPaneClosed">
                     <SplitView.Resources>
-                        <!-- Keep the native pane entrance, without translating the whole gallery as well. -->
+                        <!-- Keep the native pane entrance and smooth close without translating the whole gallery. -->
                         <x:String x:Key="SplitViewPaneAnimationOpenPreDuration">00:00:00</x:String>
-                        <x:String x:Key="SplitViewPaneAnimationCloseDuration">00:00:00</x:String>
+                        <x:String x:Key="SplitViewPaneAnimationCloseDuration">00:00:00.15</x:String>
                     </SplitView.Resources>
                     <SplitView.Pane>
                         <Grid x:Name="InspectorPane" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0">
@@ -138,8 +129,22 @@
                                 <AppBarButton x:Name="PurgeButton" Visibility="Collapsed" Click="OnPurgeSelected">
                                     <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
                                 </AppBarButton>
-                                <AppBarButton x:Name="ImportButton" IsEnabled="False" Click="OnImport" KeyboardAcceleratorTextOverride="Ctrl+O">
+                                <AppBarButton x:Name="ImportButton" IsEnabled="False">
                                     <AppBarButton.Icon><FontIcon Glyph="&#xE710;" /></AppBarButton.Icon>
+                                    <AppBarButton.Flyout>
+                                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                            <MenuFlyoutItem x:Name="ImportFilesMenuItem" Click="OnImport" KeyboardAcceleratorTextOverride="Ctrl+O">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE838;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem x:Name="ImportTelegramMenuItem" Click="OnTelegram">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE898;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutSeparator />
+                                            <MenuFlyoutItem x:Name="CreateVideoMenuItem" Click="OnOpenCreatorMenu">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE714;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                        </MenuFlyout>
+                                    </AppBarButton.Flyout>
                                 </AppBarButton>
                                 <AppBarButton x:Name="SortButton">
                                     <AppBarButton.Icon><FontIcon Glyph="&#xE8CB;" /></AppBarButton.Icon>
@@ -251,9 +256,12 @@
                 </SplitView>
 
                 <views:SettingsView x:Name="Settings" Visibility="Collapsed" />
-
-                <views:NoticeBar x:Name="Notice" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="24,0,24,24" />
             </Grid>
-        </NavigationView>
+            </NavigationView>
+
+            <creator:CreatorView x:Name="Creator" Visibility="Collapsed" NoticeRequested="OnCreatorNotice" />
+
+            <views:NoticeBar x:Name="Notice" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="24,0,24,24" />
+        </Grid>
     </Grid>
 </Window>

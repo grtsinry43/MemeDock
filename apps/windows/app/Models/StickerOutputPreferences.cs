@@ -35,6 +35,32 @@ public sealed record OutputDefaults(ExportPreset Still, ExportPreset Animated)
 }
 
 /// <summary>
+/// Bounded byte ceiling for adaptive GIF exports (1..10 MiB, default 5 MiB).
+/// </summary>
+public static class GifSizeLimitPolicy
+{
+    public const int MinMiB = 1;
+    public const int MaxMiB = 10;
+    public const int DefaultMiB = 5;
+    public const ulong BytesPerMiB = 1024UL * 1024UL;
+
+    public static int Clamp(int mib) => Math.Clamp(mib, MinMiB, MaxMiB);
+
+    public static ulong? MaxBytes(bool enabled, int mib)
+        => enabled ? (ulong)Clamp(mib) * BytesPerMiB : null;
+}
+
+/// <summary>
+/// Optional per-session override for the adaptive GIF byte ceiling from the detail pane.
+/// </summary>
+public readonly record struct GifLimitOverride(bool IsUnlimited, int MiB)
+{
+    public static GifLimitOverride Unlimited => new(true, GifSizeLimitPolicy.DefaultMiB);
+    public static GifLimitOverride Limit(int mib) => new(false, GifSizeLimitPolicy.Clamp(mib));
+    public ulong? MaxBytes => IsUnlimited ? null : GifSizeLimitPolicy.MaxBytes(true, MiB);
+}
+
+/// <summary>
 /// The presets a single output operation should use. Implemented by the preference
 /// store and faked by tests.
 /// </summary>
@@ -42,6 +68,8 @@ public interface IOutputDefaults
 {
     OutputDefaults Copy { get; }
     OutputDefaults Drag { get; }
+    ulong? GifMaxBytes => null;
+    int DefaultGifLimitMiB => GifSizeLimitPolicy.DefaultMiB;
 }
 
 public static class StickerOutputPresets
@@ -91,17 +119,18 @@ public static class StickerOutputPresets
     /// Mirrors <c>crates/domain/src/export.rs::ExportOptions::for_preset</c>, which is
     /// the authority for these numbers. Keep both in sync when the domain changes.
     /// </summary>
-    public static ExportOptions Options(ExportPreset preset, bool animated)
+    public static ExportOptions Options(ExportPreset preset, bool animated, ulong? gifMaxBytes = null)
     {
         if (!Supports(preset, animated))
             throw new ArgumentOutOfRangeException(nameof(preset), preset, "Preset does not support this content kind.");
+        var limit = animated ? gifMaxBytes : null;
         return preset switch
         {
-            ExportPreset.Original => new(ExportPreset.Original, null, null, false, AnimationPolicy.Preserve),
-            ExportPreset.CompatiblePng => new(ExportPreset.CompatiblePng, 1024, null, true, AnimationPolicy.Preserve),
-            ExportPreset.SmallJpeg => new(ExportPreset.SmallJpeg, 512, OpaqueWhite, true, AnimationPolicy.Preserve),
-            ExportPreset.BestCompatibility => new(ExportPreset.BestCompatibility, null, null, true, AnimationPolicy.Preserve),
-            ExportPreset.CompatibleGif => new(ExportPreset.CompatibleGif, 512, null, true, AnimationPolicy.Preserve),
+            ExportPreset.Original => new(ExportPreset.Original, null, null, false, AnimationPolicy.Preserve, null),
+            ExportPreset.CompatiblePng => new(ExportPreset.CompatiblePng, 1024, null, true, AnimationPolicy.Preserve, null),
+            ExportPreset.SmallJpeg => new(ExportPreset.SmallJpeg, 512, OpaqueWhite, true, AnimationPolicy.Preserve, null),
+            ExportPreset.BestCompatibility => new(ExportPreset.BestCompatibility, null, null, true, AnimationPolicy.Preserve, limit),
+            ExportPreset.CompatibleGif => new(ExportPreset.CompatibleGif, 512, null, true, AnimationPolicy.Preserve, limit),
             _ => throw new ArgumentOutOfRangeException(nameof(preset), preset, "Unsupported output preset.")
         };
     }

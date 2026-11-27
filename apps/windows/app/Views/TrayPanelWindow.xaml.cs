@@ -21,15 +21,12 @@ public sealed partial class TrayPanelWindow : Window
     public TrayPanelWindow()
     {
         InitializeComponent();
-        ExtendsContentIntoTitleBar = true;
         Picker.ContentSizeChanged += () => ContentSizeChanged?.Invoke();
         SystemBackdrop = new MicaBackdrop();
         AppWindow.IsShownInSwitchers = false;
-        if (AppWindow.Presenter is OverlappedPresenter presenter)
-        {
-            presenter.SetBorderAndTitleBar(false, false); presenter.IsResizable = false;
-            presenter.IsMinimizable = false; presenter.IsMaximizable = false; presenter.IsAlwaysOnTop = true;
-        }
+        var presenter = OverlappedPresenter.CreateForContextMenu();
+        presenter.IsAlwaysOnTop = true;
+        AppWindow.SetPresenter(presenter);
     }
     internal bool MenuOpen => More.Flyout?.IsOpen == true || Import.Flyout?.IsOpen == true;
     internal void Configure(MainWindow main, DesktopIntegration integration) { _main = main; _integration = integration; Relocalize(); }

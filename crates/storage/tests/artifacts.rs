@@ -16,6 +16,7 @@ async fn derived_hash_recipe_and_clipboard_references_survive_restart() -> TestR
     let record = ArtifactRecord {
         id: OperationId::new(),
         source_hash: asset.hash(),
+        source_asset_hash: Some(asset.hash()),
         output_hash: derived.hash(),
         recipe: "derived-v1:test".into(),
         format: asset.format(),
@@ -71,6 +72,7 @@ async fn registry_and_verified_outputs_survive_restart_without_business_logs() -
     let record = ArtifactRecord {
         id: OperationId::new(),
         source_hash: asset.hash(),
+        source_asset_hash: Some(asset.hash()),
         output_hash: asset.hash(),
         recipe: "original-v1".into(),
         format: asset.format(),
@@ -119,6 +121,7 @@ fn failed_publication_and_old_orphan_scan_preserve_unrelated_files() -> TestResu
     let record = ArtifactRecord {
         id: OperationId::new(),
         source_hash: asset.hash(),
+        source_asset_hash: Some(asset.hash()),
         output_hash: asset.hash(),
         recipe: "original-v1".into(),
         format: asset.format(),

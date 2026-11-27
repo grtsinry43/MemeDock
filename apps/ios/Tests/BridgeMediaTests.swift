@@ -31,7 +31,7 @@ final class BridgeMediaTests: XCTestCase {
 
             let options = ExportOptions(
                 preset: .whiteBackground, maxEdge: nil, backgroundRgba: UInt32.max,
-                stripMetadata: true, animation: .preserve
+                stripMetadata: true, animation: .preserve, maxBytes: nil
             )
             let lease = try await library.export(id: id, options: options).awaitResult()
             let artifact = try await library.prepareHandoff(lease: lease).awaitResult()

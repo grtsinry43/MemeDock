@@ -1,0 +1,97 @@
+<UserControl
+    x:Class="MemeDock.Windows.Views.Creator.CreatorCropOverlay"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:md="using:MemeDock.Windows.Controls"
+    SizeChanged="OnOverlaySizeChanged">
+    <Canvas x:Name="OverlayCanvas" Background="Transparent">
+        <!-- Dimmed exterior using EvenOdd fill -->
+        <Path x:Name="DimMask" Fill="#85000000" IsHitTestVisible="False">
+            <Path.Data>
+                <GeometryGroup FillRule="EvenOdd">
+                    <RectangleGeometry x:Name="OuterRect" />
+                    <RectangleGeometry x:Name="InnerRect" />
+                </GeometryGroup>
+            </Path.Data>
+        </Path>
+
+        <!-- Rule-of-thirds grid visible while dragging -->
+        <Canvas x:Name="GridLines" IsHitTestVisible="False" Opacity="0">
+            <Line x:Name="GridV1" Stroke="#59FFFFFF" StrokeThickness="0.75" />
+            <Line x:Name="GridV2" Stroke="#59FFFFFF" StrokeThickness="0.75" />
+            <Line x:Name="GridH1" Stroke="#59FFFFFF" StrokeThickness="0.75" />
+            <Line x:Name="GridH2" Stroke="#59FFFFFF" StrokeThickness="0.75" />
+        </Canvas>
+
+        <!-- Draggable crop interior (pan, tap to play/pause, double-tap to reset) -->
+        <md:CursorGrid x:Name="MoveSurface" Background="Transparent" CursorShape="SizeAll"
+                       PointerPressed="OnMovePressed" PointerMoved="OnMoveMoved"
+                       PointerReleased="OnMoveReleased" PointerCaptureLost="OnPointerCaptureLost"
+                       DoubleTapped="OnMoveDoubleTapped">
+            <Border BorderBrush="#F2FFFFFF" BorderThickness="1.5" IsHitTestVisible="False" />
+        </md:CursorGrid>
+
+        <!-- Four edge resize handles -->
+        <md:CursorGrid x:Name="TopHandle" Tag="Top" Background="Transparent" CursorShape="SizeNorthSouth"
+                       PointerPressed="OnHandlePressed" PointerMoved="OnHandleMoved"
+                       PointerReleased="OnHandleReleased" PointerCaptureLost="OnPointerCaptureLost">
+            <Border x:Name="TopGrip" Height="3" Width="24" CornerRadius="1.5" Background="#E6FFFFFF"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+        </md:CursorGrid>
+        <md:CursorGrid x:Name="BottomHandle" Tag="Bottom" Background="Transparent" CursorShape="SizeNorthSouth"
+                       PointerPressed="OnHandlePressed" PointerMoved="OnHandleMoved"
+                       PointerReleased="OnHandleReleased" PointerCaptureLost="OnPointerCaptureLost">
+            <Border x:Name="BottomGrip" Height="3" Width="24" CornerRadius="1.5" Background="#E6FFFFFF"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+        </md:CursorGrid>
+        <md:CursorGrid x:Name="LeftHandle" Tag="Left" Background="Transparent" CursorShape="SizeWestEast"
+                       PointerPressed="OnHandlePressed" PointerMoved="OnHandleMoved"
+                       PointerReleased="OnHandleReleased" PointerCaptureLost="OnPointerCaptureLost">
+            <Border x:Name="LeftGrip" Width="3" Height="24" CornerRadius="1.5" Background="#E6FFFFFF"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+        </md:CursorGrid>
+        <md:CursorGrid x:Name="RightHandle" Tag="Right" Background="Transparent" CursorShape="SizeWestEast"
+                       PointerPressed="OnHandlePressed" PointerMoved="OnHandleMoved"
+                       PointerReleased="OnHandleReleased" PointerCaptureLost="OnPointerCaptureLost">
+            <Border x:Name="RightGrip" Width="3" Height="24" CornerRadius="1.5" Background="#E6FFFFFF"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+        </md:CursorGrid>
+
+        <!-- Four corner L-bracket resize handles -->
+        <md:CursorGrid x:Name="TopLeftHandle" Tag="TopLeft" Width="28" Height="28" Background="Transparent"
+                       CursorShape="SizeNorthwestSoutheast"
+                       PointerPressed="OnHandlePressed" PointerMoved="OnHandleMoved"
+                       PointerReleased="OnHandleReleased" PointerCaptureLost="OnPointerCaptureLost">
+            <Polyline Points="14,24 14,14 24,14" Stroke="#FFFFFFFF" StrokeThickness="3"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" IsHitTestVisible="False" />
+        </md:CursorGrid>
+        <md:CursorGrid x:Name="TopRightHandle" Tag="TopRight" Width="28" Height="28" Background="Transparent"
+                       CursorShape="SizeNortheastSouthwest"
+                       PointerPressed="OnHandlePressed" PointerMoved="OnHandleMoved"
+                       PointerReleased="OnHandleReleased" PointerCaptureLost="OnPointerCaptureLost">
+            <Polyline Points="4,14 14,14 14,24" Stroke="#FFFFFFFF" StrokeThickness="3"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" IsHitTestVisible="False" />
+        </md:CursorGrid>
+        <md:CursorGrid x:Name="BottomLeftHandle" Tag="BottomLeft" Width="28" Height="28" Background="Transparent"
+                       CursorShape="SizeNortheastSouthwest"
+                       PointerPressed="OnHandlePressed" PointerMoved="OnHandleMoved"
+                       PointerReleased="OnHandleReleased" PointerCaptureLost="OnPointerCaptureLost">
+            <Polyline Points="14,4 14,14 24,14" Stroke="#FFFFFFFF" StrokeThickness="3"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" IsHitTestVisible="False" />
+        </md:CursorGrid>
+        <md:CursorGrid x:Name="BottomRightHandle" Tag="BottomRight" Width="28" Height="28" Background="Transparent"
+                       CursorShape="SizeNorthwestSoutheast"
+                       PointerPressed="OnHandlePressed" PointerMoved="OnHandleMoved"
+                       PointerReleased="OnHandleReleased" PointerCaptureLost="OnPointerCaptureLost">
+            <Polyline Points="4,14 14,14 14,4" Stroke="#FFFFFFFF" StrokeThickness="3"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" IsHitTestVisible="False" />
+        </md:CursorGrid>
+
+        <!-- Live pixel dimension badge while dragging -->
+        <Border x:Name="SizeBadge" Background="#B8000000" CornerRadius="6" Padding="8,3"
+                IsHitTestVisible="False" Opacity="0">
+            <TextBlock x:Name="SizeBadgeText" Foreground="#FFFFFFFF" Style="{StaticResource CaptionTextBlockStyle}"
+                       Typography.NumeralAlignment="Tabular" />
+        </Border>
+    </Canvas>
+</UserControl>

@@ -1,0 +1,81 @@
+<UserControl
+    x:Class="MemeDock.Windows.Views.SyncStatusBadge"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Unloaded="OnUnloaded">
+    <Grid x:Name="BadgeRoot">
+        <Grid.Resources>
+            <!-- Named copies of the theme brushes picked from code; ThemeResource keeps
+                 them in step with the theme applied to the window root. -->
+            <SolidColorBrush x:Key="SyncIdleBrush" Color="{ThemeResource TextFillColorSecondary}" />
+            <SolidColorBrush x:Key="SyncSuccessBrush" Color="{ThemeResource SystemFillColorSuccess}" />
+            <SolidColorBrush x:Key="SyncAttentionBrush" Color="{ThemeResource SystemFillColorCaution}" />
+            <SolidColorBrush x:Key="SyncFailureBrush" Color="{ThemeResource SystemFillColorCritical}" />
+        </Grid.Resources>
+
+        <Button x:Name="StatusButton" Visibility="Collapsed"
+                Style="{StaticResource SubtleButtonStyle}" Padding="10,5" Margin="0,0,4,0" VerticalAlignment="Center">
+            <Button.Flyout>
+                <Flyout x:Name="StatusFlyout" Placement="BottomEdgeAlignedRight" Opening="OnFlyoutOpening">
+                    <Flyout.FlyoutPresenterStyle>
+                        <Style TargetType="FlyoutPresenter">
+                            <Setter Property="Padding" Value="14" />
+                            <Setter Property="CornerRadius" Value="{ThemeResource OverlayCornerRadius}" />
+                            <Setter Property="MinWidth" Value="256" />
+                            <Setter Property="MaxWidth" Value="300" />
+                        </Style>
+                    </Flyout.FlyoutPresenterStyle>
+                    <StackPanel Spacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon x:Name="FlyoutIcon" FontSize="14" VerticalAlignment="Center" />
+                            <TextBlock x:Name="FlyoutHeading" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="StatsPanel" Spacing="6">
+                            <Grid x:Name="LastSyncedRow" Visibility="Collapsed">
+                                <TextBlock x:Name="LastSyncedLabel" Style="{StaticResource SecondaryCaptionTextBlockStyle}" />
+                                <TextBlock x:Name="LastSyncedValue" Style="{StaticResource CaptionTextBlockStyle}"
+                                           HorizontalAlignment="Right" Typography.NumeralAlignment="Tabular" />
+                            </Grid>
+                            <Grid x:Name="PendingRow" Visibility="Collapsed">
+                                <TextBlock x:Name="PendingLabel" Style="{StaticResource SecondaryCaptionTextBlockStyle}" />
+                                <TextBlock x:Name="PendingValue" Style="{StaticResource CaptionTextBlockStyle}"
+                                           HorizontalAlignment="Right" Typography.NumeralAlignment="Tabular" />
+                            </Grid>
+                            <Grid x:Name="DownloadingRow" Visibility="Collapsed">
+                                <TextBlock x:Name="DownloadingLabel" Style="{StaticResource SecondaryCaptionTextBlockStyle}" />
+                                <TextBlock x:Name="DownloadingValue" Style="{StaticResource CaptionTextBlockStyle}"
+                                           HorizontalAlignment="Right" Typography.NumeralAlignment="Tabular" />
+                            </Grid>
+                            <Grid x:Name="BlockedRow" Visibility="Collapsed">
+                                <TextBlock x:Name="BlockedLabel" Style="{StaticResource SecondaryCaptionTextBlockStyle}" />
+                                <TextBlock x:Name="BlockedValue" Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{StaticResource SyncFailureBrush}"
+                                           HorizontalAlignment="Right" Typography.NumeralAlignment="Tabular" />
+                            </Grid>
+                        </StackPanel>
+
+                        <TextBlock x:Name="FlyoutHint" Style="{StaticResource SecondaryCaptionTextBlockStyle}"
+                                   Foreground="{StaticResource SyncFailureBrush}" Visibility="Collapsed" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="PrimaryActionButton" Style="{StaticResource AccentButtonStyle}"
+                                    Click="OnPrimaryAction" Visibility="Collapsed" />
+                            <Button x:Name="SettingsActionButton" Click="OnOpenSettings" />
+                        </StackPanel>
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
+
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Grid Width="16" Height="16" VerticalAlignment="Center">
+                    <FontIcon x:Name="StatusIcon" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <Ellipse x:Name="StatusDot" Width="7" Height="7" HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Visibility="Collapsed" />
+                </Grid>
+                <TextBlock x:Name="StatusLabel" Style="{StaticResource CaptionTextBlockStyle}"
+                           VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" />
+            </StackPanel>
+        </Button>
+    </Grid>
+</UserControl>

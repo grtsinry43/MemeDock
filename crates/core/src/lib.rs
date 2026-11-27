@@ -5,6 +5,7 @@ mod archive;
 mod artifacts;
 pub mod batch;
 pub mod config;
+pub mod creator;
 pub mod error;
 pub mod events;
 mod images;

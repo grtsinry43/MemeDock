@@ -7,11 +7,11 @@ use std::{
     io::{self, Write},
 };
 
-pub(super) struct BoundedWriter<'a> {
-    pub(super) file: File,
-    pub(super) remaining: u64,
-    pub(super) control: &'a TaskControl,
-    pub(super) exceeded: bool,
+pub(crate) struct BoundedWriter<'a> {
+    pub(crate) file: File,
+    pub(crate) remaining: u64,
+    pub(crate) control: &'a TaskControl,
+    pub(crate) exceeded: bool,
 }
 impl Write for BoundedWriter<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
@@ -77,7 +77,13 @@ pub(crate) fn encode(
     control: &TaskControl,
 ) -> Result<(StagedFile, bool)> {
     if options.preset() == memedock_domain::export::ExportPreset::CompatibleGif {
-        return super::gif_export::encode(original, blobs, limits, available, control);
+        let limit = options
+            .max_bytes()
+            .map(memedock_domain::export::GifSizeLimit::new)
+            .transpose()?;
+        return super::gif_export::encode_with_limit(
+            original, blobs, limits, available, limit, control,
+        );
     }
     control.stage("decoding_export");
     let decoded = super::inspect::decode_export(original, limits, control)?;

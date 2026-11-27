@@ -20,7 +20,6 @@ namespace MemeDock.Windows.Views;
 
 public sealed partial class StickerDetailView : UserControl
 {
-    private static readonly TimeSpan HeroLayoutWait = TimeSpan.FromMilliseconds(150);
     private StickerDetailViewModel? _model;
     private StickerOutputViewModel? _output;
     private LocalizationService? _strings;
@@ -30,6 +29,7 @@ public sealed partial class StickerDetailView : UserControl
     private bool _play = true;
     private bool _active = true;
     private bool _fallback;
+    private bool _previewRevealed;
     private string? _previewId;
     private string? _previewPath;
     // The sticker whose thumbnail stands in until its detail and original arrive.
@@ -44,9 +44,6 @@ public sealed partial class StickerDetailView : UserControl
     private sealed record CollectionChoice(string Name, CollectionMetadata? Collection);
 
     public StickerDetailView() => InitializeComponent();
-
-    /// <summary>The square the tile's picture flies into, and back out of.</summary>
-    public UIElement HeroTarget => PreviewFrame;
 
     public void Configure(StickerDetailViewModel model, LocalizationService strings,
         ObservableCollection<CollectionMetadata> collections, ObservableCollection<TagMetadata> tags, StickerOutputViewModel output)
@@ -71,8 +68,14 @@ public sealed partial class StickerDetailView : UserControl
         FormatButton.Content = _strings["export_choose"];
         AutomationProperties.SetName(FormatButton, _strings["export_choose"]);
         CopyOriginal.Text = _strings["export_original"];
+        CopyGif.Text = _strings["export_gif"];
         CopyPng.Text = _strings["export_png"];
         CopyFrame.Text = _strings.Format("share_first_frame_as", _strings["export_png"]);
+        GifLimitTitle.Text = _strings["output_gif_limit_override"];
+        GifLimitResetButton.Content = _strings["output_gif_limit_reset"];
+        GifLimitUnlimitedToggle.Content = _strings["output_gif_limit_unlimited"];
+        AutomationProperties.SetName(GifLimitSlider, _strings["output_gif_limit_override"]);
+        AutomationProperties.SetName(GifLimitUnlimitedToggle, _strings["output_gif_limit_unlimited"]);
         NameBox.PlaceholderText = _strings["sticker_title"];
         AutomationProperties.SetName(NameBox, _strings["sticker_title"]);
         NoteBox.Header = _strings["sticker_note"];
@@ -119,8 +122,8 @@ public sealed partial class StickerDetailView : UserControl
     }
 
     /// <summary>
-    /// Shows a tile's thumbnail in the preview square right away, so the pane has a
-    /// picture (and a landing place) before the detail has been read.
+    /// Shows a tile's thumbnail in the preview square right away with a gentle Fluent
+    /// settle, keeping the slot populated until the full-resolution original cross-fades in.
     /// </summary>
     public void ShowPlaceholder(string id, ImageSource? thumbnail)
     {
@@ -128,24 +131,10 @@ public sealed partial class StickerDetailView : UserControl
         StopPreview();
         _placeholderId = id;
         Placeholder.Source = thumbnail;
+        Motion.SetVisualOpacity(Placeholder, 1f);
+        Motion.SetVisualOpacity(Preview, 0f);
         PreviewArea.Visibility = Visibility.Visible;
-    }
-
-    /// <summary>Waits for the preview square to be laid out in the opening pane.</summary>
-    public async Task<bool> WaitForHeroTargetAsync()
-    {
-        var laidOut = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnLayout(object? sender, object args)
-        {
-            if (PreviewFrame.ActualWidth > 0 && PreviewArea.ActualHeight > 0) laidOut.TrySetResult(true);
-        }
-        PreviewFrame.LayoutUpdated += OnLayout;
-        try
-        {
-            await Task.WhenAny(laidOut.Task, Task.Delay(HeroLayoutWait));
-            return laidOut.Task.IsCompleted;
-        }
-        finally { PreviewFrame.LayoutUpdated -= OnLayout; }
+        Motion.AnimatePreviewReveal(PreviewFrame);
     }
 
     private void OnModelChanged(object? sender, PropertyChangedEventArgs args) => UpdateState();
@@ -184,8 +173,23 @@ public sealed partial class StickerDetailView : UserControl
                 CopyBusy.Visibility = MainWindow.ToVisibility(copying);
                 CopyShortcut.Visibility = MainWindow.ToVisibility(!copying);
                 DragSurface.CanDrag = _output is not null && !busy;
+                CopyGif.Visibility = MainWindow.ToVisibility(detail.Asset.Animated);
                 CopyFrame.Visibility = MainWindow.ToVisibility(detail.Asset.Animated);
                 CopyPng.Visibility = MainWindow.ToVisibility(!detail.Asset.Animated);
+                GifLimitPanel.Visibility = MainWindow.ToVisibility(detail.Asset.Animated && _output is not null);
+                if (detail.Asset.Animated && _output is not null)
+                {
+                    var currentMiB = _output.EffectiveGifLimitMiB;
+                    var isUnlimited = currentMiB is null;
+                    GifLimitResetButton.Visibility = MainWindow.ToVisibility(_output.GifLimitOverride is not null);
+                    GifLimitValueLabel.Text = isUnlimited ? _strings["output_gif_limit_unlimited"] : $"{currentMiB} MiB";
+                    GifLimitSlider.Value = currentMiB ?? _output.DefaultGifLimitMiB;
+                    GifLimitSlider.Opacity = isUnlimited ? 0.45 : 1.0;
+                    GifLimitSlider.IsEnabled = canOutput;
+                    GifLimitUnlimitedToggle.IsChecked = isUnlimited;
+                    GifLimitUnlimitedToggle.IsEnabled = canOutput;
+                    GifLimitResetButton.IsEnabled = canOutput;
+                }
                 ToolTipService.SetToolTip(CopyButton, _strings["copy_image"] + " (Ctrl+C)");
                 AutomationProperties.SetName(CopyButton, _strings["copy_image"]);
                 StarButton.IsChecked = detail.Sticker.Starred;
@@ -287,7 +291,29 @@ public sealed partial class StickerDetailView : UserControl
     private async void OnStar(object sender, RoutedEventArgs args) { if (_model is not null) await _model.ToggleStarAsync(); }
     private async void OnCopy(object sender, RoutedEventArgs args) => await CopyAsync(StickerOutputKind.Image);
     private async void OnCopyOriginal(object sender, RoutedEventArgs args) => await CopyAsync(StickerOutputKind.OriginalFile);
+    private async void OnCopyGif(object sender, RoutedEventArgs args) => await CopyAsync(StickerOutputKind.CompatibleGif);
     private async void OnCopyFrame(object sender, RoutedEventArgs args) => await CopyAsync(StickerOutputKind.FirstFrame);
+
+    private void OnGifLimitSliderChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs args)
+    {
+        if (_updating || _output is null) return;
+        var mib = GifSizeLimitPolicy.Clamp((int)Math.Round(args.NewValue));
+        _output.GifLimitOverride = GifLimitOverride.Limit(mib);
+    }
+
+    private void OnGifLimitUnlimitedClick(object sender, RoutedEventArgs args)
+    {
+        if (_updating || _output is null) return;
+        _output.GifLimitOverride = _output.EffectiveGifLimitMiB is null
+            ? GifLimitOverride.Limit(_output.DefaultGifLimitMiB)
+            : GifLimitOverride.Unlimited;
+    }
+
+    private void OnGifLimitReset(object sender, RoutedEventArgs args)
+    {
+        if (_updating || _output is null) return;
+        _output.GifLimitOverride = null;
+    }
 
     private async Task CopyAsync(StickerOutputKind kind)
     {
@@ -347,12 +373,16 @@ public sealed partial class StickerDetailView : UserControl
 
     private void StartPreview(StickerDetail detail)
     {
+        var hadPlaceholder = Placeholder.Source is not null && _placeholderId == detail.Sticker.Id;
         StopPreview(keepPlaceholder: true);
         _placeholderId = null;
         _previewId = detail.Sticker.Id;
         _previewPath = detail.OriginalPath;
         _play = true;
         _fallback = detail.OriginalPath is null;
+        _previewRevealed = false;
+        Motion.SetVisualOpacity(Preview, 0f);
+        if (!hadPlaceholder) Motion.AnimatePreviewReveal(PreviewFrame);
         _previewCancellation = new CancellationTokenSource();
         if (detail.Asset.Animated && detail.Asset.Mime == "image/webp" && detail.OriginalPath is { } path)
         {
@@ -364,7 +394,11 @@ public sealed partial class StickerDetailView : UserControl
                 _image?.Stop();
                 _image = null;
                 Preview.Source = playback.Source;
-                Placeholder.Source = null;
+                if (!_previewRevealed)
+                {
+                    _previewRevealed = true;
+                    Motion.AnimateImageHandoff(Preview, Placeholder);
+                }
                 _fallback = false;
                 PreviewRetry.Visibility = Visibility.Collapsed;
                 UpdatePlayback();
@@ -403,8 +437,12 @@ public sealed partial class StickerDetailView : UserControl
             image.ImageOpened += (_, _) =>
             {
                 if (cancellation.IsCancellationRequested || _image != image) return;
-                // The original now covers the square, so the stand-in can go.
-                Placeholder.Source = null;
+                // Smoothly cross-fade the decoded original over the thumbnail stand-in.
+                if (!_previewRevealed)
+                {
+                    _previewRevealed = true;
+                    Motion.AnimateImageHandoff(Preview, Placeholder);
+                }
                 PreviewRetry.Visibility = MainWindow.ToVisibility(_previewErrorKey is not null);
                 if (_active && _play && image.IsAnimatedBitmap) image.Play();
                 UpdatePlayback();
@@ -484,9 +522,12 @@ public sealed partial class StickerDetailView : UserControl
         _image?.Stop();
         _image = null;
         Preview.Source = null;
+        _previewRevealed = false;
+        Motion.SetVisualOpacity(Preview, 0f);
         if (!keepPlaceholder)
         {
             Placeholder.Source = null;
+            Motion.SetVisualOpacity(Placeholder, 0f);
             _placeholderId = null;
         }
         _previewId = _previewPath = null;
@@ -502,6 +543,7 @@ public sealed partial class StickerDetailView : UserControl
         if (Preview.Source is null || _previewDialog is not null || _strings is null || _model?.Detail is null) return;
         // Both views share the same source so WebP frames also update the zoomed preview.
         var image = new Image { Source = Preview.Source, Stretch = Stretch.Uniform };
+        image.Loaded += (_, _) => Motion.AnimatePreviewReveal(image, 200);
         _previewDialog = new ContentDialog
         {
             XamlRoot = XamlRoot, Title = _model.Detail.Sticker.Title, CloseButtonText = _strings["message_dismiss"],

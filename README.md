@@ -24,9 +24,11 @@ MemeDock is a cross-platform sticker manager built around a shared Rust core and
 ## Features
 
 - **Collect from Anywhere** — Bring in images through drag-and-drop, clipboard paste, file selection, or the Android share sheet. Browse and import **Telegram sticker packs** directly by name or link, with `.tgs` and `.webm` stickers converted into transparent animated WebP automatically.
+- **Video-to-Sticker Creator** — Turn local video clips into animated WebP stickers right inside MemeDock: trim segments up to 30 seconds, crop interactively, adjust resolution (`32–512 px`), frame rate (`1–30 fps`), and quality, then preview and save straight into your library. *(Currently available on macOS and Windows; Linux and mobile support planned.)*
+- **Quick Picker & Instant Paste** — Summon a lightweight sticker picker anytime from the macOS menu bar or Windows system tray with a global shortcut, search your library, and paste straight into chat apps.
 - **Thoughtful Organization** — Arrange stickers with collections, tags, and stars. Reorder items freely, batch-edit selections, search by title, note, filename, or tag, and let frequently used stickers surface naturally.
-- **Adaptable Sharing** — Original files remain untouched. When copying, dragging, or sharing, MemeDock prepares the right format on demand—**Original**, **Compatible PNG** (`1024 px`), **White Background PNG**, or **Small JPEG** (`512 px`)—while preserving animation or extracting the first frame when a still image is needed.
-- **Local & Enduring** — Everything lives on your device in a content-addressed (`SHA-256`) library with automatic deduplication and a recoverable Trash. Back up or migrate the entire library as a single archive, with content preview, non-destructive merging, and snapshot-protected replacement.
+- **Adaptable Sharing** — Original files remain untouched. When copying, dragging, or sharing, MemeDock prepares the right format on demand—**Best Compatibility**, **Original**, **Compatible PNG** (`1024 px`), **White Background PNG**, **Small JPEG** (`512 px`), or **Compatible GIF** (`512 px`)—with an optional **global GIF file size limit** that automatically balances resolution and frame rate for chat upload caps, plus first-frame extraction when a still image is needed.
+- **Local-First & Optional Self-Hosted Sync** — Everything lives on your device in a content-addressed (`SHA-256`) library with automatic deduplication and a recoverable Trash. Back up or migrate the entire library as a single archive with preview, non-destructive merging, and snapshot-protected replacement—or pair with the optional self-hosted sync server (`memedock-server`) to keep multiple devices in sync.
 - **Truly Native** — One memory-safe Rust engine (`#![forbid(unsafe_code)]`) paired with native interfaces for every platform: **SwiftUI & AppKit** on macOS, **SwiftUI** on iOS, **GTK4 & Libadwaita** on Linux, **Jetpack Compose** on Android, and **WinUI 3** on Windows. Supports instant in-app switching between English and Chinese.
 
 ## Screenshots
@@ -60,11 +62,12 @@ Prebuilt packages and `SHA256SUMS` manifests are available on [GitHub Releases](
 ## Architecture & Development
 
 ```text
-crates/domain     Validated identities, models, export rules, and contracts
-crates/storage    SQLite (SeaORM), atomic file staging, and content-addressed blobs
-crates/core       Use cases, task scheduling, media pipelines, Telegram, and backups
-crates/ffi        UniFFI bindings and event streams for Swift, Kotlin, and C#
-apps/*            Native clients for android, ios, linux, macos, and windows
+crates/domain         Validated identities, models, export & creator rules, and contracts
+crates/storage        SQLite (SeaORM), atomic file staging, and content-addressed blobs
+crates/core           Use cases, task scheduling, media/video pipelines, Telegram, sync, and backups
+crates/ffi            UniFFI bindings and event streams for Swift, Kotlin, and C#
+crates/api-contracts  Shared HTTP/sync API schemas between clients and server
+apps/*                Native clients (android, ios, linux, macos, windows) and sync server (server, server-web)
 ```
 
 ```sh
@@ -75,6 +78,7 @@ cargo test --workspace --locked
 
 # Platform builds
 cargo build --release --locked -p memedock-linux                        # Linux
+cargo build --release --locked -p memedock-server                       # Self-hosted sync server
 bash tools/macos/build.sh release                                       # macOS (.app)
 (cd apps/android && ./gradlew :app:testDebugUnitTest :app:verifyDebugBridge) # Android
 bash tools/ios/build.sh release device                                  # iOS (unsigned .app)

@@ -7,6 +7,7 @@ pub mod archive;
 pub mod asset;
 pub mod change;
 pub mod collection;
+pub mod creator;
 pub mod error;
 pub mod export;
 pub mod identity;

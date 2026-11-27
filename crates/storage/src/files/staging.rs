@@ -45,6 +45,10 @@ impl PendingStaging {
     }
 }
 impl StagedFile {
+    /// Read-only consumers must retain the staging owner for this path's lifetime.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
     pub fn hash(&self) -> ContentHash {
         self.hash
     }

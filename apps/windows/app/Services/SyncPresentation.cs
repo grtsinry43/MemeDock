@@ -153,4 +153,43 @@ public static class SyncPresentation
 
     private static bool IsUnauthorized(Exception? error)
         => error is BridgeException.Failure { code: ErrorCode.Unauthorized };
+
+    /// <summary>True when either an explicit sync request or background asset downloads are in flight.</summary>
+    public static bool IsActiveTransfer(SyncState state)
+        => state.Loaded && (state.Running || state.Status.Downloading > 0);
+
+    /// <summary>
+    /// True when a completed transfer should briefly show a settled "synced" checkmark
+    /// before relaxing back to the quiet idle indicator.
+    /// </summary>
+    public static bool ShouldCelebrateCompletion(bool wasActive, SyncState current)
+        => wasActive
+           && !IsActiveTransfer(current)
+           && current.Loaded
+           && current.Status.Connected
+           && !current.Status.Paused
+           && !NeedsAuthorization(current)
+           && !IsFailed(current)
+           && current.Status.Blocked == 0
+           && current.Status.Pending == 0;
+
+    /// <summary>Formats a compact localized timestamp for the sync status flyout.</summary>
+    public static string FormatLastSynced(long lastSuccessMs, DateTimeOffset now, bool isChinese)
+    {
+        var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(lastSuccessMs);
+        var elapsed = now - timestamp;
+        if (elapsed.TotalSeconds < 60) return isChinese ? "刚刚" : "Just now";
+        if (elapsed.TotalMinutes < 60)
+        {
+            var mins = (int)elapsed.TotalMinutes;
+            return isChinese ? $"{mins} 分钟前" : $"{mins}m ago";
+        }
+        if (elapsed.TotalHours < 24)
+        {
+            var hours = (int)elapsed.TotalHours;
+            return isChinese ? $"{hours} 小时前" : $"{hours}h ago";
+        }
+        var days = (int)elapsed.TotalDays;
+        return isChinese ? $"{days} 天前" : $"{days}d ago";
+    }
 }

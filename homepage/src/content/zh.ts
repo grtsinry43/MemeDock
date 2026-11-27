@@ -1,3 +1,5 @@
+import { FALLBACK_VERSION } from '../lib/github'
+
 export const zh = {
   meta: {
     title: 'MemeDock — 本地优先的表情包管理器',
@@ -33,7 +35,7 @@ export const zh = {
     secondary: '了解功能',
     platforms: 'macOS · iOS · Android · Windows · Linux',
     license: 'MIT 开源',
-    version: 'v0.2.4',
+    version: FALLBACK_VERSION,
     stamp: '本地优先',
     catalog: '',
     figure: '',
@@ -68,13 +70,17 @@ export const zh = {
     label: '导入',
     catalog: '',
     title: '从[[任何地方]]，将喜欢的贴纸收入囊中。',
-    lede: '拖拽、剪贴板、文件选择、Android 分享，或者直接从 Telegram 贴纸包挑选导入。',
+    lede: '拖拽、剪贴板、文件选择、Android 分享、Telegram 贴纸包，或者把本地视频片段直接做成动图表情。',
     channels: [
       { title: '拖拽', body: '把图片拖进窗口，立刻入库。' },
       { title: '剪贴板', body: '复制图片，直接粘贴。' },
       { title: '文件选择', body: '一次选中多张，按顺序导入。' },
       { title: 'Android 分享', body: '从聊天软件分享到 MemeDock。' },
       { title: 'Telegram 贴纸包', body: '按包浏览，导入前先挑选。' },
+      {
+        title: '视频转表情',
+        body: '截取片段、裁剪画面并转为动态 WebP 表情（macOS / Windows）。',
+      },
     ],
     telegram: {
       badge: 'TELEGRAM',
@@ -133,11 +139,17 @@ export const zh = {
     label: '分享',
     catalog: '',
     title: '原图不动，格式随场合。',
-    lede: '复制、拖拽或分享时自动生成对应格式：原图、兼容 PNG、白底 PNG 或小尺寸 JPEG。原始文件始终保留。',
+    lede: '复制、拖拽，或从菜单栏与托盘呼出快捷面板。按需生成最佳兼容、原图、兼容 PNG、白底 PNG、小尺寸 JPEG 或限体积 GIF，原始文件始终保留。',
     notes: [
       { title: '原图始终保留', body: '所有转换都是派生文件，原始文件不会被改写。' },
-      { title: '动图有分寸', body: '默认保留动效；只有“提取首帧”会生成静图。' },
-      { title: '随时覆盖', body: '详情栏的格式菜单可以临时改掉预设。' },
+      {
+        title: '全局 GIF 体积上限',
+        body: '设定体积上限后自动权衡分辨率与帧率，轻松适配微信等聊天软件发送限制。',
+      },
+      {
+        title: '快捷面板与临时覆盖',
+        body: '全局快捷键随时呼出贴纸选择器即时粘贴，详情栏也可按需覆盖预设。',
+      },
     ],
     lab: {
       eyebrow: '格式实验室',
@@ -284,7 +296,7 @@ export const zh = {
         id: 'macos',
         name: 'macOS',
         stack: 'SwiftUI + AppKit',
-        note: '原生窗口、菜单与拖拽',
+        note: '菜单栏快捷面板、原生拖拽与视频转表情',
       },
       { id: 'ios', name: 'iOS', stack: 'SwiftUI', note: '原生导航与触控' },
       {
@@ -297,7 +309,7 @@ export const zh = {
         id: 'windows',
         name: 'Windows',
         stack: 'WinUI 3',
-        note: '安装包、拖拽与系统集成',
+        note: '系统托盘、原生拖拽与视频转表情',
       },
       {
         id: 'linux',
@@ -337,7 +349,7 @@ export const zh = {
       },
       {
         q: '支持哪些格式？',
-        a: 'PNG（含 APNG）、JPEG、GIF 和 WebP。Telegram 的 .tgs 与 .webm 贴纸会自动转换为保留透明通道的动态 WebP。',
+        a: '图片支持 PNG（含 APNG）、JPEG、GIF 和 WebP。Telegram 的 .tgs 与 .webm 贴纸会自动转换为保留透明通道的动态 WebP；macOS 与 Windows 还支持将本地视频片段转为动态 WebP 表情。',
       },
       {
         q: '删除的表情还能找回来吗？',
@@ -364,7 +376,7 @@ export const zh = {
     title: '装到你的设备上。',
     lede: '免费开源，MIT 许可。选择你的平台。',
     latest: '最新版本',
-    fallbackVersion: 'v0.2.4',
+    fallbackVersion: FALLBACK_VERSION,
     recommended: '推荐',
     choose: '选择你的平台',
     allReleases: '所有版本与 SHA256SUMS',

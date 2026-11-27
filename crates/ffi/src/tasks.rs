@@ -118,6 +118,24 @@ task_handle!(
 );
 task_handle!(DiscardInputTask, (), (), |value| Ok(value));
 task_handle!(
+    CreatorVideoTask,
+    Arc<memedock_core::creator::CreatorVideo>,
+    Arc<crate::CreatorVideoHandle>,
+    crate::CreatorVideoHandle::new
+);
+task_handle!(
+    CreatorAnimationTask,
+    memedock_core::creator::CreatedAnimation,
+    crate::CreatedAnimation,
+    |v| Ok(v.into())
+);
+task_handle!(
+    CreatorArtifactTask,
+    Arc<memedock_core::ArtifactLease>,
+    Arc<crate::ArtifactLeaseHandle>,
+    |v| Ok(crate::ArtifactLeaseHandle::new(v))
+);
+task_handle!(
     BackupTask,
     memedock_core::BackupFile,
     Arc<crate::BackupFileHandle>,

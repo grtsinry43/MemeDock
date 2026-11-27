@@ -22,7 +22,7 @@ class NativeContractTest {
                             File(input.path()).writeBytes(bytes)
                             library.importStaged(input, ImportOptions("motion.gif", null, null)).use { it.awaitResult().sticker.id }
                         }
-                        val adaptive = ExportOptions(ExportPreset.BEST_COMPATIBILITY, null, null, true, AnimationPolicy.PRESERVE)
+                        val adaptive = ExportOptions(ExportPreset.BEST_COMPATIBILITY, null, null, true, AnimationPolicy.PRESERVE, null)
                         var adaptiveId = ""
                         library.export(id, adaptive).use { it.awaitResult() }.use { lease ->
                             val artifact = library.prepareHandoff(lease).use { it.awaitResult() }
@@ -40,7 +40,7 @@ class NativeContractTest {
                             }
                         }
                         library.export(id, adaptive).use { it.awaitResult() }.use { assertEquals(adaptiveId, it.metadata().id) }
-                        val frame = ExportOptions(ExportPreset.COMPATIBLE_PNG, 1024u, null, true, AnimationPolicy.FIRST_FRAME)
+                        val frame = ExportOptions(ExportPreset.COMPATIBLE_PNG, 1024u, null, true, AnimationPolicy.FIRST_FRAME, null)
                         library.export(id, frame).use { it.awaitResult() }.use { lease ->
                             val artifact = library.prepareHandoff(lease).use { it.awaitResult() }
                             assertEquals("image/png", artifact.mime)
@@ -110,7 +110,7 @@ class NativeContractTest {
                         val ids = mutableSetOf<String>()
                         for (preset in listOf(ExportPreset.COMPATIBLE_PNG, ExportPreset.WHITE_BACKGROUND, ExportPreset.SMALL_JPEG)) {
                             val options = ExportOptions(preset, if (preset == ExportPreset.SMALL_JPEG) 512u else 1024u,
-                                if (preset == ExportPreset.COMPATIBLE_PNG) null else UInt.MAX_VALUE, true, AnimationPolicy.PRESERVE)
+                                if (preset == ExportPreset.COMPATIBLE_PNG) null else UInt.MAX_VALUE, true, AnimationPolicy.PRESERVE, null)
                             library.export(id, options).use { it.awaitResult() }.use { lease ->
                                 val artifact = library.prepareHandoff(lease).use { it.awaitResult() }
                                 assertTrue(ids.add(artifact.id))
@@ -123,7 +123,7 @@ class NativeContractTest {
                             }
                         }
                         expectCode(ErrorCode.INVALID_INPUT) {
-                            library.export(id, ExportOptions(ExportPreset.ORIGINAL, 512u, null, false, AnimationPolicy.PRESERVE)).close()
+                            library.export(id, ExportOptions(ExportPreset.ORIGINAL, 512u, null, false, AnimationPolicy.PRESERVE, null)).close()
                         }
                     } finally { library.shutdown() }
                 }

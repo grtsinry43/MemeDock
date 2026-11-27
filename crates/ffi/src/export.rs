@@ -25,6 +25,7 @@ pub struct ExportOptions {
     pub background_rgba: Option<u32>,
     pub strip_metadata: bool,
     pub animation: AnimationPolicy,
+    pub max_bytes: Option<u64>,
 }
 impl TryFrom<ExportOptions> for memedock_domain::export::ExportOptions {
     type Error = crate::BridgeError;
@@ -46,7 +47,8 @@ impl TryFrom<ExportOptions> for memedock_domain::export::ExportOptions {
                 AnimationPolicy::Preserve => d::AnimationPolicy::Preserve,
                 AnimationPolicy::FirstFrame => d::AnimationPolicy::FirstFrame,
             },
-        )?)
+        )?
+        .with_max_bytes(v.max_bytes)?)
     }
 }
 #[uniffi::export]

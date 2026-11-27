@@ -22,10 +22,10 @@ webpki-root-certs.workspace = true
 flate2.workspace = true
 rlottie.workspace = true
 ffmpeg-next.workspace = true
+webp-animation.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-webp-animation.workspace = true
 
 [lints]
 workspace = true

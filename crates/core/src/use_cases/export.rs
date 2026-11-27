@@ -65,6 +65,15 @@ impl Library {
                         let started = std::time::Instant::now();
                         store.verify(&candidate, || check.is_cancelled())?;
                         if options.preset() == ExportPreset::CompatibleGif {
+                            if options
+                                .max_bytes()
+                                .is_some_and(|limit| candidate.byte_size > limit)
+                            {
+                                return Err(CoreError::new(
+                                    ErrorCode::CorruptData,
+                                    "GIF cache metadata mismatch",
+                                ));
+                            }
                             let animated = crate::images::gif_export::verify_cached(
                                 std::fs::File::open(store.path(&candidate))?,
                                 &limits,
@@ -93,6 +102,7 @@ impl Library {
                         {
                             control.begin_commit()?;
                             record.retained_until = record.retained_until.max(until);
+                            record.source_asset_hash = Some(asset.hash());
                             services.db.save_artifact(&record).await?;
                             return services.artifacts.lease(record);
                         }
@@ -126,6 +136,7 @@ impl Library {
                 let mut record = ArtifactRecord {
                     id: OperationId::new(),
                     source_hash: asset.hash(),
+                    source_asset_hash: Some(asset.hash()),
                     output_hash: asset.hash(),
                     recipe: options.recipe(),
                     format: options.output_format(asset.format(), asset.animated()),
